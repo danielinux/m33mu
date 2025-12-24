@@ -238,6 +238,44 @@ mm_u8 mm_gpio_get_level(const struct mm_gpio_line *line)
     return line->level;
 }
 
+static mm_gpio_bank_read_fn g_gpio_bank_reader = 0;
+static void *g_gpio_bank_reader_opaque = 0;
+static mm_gpio_bank_read_moder_fn g_gpio_bank_moder_reader = 0;
+static void *g_gpio_bank_moder_opaque = 0;
+
+void mm_gpio_bank_set_reader(mm_gpio_bank_read_fn reader, void *opaque)
+{
+    g_gpio_bank_reader = reader;
+    g_gpio_bank_reader_opaque = opaque;
+}
+
+void mm_gpio_bank_set_moder_reader(mm_gpio_bank_read_moder_fn reader, void *opaque)
+{
+    g_gpio_bank_moder_reader = reader;
+    g_gpio_bank_moder_opaque = opaque;
+}
+
+mm_u32 mm_gpio_bank_read(int bank)
+{
+    if (g_gpio_bank_reader == 0) {
+        return 0u;
+    }
+    return g_gpio_bank_reader(g_gpio_bank_reader_opaque, bank);
+}
+
+mm_u32 mm_gpio_bank_read_moder(int bank)
+{
+    if (g_gpio_bank_moder_reader == 0) {
+        return 0u;
+    }
+    return g_gpio_bank_moder_reader(g_gpio_bank_moder_opaque, bank);
+}
+
+mm_bool mm_gpio_bank_reader_present(void)
+{
+    return (g_gpio_bank_reader != 0) ? MM_TRUE : MM_FALSE;
+}
+
 void mm_dma_master_init(struct mm_dma_master *dma, mm_dma_request_fn request_fn, void *opaque)
 {
     dma->request = request_fn;

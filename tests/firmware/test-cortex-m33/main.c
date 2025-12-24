@@ -41,8 +41,9 @@ extern void __libc_init_array(void);
 #define RCC_APB1LENR      (*(volatile uint32_t *)(RCC_BASE + 0x9Cu))
 #define RCC_APB2ENR       (*(volatile uint32_t *)(RCC_BASE + 0xA0u))
 
-/* GPIOA/GPIOD */
+/* GPIOA/GPIOB/GPIOD */
 #define GPIOA_BASE        0x42020000u
+#define GPIOB_BASE        0x42020400u
 #define GPIOD_BASE        0x42020C00u
 #define GPIO_MODER(x)     (*(volatile uint32_t *)((x) + 0x00u))
 #define GPIO_OTYPER(x)    (*(volatile uint32_t *)((x) + 0x04u))
@@ -218,6 +219,43 @@ static void gpio_config_spi1_pa4_pa7(void)
     GPIO_AFRL(GPIOA_BASE) = v;
 }
 
+static void gpio_config_spi_cs_pb0(void)
+{
+    uint32_t v;
+    /* Enable GPIOB clock (AHB2ENR bit1) */
+    RCC_AHB2ENR |= (1u << 1);
+    /* PB0 as general purpose output */
+    v = GPIO_MODER(GPIOB_BASE);
+    v &= ~(3u << (0u * 2u));
+    v |= (1u << (0u * 2u));
+    GPIO_MODER(GPIOB_BASE) = v;
+    /* push-pull */
+    v = GPIO_OTYPER(GPIOB_BASE);
+    v &= ~(1u << 0);
+    GPIO_OTYPER(GPIOB_BASE) = v;
+    /* high speed */
+    v = GPIO_OSPEEDR(GPIOB_BASE);
+    v &= ~(3u << (0u * 2u));
+    v |= (2u << (0u * 2u));
+    GPIO_OSPEEDR(GPIOB_BASE) = v;
+    /* no pull */
+    v = GPIO_PUPDR(GPIOB_BASE);
+    v &= ~(3u << (0u * 2u));
+    GPIO_PUPDR(GPIOB_BASE) = v;
+    /* default CS high */
+    GPIO_BSRR(GPIOB_BASE) = (1u << 0);
+}
+
+static void spi_cs_assert(void)
+{
+    GPIO_BSRR(GPIOB_BASE) = (1u << (0 + 16));
+}
+
+static void spi_cs_deassert(void)
+{
+    GPIO_BSRR(GPIOB_BASE) = (1u << 0);
+}
+
 static void usart3_init_115200(void)
 {
     uint32_t brr;
@@ -246,6 +284,7 @@ static void spi1_init(void)
     /* Enable SPI1 clock (APB2ENR bit12) */
     RCC_APB2ENR |= (1u << 12);
     gpio_config_spi1_pa4_pa7();
+    gpio_config_spi_cs_pb0();
 
     /* Minimal SPI setup: enable peripheral, keep defaults for size/mode */
     SPI_CR1(SPI1_BASE) = 0;
@@ -281,10 +320,20 @@ static void spi1_xfer_bytes(const uint8_t *tx, uint8_t *rx, uint32_t len)
 static void spiflash_write_enable(void)
 {
     uint8_t cmd = 0x06u;
+    spi_cs_assert();
     spi1_xfer_bytes(&cmd, 0, 1u);
+    spi_cs_deassert();
 }
 
 static void spiflash_read_id(uint8_t *id)
+{
+    uint8_t tx[4] = { 0x9Fu, 0xFFu, 0xFFu, 0xFFu };
+    spi_cs_assert();
+    spi1_xfer_bytes(tx, id, 4u);
+    spi_cs_deassert();
+}
+
+static void spiflash_read_id_no_cs(uint8_t *id)
 {
     uint8_t tx[4] = { 0x9Fu, 0xFFu, 0xFFu, 0xFFu };
     spi1_xfer_bytes(tx, id, 4u);
@@ -326,7 +375,9 @@ static void spiflash_sector_erase(uint32_t addr)
     tx[2] = (uint8_t)(addr >> 8);
     tx[3] = (uint8_t)(addr);
     spiflash_write_enable();
+    spi_cs_assert();
     spi1_xfer_bytes(tx, 0, 4u);
+    spi_cs_deassert();
 }
 
 static void spiflash_page_program(uint32_t addr, const uint8_t *data, uint32_t len)
@@ -344,7 +395,9 @@ static void spiflash_page_program(uint32_t addr, const uint8_t *data, uint32_t l
         tx[4u + i] = data[i];
     }
     spiflash_write_enable();
+    spi_cs_assert();
     spi1_xfer_bytes(tx, 0, 4u + len);
+    spi_cs_deassert();
 }
 
 static void spiflash_read(uint32_t addr, uint8_t *data, uint32_t len)
@@ -362,7 +415,9 @@ static void spiflash_read(uint32_t addr, uint8_t *data, uint32_t len)
     for (i = 0; i < len; ++i) {
         tx[4u + i] = 0xFFu;
     }
+    spi_cs_assert();
     spi1_xfer_bytes(tx, rx, 4u + len);
+    spi_cs_deassert();
     for (i = 0; i < len; ++i) {
         data[i] = rx[4u + i];
     }
@@ -460,6 +515,7 @@ int main(void)
 {
     const uint32_t test_addr = 0u;
     uint8_t jedec[4] = { 0 };
+    uint8_t jedec_no_cs[4] = { 0 };
     uint8_t tx_data[16];
     uint8_t rx_data[16];
     uint32_t size_bytes = 0;
@@ -495,6 +551,10 @@ int main(void)
                     /* SPI flash probe + basic erase/write/read + mmap readback */
                     printf("SPI flash test start\r\n");
                     spi1_init();
+                    printf("JEDEC read without CS (expect FF):\r\n");
+                    spiflash_read_id_no_cs(jedec_no_cs);
+                    printf("JEDEC no-CS: %02x %02x %02x\r\n",
+                           jedec_no_cs[0], jedec_no_cs[1], jedec_no_cs[2]);
                     spiflash_read_id(jedec);
                     size_bytes = spiflash_size_from_jedec(jedec[3]);
                     printf("JEDEC ID: %02x %02x %02x\r\n", jedec[0], jedec[1], jedec[2]);

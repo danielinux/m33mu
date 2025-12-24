@@ -15,6 +15,9 @@ struct mm_spiflash_cfg {
     mm_u32 size;
     mm_bool mmap;
     mm_u32 mmap_base;
+    mm_bool cs_valid;
+    int cs_bank;
+    int cs_pin;
     char path[256];
 };
 
@@ -29,6 +32,7 @@ struct mm_spiflash;
 struct mm_spiflash *mm_spiflash_get_for_bus(int bus);
 mm_u8 mm_spiflash_xfer(struct mm_spiflash *flash, mm_u8 out);
 void mm_spiflash_cs_deassert(struct mm_spiflash *flash);
+void mm_spiflash_set_cs(struct mm_spiflash *flash, mm_u8 level);
 mm_bool mm_spiflash_is_locked(const struct mm_spiflash *flash);
 
 #endif /* M33MU_SPIFLASH_H */

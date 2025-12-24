@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include "stm32h563/stm32h563_spi.h"
 #include "stm32h563/stm32h563_mmio.h"
-#include "m33mu/spiflash.h"
+#include "m33mu/spi_bus.h"
 
 #define SPI_CR1   0x00u
 #define SPI_CR2   0x04u
@@ -49,7 +49,6 @@ struct spi_inst {
     mm_bool eot_pending;
     mm_u32 tsize_rem;
     int irq;
-    struct mm_spiflash *flash;
     int bus_index;
 };
 
@@ -139,9 +138,7 @@ static void spi_set_enabled(struct spi_inst *s, mm_bool enable)
         s->tsize_rem = 0;
         s->rx_head = 0;
         s->rx_tail = 0;
-        if (s->flash != 0) {
-            mm_spiflash_cs_deassert(s->flash);
-        }
+        mm_spi_bus_end(s->bus_index);
     }
     update_sr(s);
 }
@@ -157,10 +154,7 @@ static void spi_start_transfer(struct spi_inst *s)
 
 static mm_u8 spi_xfer_byte(struct spi_inst *s, mm_u8 out)
 {
-    if (s->flash != 0) {
-        return mm_spiflash_xfer(s->flash, out);
-    }
-    return 0u;
+    return mm_spi_bus_xfer(s->bus_index, out);
 }
 
 static void spi_handle_tx(struct spi_inst *s, mm_u32 value, mm_u32 size_bytes)
@@ -185,9 +179,7 @@ static void spi_handle_tx(struct spi_inst *s, mm_u32 value, mm_u32 size_bytes)
     if (s->transfer_active && s->tsize_rem == 0u) {
         s->transfer_active = MM_FALSE;
         s->eot_pending = MM_TRUE;
-        if (s->flash != 0) {
-            mm_spiflash_cs_deassert(s->flash);
-        }
+        mm_spi_bus_end(s->bus_index);
     }
     update_sr(s);
 }
@@ -249,9 +241,7 @@ static mm_bool spi_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
             }
         }
         if (was_enabled && (value & CR1_SPE) == 0u) {
-            if (s->flash != 0) {
-                mm_spiflash_cs_deassert(s->flash);
-            }
+            mm_spi_bus_end(s->bus_index);
         }
         return MM_TRUE;
     }
@@ -329,7 +319,6 @@ void mm_stm32h563_spi_init(struct mmio_bus *bus, struct mm_nvic *nvic)
         s->base = bases[i];
         s->bus_index = (int)(i + 1u);
         s->irq = (i < (sizeof(irq_map) / sizeof(irq_map[0]))) ? irq_map[i] : -1;
-        s->flash = mm_spiflash_get_for_bus((int)(i + 1u));
         s->regs[SPI_SR / 4] = SR_TXP;
         reg.base = bases[i];
         reg.size = 0x400u;

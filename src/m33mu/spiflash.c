@@ -6,8 +6,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include "m33mu/spiflash.h"
+#include "m33mu/spi_bus.h"
 #include "m33mu/mmio.h"
 #include "m33mu/mem_prot.h"
+#include "m33mu/gpio.h"
 
 #define SPIFLASH_MAX 8
 #define SPIFLASH_PAGE_SIZE 256u
@@ -40,10 +42,28 @@ struct mm_spiflash {
     mm_u32 mmap_base;
     char path[256];
     mm_bool dirty;
+    mm_bool cs_valid;
+    mm_u32 cs_mask;
+    int cs_bank;
+    int cs_pin;
+    mm_u8 cs_level;
+    mm_bool xfer_end_pending;
 };
 
 static struct mm_spiflash g_spiflash[SPIFLASH_MAX];
 static size_t g_spiflash_count = 0;
+
+static mm_bool spiflash_trace_enabled(void)
+{
+    static mm_bool init = MM_FALSE;
+    static mm_bool enabled = MM_FALSE;
+    if (!init) {
+        const char *env = getenv("M33MU_SPI_TRACE");
+        enabled = (env != 0 && env[0] != '\0') ? MM_TRUE : MM_FALSE;
+        init = MM_TRUE;
+    }
+    return enabled;
+}
 
 static void spiflash_sync(struct mm_spiflash *flash)
 {
@@ -109,6 +129,71 @@ static void spiflash_set_locked(struct mm_spiflash *flash, mm_bool locked)
     }
 }
 
+void mm_spiflash_set_cs(struct mm_spiflash *flash, mm_u8 level)
+{
+    mm_u8 prev;
+    if (flash == 0 || !flash->cs_valid) {
+        return;
+    }
+    prev = flash->cs_level;
+    flash->cs_level = level ? 1u : 0u;
+    if (prev == flash->cs_level) {
+        return;
+    }
+    if (flash->cs_level != 0u) {
+        mm_spiflash_cs_deassert(flash);
+        if (spiflash_trace_enabled()) {
+            printf("[SPI] SPI%d CS deasserted (P%c%d)\n",
+                   flash->bus,
+                   (char)('A' + flash->cs_bank),
+                   flash->cs_pin);
+        }
+    } else {
+        if (spiflash_trace_enabled()) {
+            printf("[SPI] SPI%d CS asserted (P%c%d)\n",
+                   flash->bus,
+                   (char)('A' + flash->cs_bank),
+                   flash->cs_pin);
+        }
+    }
+}
+
+static mm_u8 spiflash_sample_cs(struct mm_spiflash *flash)
+{
+    mm_u8 level = 1u;
+    mm_u32 moder;
+    mm_u32 mode_bits;
+    if (flash == 0 || !flash->cs_valid) {
+        return 0u;
+    }
+    if (!mm_gpio_bank_reader_present()) {
+        return 1u;
+    }
+    moder = mm_gpio_bank_read_moder(flash->cs_bank);
+    mode_bits = (moder >> (flash->cs_pin * 2)) & 0x3u;
+    if (mode_bits != 1u) {
+        level = 1u;
+    } else {
+        level = (mm_gpio_bank_read(flash->cs_bank) & flash->cs_mask) ? 1u : 0u;
+    }
+    if (level != flash->cs_level) {
+        mm_spiflash_set_cs(flash, level);
+    }
+    return level;
+}
+
+static mm_u8 spiflash_cs_level(void *opaque)
+{
+    struct mm_spiflash *flash = (struct mm_spiflash *)opaque;
+    if (flash == 0) {
+        return 1u;
+    }
+    if (!flash->cs_valid) {
+        return 0u;
+    }
+    return spiflash_sample_cs(flash);
+}
+
 static void spiflash_set_bp(struct mm_spiflash *flash, mm_u8 bp)
 {
     if (flash == 0) {
@@ -156,6 +241,43 @@ static mm_u8 spiflash_read_byte(const struct mm_spiflash *flash, mm_u32 addr)
         return 0xFFu;
     }
     return flash->data[addr % flash->size];
+}
+
+static mm_u8 spiflash_bus_xfer(void *opaque, mm_u8 out)
+{
+    struct mm_spiflash *flash = (struct mm_spiflash *)opaque;
+    mm_u8 cs_level;
+    if (flash == 0) {
+        return 0xFFu;
+    }
+    cs_level = spiflash_sample_cs(flash);
+    if (flash->xfer_end_pending) {
+        if (!flash->cs_valid || cs_level == 0u) {
+            mm_spiflash_cs_deassert(flash);
+            flash->xfer_end_pending = MM_FALSE;
+        }
+    }
+    if (flash->cs_valid && cs_level != 0u) {
+        if (spiflash_trace_enabled()) {
+            printf("[SPI] SPI%d CS high -> drop 0x%02x\n", flash->bus, out);
+        }
+        return 0xFFu;
+    }
+    return mm_spiflash_xfer(flash, out);
+}
+
+static void spiflash_bus_end(void *opaque)
+{
+    struct mm_spiflash *flash = (struct mm_spiflash *)opaque;
+    if (flash == 0) {
+        return;
+    }
+    flash->xfer_end_pending = MM_TRUE;
+    if (!flash->cs_valid) {
+        mm_spiflash_cs_deassert(flash);
+        flash->xfer_end_pending = MM_FALSE;
+    }
+    (void)spiflash_sample_cs(flash);
 }
 
 mm_u8 mm_spiflash_xfer(struct mm_spiflash *flash, mm_u8 out)
@@ -384,6 +506,28 @@ static mm_bool parse_u32(const char *s, mm_u32 *out)
     return MM_TRUE;
 }
 
+static mm_bool parse_gpio_name(const char *s, int *bank_out, int *pin_out)
+{
+    int bank;
+    int pin = 0;
+    const char *p;
+    if (s == 0 || bank_out == 0 || pin_out == 0) return MM_FALSE;
+    if (s[0] != 'P' && s[0] != 'p') return MM_FALSE;
+    if (s[1] < 'A' || (s[1] > 'Z' && s[1] < 'a') || s[1] > 'z') return MM_FALSE;
+    bank = (s[1] >= 'a') ? (s[1] - 'a') : (s[1] - 'A');
+    p = s + 2;
+    if (*p < '0' || *p > '9') return MM_FALSE;
+    while (*p >= '0' && *p <= '9') {
+        pin = (pin * 10) + (*p - '0');
+        p++;
+    }
+    if (*p != '\0') return MM_FALSE;
+    if (pin < 0 || pin > 15) return MM_FALSE;
+    *bank_out = bank;
+    *pin_out = pin;
+    return MM_TRUE;
+}
+
 mm_bool mm_spiflash_parse_spec(const char *spec, struct mm_spiflash_cfg *out)
 {
     char tmp[512];
@@ -409,6 +553,9 @@ mm_bool mm_spiflash_parse_spec(const char *spec, struct mm_spiflash_cfg *out)
         } else if (strncmp(tok, "mmap=", 5) == 0) {
             if (!parse_u32(tok + 5, &out->mmap_base)) return MM_FALSE;
             out->mmap = MM_TRUE;
+        } else if (strncmp(tok, "cs=", 3) == 0) {
+            if (!parse_gpio_name(tok + 3, &out->cs_bank, &out->cs_pin)) return MM_FALSE;
+            out->cs_valid = MM_TRUE;
         } else {
             return MM_FALSE;
         }
@@ -420,6 +567,7 @@ mm_bool mm_spiflash_parse_spec(const char *spec, struct mm_spiflash_cfg *out)
 mm_bool mm_spiflash_register_cfg(const struct mm_spiflash_cfg *cfg)
 {
     struct mm_spiflash *flash;
+    struct mm_spi_device dev;
     if (cfg == 0) return MM_FALSE;
     if (g_spiflash_count >= SPIFLASH_MAX) return MM_FALSE;
     flash = &g_spiflash[g_spiflash_count++];
@@ -428,6 +576,11 @@ mm_bool mm_spiflash_register_cfg(const struct mm_spiflash_cfg *cfg)
     flash->size = cfg->size;
     flash->mmap = cfg->mmap;
     flash->mmap_base = cfg->mmap_base;
+    flash->cs_valid = cfg->cs_valid;
+    flash->cs_bank = cfg->cs_bank;
+    flash->cs_mask = (cfg->cs_valid && cfg->cs_pin >= 0) ? (1u << (mm_u32)cfg->cs_pin) : 0u;
+    flash->cs_pin = cfg->cs_pin;
+    flash->cs_level = 1u;
     strncpy(flash->path, cfg->path, sizeof(flash->path) - 1u);
     flash->path[sizeof(flash->path) - 1u] = '\0';
     if (!spiflash_load(flash)) {
@@ -444,6 +597,22 @@ mm_bool mm_spiflash_register_cfg(const struct mm_spiflash_cfg *cfg)
                flash->bus,
                flash->path,
                (unsigned long)flash->size);
+    }
+    if (flash->cs_valid) {
+        printf("[SPI_FLASH] SPI%d CS= P%c%d\n",
+               flash->bus,
+               (char)('A' + flash->cs_bank),
+               (int)cfg->cs_pin);
+    }
+    memset(&dev, 0, sizeof(dev));
+    dev.bus = flash->bus;
+    dev.xfer = spiflash_bus_xfer;
+    dev.end = spiflash_bus_end;
+    dev.cs_level = spiflash_cs_level;
+    dev.opaque = flash;
+    if (!mm_spi_bus_register_device(&dev)) {
+        fprintf(stderr, "[SPI_FLASH] failed to register SPI%d device\n", flash->bus);
+        return MM_FALSE;
     }
     return MM_TRUE;
 }

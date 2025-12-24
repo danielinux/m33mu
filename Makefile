@@ -105,7 +105,7 @@ test-m33: $(TARGET) $(FIRMWARE_DIR)/test-cortex-m33/app.bin
 	@echo "Running firmware: test-cortex-m33 with SPI flash"; \
 	timeout $(FIRMWARE_TIMEOUT)s $(TARGET) $(FIRMWARE_DIR)/test-cortex-m33/app.bin \
 	    --uart-stdout \
-		--spiflash:SPI1:file=$(FIRMWARE_DIR)/test-cortex-m33/spi_flash.bin:size=2097152:mmap=0x60000000 || true
+		--spiflash:SPI1:file=$(FIRMWARE_DIR)/test-cortex-m33/spi_flash.bin:size=2097152:mmap=0x60000000:cs=PB0 || true
 
 clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR)

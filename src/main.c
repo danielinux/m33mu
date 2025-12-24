@@ -1201,7 +1201,7 @@ int main(int argc, char **argv)
     }
 
     if (image_count == 0) {
-        fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] [--tui] [--persist] [--capstone] [--uart-stdout] [--quit-on-faults] [--meminfo] [--gdb-symbols <elf>] [--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr]] <image.bin[:offset]> [more images...]\n", argv[0]);
+        fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] [--tui] [--persist] [--capstone] [--uart-stdout] [--quit-on-faults] [--meminfo] [--gdb-symbols <elf>] [--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] <image.bin[:offset]> [more images...]\n", argv[0]);
         return 1;
     }
 

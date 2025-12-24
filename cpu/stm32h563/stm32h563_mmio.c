@@ -26,6 +26,7 @@
 #include "stm32h563/stm32h563_mmio.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
+#include "m33mu/gpio.h"
 
 /* RCC base addresses (system domain) */
 #define RCC_BASE     0x44020c00u
@@ -154,11 +155,14 @@ static struct flash_state flash_ctl;
 static struct gpio_state gpio[9]; /* A..I */
 static struct gpdma_state gpdma1;
 static struct gpdma_state gpdma2;
-static void *gpio_ctx[18][2];
+static void *gpio_ctx[18][4];
 static void *rng_ctx[2][4];
 static struct mm_nvic *g_rng_nvic = 0;
 
 #define RNG_IRQ 114
+
+static mm_u32 stm32h563_gpio_bank_read(void *opaque, int bank);
+static mm_u32 stm32h563_gpio_bank_read_moder(void *opaque, int bank);
 
 static mm_bool flash_trace_enabled(void)
 {
@@ -188,6 +192,8 @@ void mm_stm32h563_mmio_reset(void)
     for (i = 0; i < sizeof(gpio) / sizeof(gpio[0]); ++i) {
         memset(&gpio[i], 0, sizeof(gpio[i]));
     }
+    mm_gpio_bank_set_reader(stm32h563_gpio_bank_read, 0);
+    mm_gpio_bank_set_moder_reader(stm32h563_gpio_bank_read_moder, 0);
     /* Enable HSI by default and mark ready flags. */
     rcc.regs[0] |= 1u;
     rcc_update_ready(&rcc);
@@ -215,6 +221,24 @@ static mm_bool gpio_clock_enabled(const struct rcc_state *rcc, int index)
     /* AHB2ENR offset 0x8C, GPIOAEN bit0..GPIOIEN bit8 */
     mm_u32 ahb2enr = rcc->regs[0x8c / 4];
     return ((ahb2enr >> index) & 1u) != 0u;
+}
+
+static mm_u32 stm32h563_gpio_bank_read(void *opaque, int bank)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)(sizeof(gpio) / sizeof(gpio[0]))) {
+        return 0u;
+    }
+    return gpio[bank].regs[0x14u / 4];
+}
+
+static mm_u32 stm32h563_gpio_bank_read_moder(void *opaque, int bank)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)(sizeof(gpio) / sizeof(gpio[0]))) {
+        return 0u;
+    }
+    return gpio[bank].regs[0x00u / 4];
 }
 
 static mm_bool rng_clock_enabled(const struct rcc_state *rcc)
@@ -635,6 +659,18 @@ static void gpio_apply_bsrr(struct gpio_state *g, mm_u32 val, mm_u32 mask)
     g->regs[0x14u / 4] = odr;
 }
 
+static mm_u32 gpio_mask_to_2bit(mm_u32 mask)
+{
+    mm_u32 out = 0;
+    int i;
+    for (i = 0; i < 16; ++i) {
+        if ((mask & (1u << i)) != 0u) {
+            out |= (3u << (i * 2));
+        }
+    }
+    return out;
+}
+
 static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
 {
     struct gpio_state *g = ((struct gpio_state *)((void **)opaque)[0]);
@@ -666,7 +702,12 @@ static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32
             return MM_TRUE;
         } else {
             /* General regs: apply mask */
-            value &= (mask | (mask << 16));
+            if (offset == 0x00u) { /* MODER: 2 bits per pin */
+                mm_u32 m2 = gpio_mask_to_2bit(mask & 0xFFFFu);
+                value &= (m2 | (m2 << 16));
+            } else {
+                value &= (mask | (mask << 16));
+            }
         }
     }
 
