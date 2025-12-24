@@ -5,3 +5,5 @@ build/
 tags
 test.log
 .tags
+*.bin
+*.elf

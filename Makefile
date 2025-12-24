@@ -87,7 +87,7 @@ $(FIRMWARE_DIR)/%/app.bin:
 $(FIRMWARE_TZ_SEC) $(FIRMWARE_TZ_NS):
 	$(MAKE) -C $(FIRMWARE_DIR)/test-tz-bxns-cmse-sau-mpu all
 
-.PHONY: firmware-build test-firmware
+.PHONY: firmware-build test-firmware test-m33
 
 firmware-build: $(FIRMWARE_BINS)
 
@@ -100,6 +100,12 @@ test-firmware: $(TARGET) firmware-build
 	timeout $(FIRMWARE_TIMEOUT)s $(TARGET) $(FIRMWARE_DIR)/test-systick-wfi/app.bin || true; \
 	echo "Running firmware: test-tz-bxns-cmse-sau-mpu"; \
 	timeout $(FIRMWARE_TIMEOUT)s $(TARGET) $(FIRMWARE_TZ_SEC) $(FIRMWARE_TZ_NS):0x2000 || true
+
+test-m33: $(TARGET) $(FIRMWARE_DIR)/test-cortex-m33/app.bin
+	@echo "Running firmware: test-cortex-m33 with SPI flash"; \
+	timeout $(FIRMWARE_TIMEOUT)s $(TARGET) $(FIRMWARE_DIR)/test-cortex-m33/app.bin \
+	    --uart-stdout \
+		--spiflash:SPI1:file=$(FIRMWARE_DIR)/test-cortex-m33/spi_flash.bin:size=2097152:mmap=0x60000000 || true
 
 clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR)

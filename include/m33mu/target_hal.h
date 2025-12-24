@@ -60,6 +60,9 @@ mm_u64 mm_target_cpu_hz(const struct mm_target_cfg *cfg);
 void mm_target_usart_init(const struct mm_target_cfg *cfg, struct mmio_bus *bus, struct mm_nvic *nvic);
 void mm_target_usart_reset(const struct mm_target_cfg *cfg);
 void mm_target_usart_poll(const struct mm_target_cfg *cfg);
+void mm_target_spi_init(const struct mm_target_cfg *cfg, struct mmio_bus *bus, struct mm_nvic *nvic);
+void mm_target_spi_reset(const struct mm_target_cfg *cfg);
+void mm_target_spi_poll(const struct mm_target_cfg *cfg);
 
 mm_bool mm_tui_is_active(void);
 void mm_tui_attach_uart(const char *label, const char *path);

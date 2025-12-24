@@ -44,6 +44,10 @@
 #define STM32H563_USART_RESET    mm_stm32h563_usart_reset
 #define STM32H563_USART_POLL     mm_stm32h563_usart_poll
 
+#define STM32H563_SPI_INIT       mm_stm32h563_spi_init
+#define STM32H563_SPI_RESET      mm_stm32h563_spi_reset
+#define STM32H563_SPI_POLL       mm_stm32h563_spi_poll
+
 #define STM32H563_TIMER_INIT  mm_stm32h563_timers_init
 #define STM32H563_TIMER_RESET mm_stm32h563_timers_reset
 #define STM32H563_TIMER_TICK  mm_stm32h563_timers_tick

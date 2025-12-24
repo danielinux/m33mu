@@ -255,3 +255,27 @@ void mm_target_usart_poll(const struct mm_target_cfg *cfg)
     }
     cfg->usart_poll();
 }
+
+void mm_target_spi_init(const struct mm_target_cfg *cfg, struct mmio_bus *bus, struct mm_nvic *nvic)
+{
+    if (cfg == 0 || cfg->spi_init == 0) {
+        return;
+    }
+    cfg->spi_init(bus, nvic);
+}
+
+void mm_target_spi_reset(const struct mm_target_cfg *cfg)
+{
+    if (cfg == 0 || cfg->spi_reset == 0) {
+        return;
+    }
+    cfg->spi_reset();
+}
+
+void mm_target_spi_poll(const struct mm_target_cfg *cfg)
+{
+    if (cfg == 0 || cfg->spi_poll == 0) {
+        return;
+    }
+    cfg->spi_poll();
+}

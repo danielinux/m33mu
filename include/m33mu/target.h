@@ -54,6 +54,10 @@ struct mm_target_cfg {
     void (*usart_reset)(void);
     void (*usart_poll)(void);
 
+    void (*spi_init)(struct mmio_bus *bus, struct mm_nvic *nvic);
+    void (*spi_reset)(void);
+    void (*spi_poll)(void);
+
     void (*timer_init)(struct mmio_bus *bus, struct mm_nvic *nvic);
     void (*timer_reset)(void);
     void (*timer_tick)(mm_u64 cycles);

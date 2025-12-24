@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>
 
 extern uint32_t _sidata;
 extern uint32_t _sdata;
@@ -28,6 +29,7 @@ extern uint32_t _edata;
 extern uint32_t _sbss;
 extern uint32_t _ebss;
 extern uint32_t _estack;
+extern void __libc_init_array(void);
 
 /* int ISA_SWEEPER_Run(void); */
 
@@ -37,8 +39,10 @@ extern uint32_t _estack;
 #define RCC_BASE          0x44020C00u
 #define RCC_AHB2ENR       (*(volatile uint32_t *)(RCC_BASE + 0x8Cu))
 #define RCC_APB1LENR      (*(volatile uint32_t *)(RCC_BASE + 0x9Cu))
+#define RCC_APB2ENR       (*(volatile uint32_t *)(RCC_BASE + 0xA0u))
 
-/* GPIOD */
+/* GPIOA/GPIOD */
+#define GPIOA_BASE        0x42020000u
 #define GPIOD_BASE        0x42020C00u
 #define GPIO_MODER(x)     (*(volatile uint32_t *)((x) + 0x00u))
 #define GPIO_OTYPER(x)    (*(volatile uint32_t *)((x) + 0x04u))
@@ -60,6 +64,22 @@ extern uint32_t _estack;
 #define USART_ICR(b)      (*(volatile uint32_t *)((b) + 0x20u))
 #define USART_RDR(b)      (*(volatile uint32_t *)((b) + 0x24u))
 #define USART_TDR(b)      (*(volatile uint32_t *)((b) + 0x28u))
+
+/* SPI1 (STM32H5 style SPI) */
+#define SPI1_BASE         0x40013000u
+#define SPI_CR1(b)        (*(volatile uint32_t *)((b) + 0x00u))
+#define SPI_CR2(b)        (*(volatile uint32_t *)((b) + 0x04u))
+#define SPI_CFG1(b)       (*(volatile uint32_t *)((b) + 0x08u))
+#define SPI_CFG2(b)       (*(volatile uint32_t *)((b) + 0x0Cu))
+#define SPI_SR(b)         (*(volatile uint32_t *)((b) + 0x14u))
+#define SPI_IFCR(b)       (*(volatile uint32_t *)((b) + 0x18u))
+#define SPI_TXDR(b)       (*(volatile uint32_t *)((b) + 0x20u))
+#define SPI_RXDR(b)       (*(volatile uint32_t *)((b) + 0x30u))
+
+#define SPI_CR1_SPE       (1u << 0)
+#define SPI_CR1_CSTART    (1u << 9)
+#define SPI_SR_RXP        (1u << 0)
+#define SPI_SR_EOT        (1u << 3)
 
 /* SysTick */
 #define SYST_CSR          (*(volatile uint32_t *)0xE000E010u)
@@ -90,7 +110,7 @@ extern uint32_t _estack;
 static volatile uint32_t global_counter = 0;
 static uint32_t static_buf[4] = { 1u, 2u, 3u, 4u };
 static uint32_t zero_buf[4];
-static volatile uint32_t systick_ms = 0;
+volatile uint32_t systick_ms = 0;
 static volatile uint32_t tim2_ticks = 0;
 static volatile uint32_t tim3_ticks = 0;
 static volatile uint32_t tim4_ticks = 0;
@@ -167,6 +187,37 @@ static void gpio_config_usart3_pd8_pd9(void)
     GPIO_AFRH(GPIOD_BASE) = v;
 }
 
+static void gpio_config_spi1_pa4_pa7(void)
+{
+    uint32_t v;
+    /* Enable GPIOA clock (AHB2ENR bit0) */
+    RCC_AHB2ENR |= (1u << 0);
+
+    /* PA4..PA7 to AF5 (SPI1_NSS/SCK/MISO/MOSI) */
+    v = GPIO_MODER(GPIOA_BASE);
+    v &= ~((3u << (4u * 2u)) | (3u << (5u * 2u)) | (3u << (6u * 2u)) | (3u << (7u * 2u)));
+    v |= (2u << (4u * 2u)) | (2u << (5u * 2u)) | (2u << (6u * 2u)) | (2u << (7u * 2u));
+    GPIO_MODER(GPIOA_BASE) = v;
+
+    v = GPIO_OTYPER(GPIOA_BASE);
+    v &= ~((1u << 4) | (1u << 5) | (1u << 6) | (1u << 7));
+    GPIO_OTYPER(GPIOA_BASE) = v;
+
+    v = GPIO_OSPEEDR(GPIOA_BASE);
+    v &= ~((3u << (4u * 2u)) | (3u << (5u * 2u)) | (3u << (6u * 2u)) | (3u << (7u * 2u)));
+    v |= (2u << (4u * 2u)) | (2u << (5u * 2u)) | (2u << (6u * 2u)) | (2u << (7u * 2u));
+    GPIO_OSPEEDR(GPIOA_BASE) = v;
+
+    v = GPIO_PUPDR(GPIOA_BASE);
+    v &= ~((3u << (4u * 2u)) | (3u << (5u * 2u)) | (3u << (6u * 2u)) | (3u << (7u * 2u)));
+    GPIO_PUPDR(GPIOA_BASE) = v;
+
+    v = GPIO_AFRL(GPIOA_BASE);
+    v &= ~((0xFu << (4u * 4u)) | (0xFu << (5u * 4u)) | (0xFu << (6u * 4u)) | (0xFu << (7u * 4u)));
+    v |= (5u << (4u * 4u)) | (5u << (5u * 4u)) | (5u << (6u * 4u)) | (5u << (7u * 4u));
+    GPIO_AFRL(GPIOA_BASE) = v;
+}
+
 static void usart3_init_115200(void)
 {
     uint32_t brr;
@@ -181,6 +232,140 @@ static void usart3_init_115200(void)
     USART_BRR(USART3_BASE) = brr;
     /* 8N1: UE, TE, RE */
     USART_CR1(USART3_BASE) = (1u << 0) | (1u << 2) | (1u << 3);
+}
+
+void usart3_putc(char c)
+{
+    while ((USART_ISR(USART3_BASE) & (1u << 7)) == 0u) {
+    }
+    USART_TDR(USART3_BASE) = (uint32_t)c;
+}
+
+static void spi1_init(void)
+{
+    /* Enable SPI1 clock (APB2ENR bit12) */
+    RCC_APB2ENR |= (1u << 12);
+    gpio_config_spi1_pa4_pa7();
+
+    /* Minimal SPI setup: enable peripheral, keep defaults for size/mode */
+    SPI_CR1(SPI1_BASE) = 0;
+    SPI_CFG1(SPI1_BASE) = 0;
+    SPI_CFG2(SPI1_BASE) = 0;
+    SPI_CR1(SPI1_BASE) = SPI_CR1_SPE;
+}
+
+static void spi1_xfer_bytes(const uint8_t *tx, uint8_t *rx, uint32_t len)
+{
+    uint32_t i;
+    uint8_t in;
+    if (len == 0u) {
+        return;
+    }
+    SPI_CR2(SPI1_BASE) = (SPI_CR2(SPI1_BASE) & ~0xFFFFu) | (len & 0xFFFFu);
+    SPI_CR1(SPI1_BASE) |= SPI_CR1_CSTART;
+    for (i = 0; i < len; ++i) {
+        uint8_t out = tx ? tx[i] : 0xFFu;
+        SPI_TXDR(SPI1_BASE) = out;
+        while ((SPI_SR(SPI1_BASE) & SPI_SR_RXP) == 0u) {
+        }
+        in = (uint8_t)SPI_RXDR(SPI1_BASE);
+        if (rx != 0) {
+            rx[i] = in;
+        }
+    }
+    while ((SPI_SR(SPI1_BASE) & SPI_SR_EOT) == 0u) {
+    }
+    SPI_IFCR(SPI1_BASE) = (1u << 3);
+}
+
+static void spiflash_write_enable(void)
+{
+    uint8_t cmd = 0x06u;
+    spi1_xfer_bytes(&cmd, 0, 1u);
+}
+
+static void spiflash_read_id(uint8_t *id)
+{
+    uint8_t tx[4] = { 0x9Fu, 0xFFu, 0xFFu, 0xFFu };
+    spi1_xfer_bytes(tx, id, 4u);
+}
+
+static uint32_t spiflash_size_from_jedec(uint8_t density)
+{
+    /* JEDEC density encodes size in bits as 2^N. Convert to bytes. */
+    if (density >= 3u && density < 32u) {
+        return 1u << (density - 3u);
+    }
+    return 0u;
+}
+
+static void spiflash_print_size(uint32_t size_bytes)
+{
+    uint32_t size_bits = size_bytes * 8u;
+    if (size_bytes == 0u) {
+        printf("Flash size: unknown\r\n");
+        return;
+    }
+    printf("Flash size: %lu bits\r\n", (unsigned long)size_bits);
+    if (size_bytes >= (1024u * 1024u)) {
+        uint32_t mb = size_bytes / (1024u * 1024u);
+        printf("Flash size: %lu MB\r\n", (unsigned long)mb);
+    } else if (size_bytes >= 1024u) {
+        uint32_t kb = size_bytes / 1024u;
+        printf("Flash size: %lu KB\r\n", (unsigned long)kb);
+    } else {
+        printf("Flash size: %lu bytes\r\n", (unsigned long)size_bytes);
+    }
+}
+
+static void spiflash_sector_erase(uint32_t addr)
+{
+    uint8_t tx[4];
+    tx[0] = 0x20u;
+    tx[1] = (uint8_t)(addr >> 16);
+    tx[2] = (uint8_t)(addr >> 8);
+    tx[3] = (uint8_t)(addr);
+    spiflash_write_enable();
+    spi1_xfer_bytes(tx, 0, 4u);
+}
+
+static void spiflash_page_program(uint32_t addr, const uint8_t *data, uint32_t len)
+{
+    uint8_t tx[4 + 32];
+    uint32_t i;
+    if (len > 32u) {
+        len = 32u;
+    }
+    tx[0] = 0x02u;
+    tx[1] = (uint8_t)(addr >> 16);
+    tx[2] = (uint8_t)(addr >> 8);
+    tx[3] = (uint8_t)(addr);
+    for (i = 0; i < len; ++i) {
+        tx[4u + i] = data[i];
+    }
+    spiflash_write_enable();
+    spi1_xfer_bytes(tx, 0, 4u + len);
+}
+
+static void spiflash_read(uint32_t addr, uint8_t *data, uint32_t len)
+{
+    uint8_t tx[4 + 32];
+    uint8_t rx[4 + 32];
+    uint32_t i;
+    if (len > 32u) {
+        len = 32u;
+    }
+    tx[0] = 0x03u;
+    tx[1] = (uint8_t)(addr >> 16);
+    tx[2] = (uint8_t)(addr >> 8);
+    tx[3] = (uint8_t)(addr);
+    for (i = 0; i < len; ++i) {
+        tx[4u + i] = 0xFFu;
+    }
+    spi1_xfer_bytes(tx, rx, 4u + len);
+    for (i = 0; i < len; ++i) {
+        data[i] = rx[4u + i];
+    }
 }
 
 void SysTick_Handler(void)
@@ -271,27 +456,23 @@ static void tim_init_basic(void)
     NVIC_ISER1 = (1u << 13) | (1u << 14) | (1u << 15) | (1u << 16);
 }
 
-static void usart3_putc(char c)
-{
-    while ((USART_ISR(USART3_BASE) & (1u << 7)) == 0u) {
-    }
-    USART_TDR(USART3_BASE) = (uint32_t)c;
-}
-
-static void usart3_write(const char *s)
-{
-    while (*s) {
-        usart3_putc(*s++);
-    }
-}
-
 int main(void)
 {
+    const uint32_t test_addr = 0u;
+    uint8_t jedec[4] = { 0 };
+    uint8_t tx_data[16];
+    uint8_t rx_data[16];
+    uint32_t size_bytes = 0;
+    uint32_t i;
+    uint32_t errors = 0;
+    volatile uint8_t *mmap = (volatile uint8_t *)0x60000000u;
+
     gpio_config_usart3_pd8_pd9();
     usart3_init_115200();
     systick_init_1ms();
     delay_ms(2000u);
-    usart3_write("Test started.\n\rTesting timers...");
+    printf("Test started.\r\n");
+    printf("Testing timers...\r\n");
     tests();
     tim_init_basic();
     {
@@ -302,7 +483,7 @@ int main(void)
             uint32_t now = systick_ms;
             if (!timers_ok) {
                 if (tim2_ticks >= 5u && tim3_ticks >= 3u && tim4_ticks >= 2u && tim5_ticks >= 1u) {
-                    usart3_write("Timers OK\r\n");
+                    printf("Timers OK\r\n");
                     timers_ok = 1u;
                 }
                 __asm volatile("wfi");
@@ -310,13 +491,49 @@ int main(void)
             }
             if ((now - last) >= 1000u) {
                 if (last == 0) {
-                    usart3_write("Testing Systick...\r\n");
+                    printf("Testing Systick...\r\n");
+                    /* SPI flash probe + basic erase/write/read + mmap readback */
+                    printf("SPI flash test start\r\n");
+                    spi1_init();
+                    spiflash_read_id(jedec);
+                    size_bytes = spiflash_size_from_jedec(jedec[3]);
+                    printf("JEDEC ID: %02x %02x %02x\r\n", jedec[0], jedec[1], jedec[2]);
+                    if (size_bytes != 0u) {
+                        spiflash_print_size(size_bytes);
+                    } else {
+                        printf("Flash size: unknown (density 0x%02x)\r\n", jedec[3]);
+                    }
+
+                    for (i = 0; i < sizeof(tx_data); ++i) {
+                        tx_data[i] = (uint8_t)(0xA5u ^ (uint8_t)i);
+                    }
+
+                    spiflash_sector_erase(test_addr);
+                    delay_ms(10u);
+                    spiflash_page_program(test_addr, tx_data, sizeof(tx_data));
+                    spiflash_read(test_addr, rx_data, sizeof(rx_data));
+                    for (i = 0; i < sizeof(tx_data); ++i) {
+                        if (rx_data[i] != tx_data[i]) {
+                            errors++;
+                        }
+                    }
+                    if (errors == 0u) {
+                        printf("SPI read/write OK\r\n");
+                    } else {
+                        printf("SPI read/write errors: %lu\r\n", (unsigned long)errors);
+                    }
+
+                    printf("MMAP read @0x60000000:\r\n");
+                    for (i = 0; i < sizeof(tx_data); ++i) {
+                        printf("%02x ", mmap[i]);
+                    }
+                    printf("\r\n");
                 }
                 last = now;
-                usart3_write("Hello, world!\r\n");
+                printf("Hello, world!\r\n");
                 prints++;
-                if (prints >= 10u) {
-                    usart3_write("Systick test OK!\r\n");
+                if (prints >= 5u) {
+                    printf("Systick test OK!\r\n");
                     delay_ms(2000u);
                     __asm volatile("bkpt #0x7f");
                 }
@@ -347,6 +564,7 @@ void Reset_Handler(void)
         *dst++ = 0u;
     }
 
+    __libc_init_array();
     main();
 }
 
@@ -365,24 +583,3 @@ void UsageFault_Handler(void)
         /* stay here */
     }
 }
-
-__attribute__((section(".vectors")))
-const void *vectors[] = {
-    (void *)&_estack,
-    Reset_Handler,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    SysTick_Handler
-};

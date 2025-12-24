@@ -7,13 +7,13 @@ CFLAGS += -DISA_SWEEPER
 endif
 LDFLAGS := -nostdlib -T target.ld -Wl,-gc-sections
 
-SRCS := ivt.c main.c
+SRCS := ivt.c main.c syscalls.c
 OBJS := $(SRCS:.c=.o)
 
 all: app.bin
 
 app.elf: $(OBJS) target.ld
-	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -Wl,--start-group -lc -lm -lgcc -lnosys -Wl,--end-group -o $@
 
 app.bin: app.elf
 	$(OBJCOPY) -O binary $< $@

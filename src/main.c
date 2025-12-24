@@ -45,6 +45,7 @@
 #include "m33mu/table_branch.h"
 #include "m33mu/timer.h"
 #include "m33mu/target_hal.h"
+#include "m33mu/spiflash.h"
 #include "tui.h"
 #include <string.h>
 #include <time.h>
@@ -1045,6 +1046,8 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
     cpu->mode = MM_HANDLER;
     cpu->sec_state = handler_sec;
     cpu->r[15] = handler | 1u;
+    cpu->sleeping = MM_FALSE;
+    cpu->event_reg = MM_FALSE;
     return MM_TRUE;
 }
 
@@ -1068,7 +1071,7 @@ int main(int argc, char **argv)
     int i;
     struct mm_target_cfg cfg;
     struct mm_memmap map;
-    struct mmio_region regions[64];
+    struct mmio_region regions[128];
     struct mm_cpu cpu;
     struct mm_scs scs;
     struct mm_prot_ctx prot;
@@ -1093,6 +1096,8 @@ int main(int argc, char **argv)
     mm_bool opt_pc_trace = MM_FALSE;
     mm_bool opt_pc_trace_mem = MM_FALSE;
     mm_bool opt_strcmp_trace = MM_FALSE;
+    struct mm_spiflash_cfg spiflash_cfgs[8];
+    int spiflash_count = 0;
     mm_u32 pc_trace_start = 0;
     mm_u32 pc_trace_end = 0;
     mm_u32 strcmp_trace_start = 0;
@@ -1166,6 +1171,16 @@ int main(int argc, char **argv)
             opt_quit_on_faults = MM_TRUE;
         } else if (strcmp(argv[i], "--meminfo") == 0) {
             opt_meminfo = MM_TRUE;
+        } else if (strncmp(argv[i], "--spiflash:", 11) == 0) {
+            if (spiflash_count >= (int)(sizeof(spiflash_cfgs) / sizeof(spiflash_cfgs[0]))) {
+                fprintf(stderr, "too many spiflash configs\n");
+                return 1;
+            }
+            if (!mm_spiflash_parse_spec(argv[i] + 11, &spiflash_cfgs[spiflash_count])) {
+                fprintf(stderr, "invalid spiflash spec: %s\n", argv[i]);
+                return 1;
+            }
+            spiflash_count++;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "unknown option: %s\n", argv[i]);
             return 1;
@@ -1186,7 +1201,7 @@ int main(int argc, char **argv)
     }
 
     if (image_count == 0) {
-        fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] [--tui] [--persist] [--capstone] [--uart-stdout] [--quit-on-faults] [--meminfo] [--gdb-symbols <elf>] <image.bin[:offset]> [more images...]\n", argv[0]);
+        fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] [--tui] [--persist] [--capstone] [--uart-stdout] [--quit-on-faults] [--meminfo] [--gdb-symbols <elf>] [--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr]] <image.bin[:offset]> [more images...]\n", argv[0]);
         return 1;
     }
 
@@ -1207,6 +1222,13 @@ int main(int argc, char **argv)
     if (opt_capstone) {
         if (!capstone_available() || !capstone_init()) {
             fprintf(stderr, "failed to initialize capstone\n");
+            return 1;
+        }
+    }
+
+    for (i = 0; i < spiflash_count; ++i) {
+        if (!mm_spiflash_register_cfg(&spiflash_cfgs[i])) {
+            fprintf(stderr, "failed to register spiflash for %s\n", spiflash_cfgs[i].path);
             return 1;
         }
     }
@@ -1332,9 +1354,10 @@ int main(int argc, char **argv)
             tui_steps_offset = 0;
 
             mm_system_clear_reset();
-            mm_memmap_init(&map, regions, 64);
+            mm_memmap_init(&map, regions, sizeof(regions) / sizeof(regions[0]));
             mm_target_soc_reset(&cfg);
             mm_timer_reset(&cfg);
+            mm_spiflash_reset_all();
             mm_memmap_configure_flash(&map, &cfg, flash, MM_TRUE);
             mm_memmap_configure_flash(&map, &cfg, flash, MM_FALSE);
             map.flash.base = cfg.flash_base_s;
@@ -1344,9 +1367,12 @@ int main(int argc, char **argv)
             map.ram.base = cfg.ram_base_s;
             map.ram.length = cfg.ram_size_s;
             mm_target_register_mmio(&cfg, &map.mmio);
+            mm_spiflash_register_mmap_regions(&map.mmio);
             mm_target_flash_bind(&cfg, &map, flash, cfg.flash_size_s, opt_persist ? &persist : 0);
             mm_target_usart_reset(&cfg);
             mm_target_usart_init(&cfg, &map.mmio, &nvic);
+            mm_target_spi_reset(&cfg);
+            mm_target_spi_init(&cfg, &map.mmio, &nvic);
             mm_timer_init(&cfg, &map.mmio, &nvic);
 
             mm_scs_init(&scs, 0x410fc241u);
@@ -1361,6 +1387,7 @@ int main(int argc, char **argv)
             /* Permit peripheral space (AHB/APB) for now; SAU still controls Secure vs Non-secure visibility. */
             mm_prot_add_region(&prot, 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
             mm_prot_add_region(&prot, 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+            mm_spiflash_register_prot_regions(&prot);
 
             mm_nvic_init(&nvic);
 
@@ -1496,6 +1523,7 @@ int main(int argc, char **argv)
                 if (!running_now) {
                     host_sync_if_needed(vcycles, &vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                     mm_target_usart_poll(&cfg);
+                    mm_target_spi_poll(&cfg);
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
                     if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
@@ -1574,6 +1602,7 @@ int main(int argc, char **argv)
                             req.tv_nsec = (long)IDLE_SLEEP_NS;
                             nanosleep(&req, 0);
                             mm_target_usart_poll(&cfg);
+                            mm_target_spi_poll(&cfg);
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
                             if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
@@ -1586,31 +1615,44 @@ int main(int argc, char **argv)
                                 break;
                             }
                         } else {
-                        mm_scs_systick_advance(&scs, delta);
-                        mm_timer_tick(&cfg, delta);
-                        vcycles += delta;
-                        cycle_total += delta;
-                        cycles_since_poll += delta;
-                        host_sync_if_needed(vcycles, &vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
-                        mm_target_usart_poll(&cfg);
-                        update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
-                                                 &tui_steps_offset, &tui_steps_latched);
-                        if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
-                            done = MM_TRUE;
-                            continue;
-                        }
-                        cycles_since_poll = 0;
+                            mm_scs_systick_advance(&scs, delta);
+                            mm_timer_tick(&cfg, delta);
+                            vcycles += delta;
+                            cycle_total += delta;
+                            cycles_since_poll += delta;
+                            if (scs.pend_st || scs.pend_sv) {
+                                cpu.sleeping = MM_FALSE;
+                                cpu.event_reg = MM_FALSE;
+                            }
+                            host_sync_if_needed(vcycles, &vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
+                            mm_target_usart_poll(&cfg);
+                            mm_target_spi_poll(&cfg);
+                            update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
+                                                     &tui_steps_offset, &tui_steps_latched);
+                            if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                                done = MM_TRUE;
+                                continue;
+                            }
+                            cycles_since_poll = 0;
                             if (mm_system_reset_pending()) {
                                 reset_again = MM_TRUE;
                                 mm_system_clear_reset();
                                 break;
                             }
                         }
+                        if (!cpu.sleeping) {
+                            goto handle_pending;
+                        }
                         continue;
                     }
+                    if (!cpu.sleeping) {
+                        goto handle_pending;
+                    }
+                    continue;
                 }
 
                 /* Handle pending system exceptions (SysTick, PendSV). */
+handle_pending:
                 if (scs.pend_st) {
                     if (!enter_exception(&cpu, &map, &scs, MM_VECT_SYSTICK, cpu.r[15] & ~1u, cpu.xpsr)) {
                         done = MM_TRUE;
@@ -1897,6 +1939,7 @@ int main(int argc, char **argv)
 
                 if (cycles_since_poll >= poll_granularity) {
                     mm_target_usart_poll(&cfg);
+                    mm_target_spi_poll(&cfg);
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
                     if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
@@ -1946,6 +1989,7 @@ int main(int argc, char **argv)
     }
 
 cleanup:
+    mm_spiflash_shutdown_all();
     if (opt_capstone) {
         capstone_shutdown();
     }

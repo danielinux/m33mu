@@ -24,6 +24,7 @@
 #include "stm32h563/stm32h563_mmio.h"
 #include "stm32h563/stm32h563_timers.h"
 #include "stm32h563/stm32h563_usart.h"
+#include "stm32h563/stm32h563_spi.h"
 #include "stm32h563/cpu_config.h"
 
 struct mm_cpu_entry {
@@ -51,6 +52,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H563_USART_INIT,
             STM32H563_USART_RESET,
             STM32H563_USART_POLL,
+            STM32H563_SPI_INIT,
+            STM32H563_SPI_RESET,
+            STM32H563_SPI_POLL,
             STM32H563_TIMER_INIT,
             STM32H563_TIMER_RESET,
             STM32H563_TIMER_TICK
