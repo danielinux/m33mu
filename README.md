@@ -39,12 +39,16 @@ For the TUI, m33mu uses 'termbox2' library (MIT License) - see `tui/termbox2.h`.
 - Testing: add focused unit tests per module; include small integration traces for fetch/execute and MMIO edges when added.
 - No IDAU: trustzone segments are SAU-only.
 
-## Repository structure (planned)
+## Repository structure
 - `src/`: core CPU, decoder, scheduler/interrupt logic, GDB server.
 - `cpu/`: Target specific MMIO device implementations and registration helpers.
 - `include/`: public headers for core/peripheral interfaces.
 - `tests/`: unit and scenario tests; runners should keep stdout stable for comparisons.
 - `tui/`  : TUI for running target interactively (see `--tui` command line option)
+
+## Generic peripherals supported:
+- UART over pts / stdout / TUI
+- SPI extras: SPI flash and TPM support
 
 
 ## Getting started
@@ -143,3 +147,11 @@ Options:
 #### m33mu TUI, running in non-secure domain:
 
 ![m33mu TUI, running in non-secure domain (blue bar)](png/screen03.png)
+
+
+## Reporting issues
+
+Please report issues to the [GitHub issue tracker](https://github.com/ARMmbed/m33mu/issues).
+
+Include, if possible, a full capture using `--capstone` option, a reproducer firmware image and an explaination on how to reproduce.
+
