@@ -46,6 +46,7 @@
 #include "m33mu/timer.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/spiflash.h"
+#include "m33mu/tpm_tis.h"
 #include "tui.h"
 #include <string.h>
 #include <time.h>
@@ -1098,6 +1099,8 @@ int main(int argc, char **argv)
     mm_bool opt_strcmp_trace = MM_FALSE;
     struct mm_spiflash_cfg spiflash_cfgs[8];
     int spiflash_count = 0;
+    struct mm_tpm_tis_cfg tpm_cfgs[4];
+    int tpm_count = 0;
     mm_u32 pc_trace_start = 0;
     mm_u32 pc_trace_end = 0;
     mm_u32 strcmp_trace_start = 0;
@@ -1181,6 +1184,16 @@ int main(int argc, char **argv)
                 return 1;
             }
             spiflash_count++;
+        } else if (strncmp(argv[i], "--tpm:", 6) == 0) {
+            if (tpm_count >= (int)(sizeof(tpm_cfgs) / sizeof(tpm_cfgs[0]))) {
+                fprintf(stderr, "too many tpm configs\n");
+                return 1;
+            }
+            if (!mm_tpm_tis_parse_spec(argv[i] + 6, &tpm_cfgs[tpm_count])) {
+                fprintf(stderr, "invalid tpm spec: %s\n", argv[i]);
+                return 1;
+            }
+            tpm_count++;
         } else if (argv[i][0] == '-') {
             fprintf(stderr, "unknown option: %s\n", argv[i]);
             return 1;
@@ -1201,7 +1214,7 @@ int main(int argc, char **argv)
     }
 
     if (image_count == 0) {
-        fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] [--tui] [--persist] [--capstone] [--uart-stdout] [--quit-on-faults] [--meminfo] [--gdb-symbols <elf>] [--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] <image.bin[:offset]> [more images...]\n", argv[0]);
+        fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] [--tui] [--persist] [--capstone] [--uart-stdout] [--quit-on-faults] [--meminfo] [--gdb-symbols <elf>] [--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] [--tpm:SPIx:cs=GPIONAME[:file=<path>]] <image.bin[:offset]> [more images...]\n", argv[0]);
         return 1;
     }
 
@@ -1229,6 +1242,12 @@ int main(int argc, char **argv)
     for (i = 0; i < spiflash_count; ++i) {
         if (!mm_spiflash_register_cfg(&spiflash_cfgs[i])) {
             fprintf(stderr, "failed to register spiflash for %s\n", spiflash_cfgs[i].path);
+            return 1;
+        }
+    }
+    for (i = 0; i < tpm_count; ++i) {
+        if (!mm_tpm_tis_register_cfg(&tpm_cfgs[i])) {
+            fprintf(stderr, "failed to register tpm\n");
             return 1;
         }
     }
@@ -1358,6 +1377,7 @@ int main(int argc, char **argv)
             mm_target_soc_reset(&cfg);
             mm_timer_reset(&cfg);
             mm_spiflash_reset_all();
+            mm_tpm_tis_reset_all();
             mm_memmap_configure_flash(&map, &cfg, flash, MM_TRUE);
             mm_memmap_configure_flash(&map, &cfg, flash, MM_FALSE);
             map.flash.base = cfg.flash_base_s;
@@ -1990,6 +2010,7 @@ handle_pending:
 
 cleanup:
     mm_spiflash_shutdown_all();
+    mm_tpm_tis_shutdown_all();
     if (opt_capstone) {
         capstone_shutdown();
     }

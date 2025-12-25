@@ -47,7 +47,6 @@ struct mm_spiflash {
     int cs_bank;
     int cs_pin;
     mm_u8 cs_level;
-    mm_bool xfer_end_pending;
 };
 
 static struct mm_spiflash g_spiflash[SPIFLASH_MAX];
@@ -251,12 +250,6 @@ static mm_u8 spiflash_bus_xfer(void *opaque, mm_u8 out)
         return 0xFFu;
     }
     cs_level = spiflash_sample_cs(flash);
-    if (flash->xfer_end_pending) {
-        if (!flash->cs_valid || cs_level == 0u) {
-            mm_spiflash_cs_deassert(flash);
-            flash->xfer_end_pending = MM_FALSE;
-        }
-    }
     if (flash->cs_valid && cs_level != 0u) {
         if (spiflash_trace_enabled()) {
             printf("[SPI] SPI%d CS high -> drop 0x%02x\n", flash->bus, out);
@@ -272,12 +265,7 @@ static void spiflash_bus_end(void *opaque)
     if (flash == 0) {
         return;
     }
-    flash->xfer_end_pending = MM_TRUE;
-    if (!flash->cs_valid) {
-        mm_spiflash_cs_deassert(flash);
-        flash->xfer_end_pending = MM_FALSE;
-    }
-    (void)spiflash_sample_cs(flash);
+    mm_spiflash_cs_deassert(flash);
 }
 
 mm_u8 mm_spiflash_xfer(struct mm_spiflash *flash, mm_u8 out)

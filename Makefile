@@ -15,12 +15,17 @@ WARN_FLAGS := -Wall -Wextra -Werror -Wdeclaration-after-statement $(MIXED_DECL_F
 override CFLAGS += $(STD_FLAGS) $(WARN_FLAGS)
 override CFLAGS += -Iinclude -Icpu -Itui
 override LDFLAGS += -lcapstone
+ifdef USE_LIBTPMS
+override CFLAGS += -DUSE_LIBTPMS
+override LDFLAGS += -ltpms
+endif
 
 DEPFLAGS = -MMD -MP -MF $(@:.o=.d)
 
 BUILD_DIR := build
 BIN_DIR := bin
 TARGET := $(BIN_DIR)/m33mu
+BUILD_FLAGS_FILE := $(BUILD_DIR)/build_flags.txt
 
 SRC := $(wildcard src/*.c src/m33mu/*.c cpu/*/*.c tui/*.c)
 OBJ := $(patsubst src/%.c,$(BUILD_DIR)/%.o,$(filter src/%.c,$(SRC)))
@@ -49,15 +54,15 @@ $(TARGET): $(OBJ)
 	@mkdir -p $(BIN_DIR)
 	$(CC) $(OBJ) $(LDFLAGS) -o $@
 
-$(BUILD_DIR)/%.o: src/%.c
+$(BUILD_DIR)/%.o: src/%.c $(BUILD_FLAGS_FILE)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/cpu/%.o: cpu/%.c
+$(BUILD_DIR)/cpu/%.o: cpu/%.c $(BUILD_FLAGS_FILE)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/tui/%.o: tui/%.c
+$(BUILD_DIR)/tui/%.o: tui/%.c $(BUILD_FLAGS_FILE)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
@@ -65,9 +70,14 @@ $(BUILD_DIR)/tui/termbox2.o: CFLAGS += -std=c99 -Wno-endif-labels -Wno-unused-fu
 $(BUILD_DIR)/tui/tui.o: CFLAGS += -std=c99 -Wno-endif-labels -Wno-comment -DTB_OPT_ATTR_W=32
 $(BUILD_DIR)/m33mu/capstone.o: CFLAGS += -std=c99
 
-$(BUILD_DIR)/tests/%.o: tests/%.c
+$(BUILD_DIR)/tests/%.o: tests/%.c $(BUILD_FLAGS_FILE)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD_FLAGS_FILE):
+	@mkdir -p $(BUILD_DIR)
+	@printf "USE_LIBTPMS=%s\n" "$(USE_LIBTPMS)" | cmp -s - $(BUILD_FLAGS_FILE) || \
+		printf "USE_LIBTPMS=%s\n" "$(USE_LIBTPMS)" > $(BUILD_FLAGS_FILE)
 
 $(BIN_DIR)/%: $(BUILD_DIR)/tests/%.o $(OBJ_NO_MAIN)
 	@mkdir -p $(BIN_DIR)
@@ -105,7 +115,8 @@ test-m33: $(TARGET) $(FIRMWARE_DIR)/test-cortex-m33/app.bin
 	@echo "Running firmware: test-cortex-m33 with SPI flash"; \
 	timeout $(FIRMWARE_TIMEOUT)s $(TARGET) $(FIRMWARE_DIR)/test-cortex-m33/app.bin \
 	    --uart-stdout \
-		--spiflash:SPI1:file=$(FIRMWARE_DIR)/test-cortex-m33/spi_flash.bin:size=2097152:mmap=0x60000000:cs=PB0 || true
+		--spiflash:SPI1:file=$(FIRMWARE_DIR)/test-cortex-m33/spi_flash.bin:size=2097152:mmap=0x60000000:cs=PB0 \
+		--tpm:SPI1:cs=PB1:file=$(FIRMWARE_DIR)/test-cortex-m33/tpm_nv || true
 
 clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR)

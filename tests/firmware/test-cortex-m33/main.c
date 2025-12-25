@@ -82,6 +82,17 @@ extern void __libc_init_array(void);
 #define SPI_SR_RXP        (1u << 0)
 #define SPI_SR_EOT        (1u << 3)
 
+/* TPM TIS registers (locality 0) */
+#define TPM_ACCESS        0x0000u
+#define TPM_STS           0x0018u
+#define TPM_DATA_FIFO     0x0024u
+#define TPM_BURST_COUNT   0x0019u
+
+#define TPM_STS_VALID     0x80u
+#define TPM_STS_COMMAND_READY 0x40u
+#define TPM_STS_GO        0x20u
+#define TPM_STS_DATA_AVAIL 0x10u
+
 /* SysTick */
 #define SYST_CSR          (*(volatile uint32_t *)0xE000E010u)
 #define SYST_RVR          (*(volatile uint32_t *)0xE000E014u)
@@ -246,6 +257,33 @@ static void gpio_config_spi_cs_pb0(void)
     GPIO_BSRR(GPIOB_BASE) = (1u << 0);
 }
 
+static void gpio_config_tpm_cs_pb1(void)
+{
+    uint32_t v;
+    /* Enable GPIOB clock (AHB2ENR bit1) */
+    RCC_AHB2ENR |= (1u << 1);
+    /* PB1 as general purpose output */
+    v = GPIO_MODER(GPIOB_BASE);
+    v &= ~(3u << (1u * 2u));
+    v |= (1u << (1u * 2u));
+    GPIO_MODER(GPIOB_BASE) = v;
+    /* push-pull */
+    v = GPIO_OTYPER(GPIOB_BASE);
+    v &= ~(1u << 1);
+    GPIO_OTYPER(GPIOB_BASE) = v;
+    /* high speed */
+    v = GPIO_OSPEEDR(GPIOB_BASE);
+    v &= ~(3u << (1u * 2u));
+    v |= (2u << (1u * 2u));
+    GPIO_OSPEEDR(GPIOB_BASE) = v;
+    /* no pull */
+    v = GPIO_PUPDR(GPIOB_BASE);
+    v &= ~(3u << (1u * 2u));
+    GPIO_PUPDR(GPIOB_BASE) = v;
+    /* default CS high */
+    GPIO_BSRR(GPIOB_BASE) = (1u << 1);
+}
+
 static void spi_cs_assert(void)
 {
     GPIO_BSRR(GPIOB_BASE) = (1u << (0 + 16));
@@ -254,6 +292,16 @@ static void spi_cs_assert(void)
 static void spi_cs_deassert(void)
 {
     GPIO_BSRR(GPIOB_BASE) = (1u << 0);
+}
+
+static void tpm_cs_assert(void)
+{
+    GPIO_BSRR(GPIOB_BASE) = (1u << (1 + 16));
+}
+
+static void tpm_cs_deassert(void)
+{
+    GPIO_BSRR(GPIOB_BASE) = (1u << 1);
 }
 
 static void usart3_init_115200(void)
@@ -285,6 +333,7 @@ static void spi1_init(void)
     RCC_APB2ENR |= (1u << 12);
     gpio_config_spi1_pa4_pa7();
     gpio_config_spi_cs_pb0();
+    gpio_config_tpm_cs_pb1();
 
     /* Minimal SPI setup: enable peripheral, keep defaults for size/mode */
     SPI_CR1(SPI1_BASE) = 0;
@@ -317,6 +366,13 @@ static void spi1_xfer_bytes(const uint8_t *tx, uint8_t *rx, uint32_t len)
     SPI_IFCR(SPI1_BASE) = (1u << 3);
 }
 
+static uint8_t spi1_xfer_byte(uint8_t out)
+{
+    uint8_t in = 0;
+    spi1_xfer_bytes(&out, &in, 1u);
+    return in;
+}
+
 static void spiflash_write_enable(void)
 {
     uint8_t cmd = 0x06u;
@@ -337,6 +393,58 @@ static void spiflash_read_id_no_cs(uint8_t *id)
 {
     uint8_t tx[4] = { 0x9Fu, 0xFFu, 0xFFu, 0xFFu };
     spi1_xfer_bytes(tx, id, 4u);
+}
+
+static int tpm_tis_wait_ready(void)
+{
+    uint32_t i;
+    for (i = 0; i < 32u; ++i) {
+        uint8_t v = spi1_xfer_byte(0xFFu);
+        if (v == 0x01u) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void tpm_tis_read(uint16_t addr, uint8_t *buf, uint32_t len)
+{
+    uint8_t hdr[4];
+    uint32_t i;
+    if (len == 0u) {
+        return;
+    }
+    hdr[0] = (uint8_t)(0x80u | (uint8_t)(len - 1u));
+    hdr[1] = 0xD4u;
+    hdr[2] = (uint8_t)(addr >> 8);
+    hdr[3] = (uint8_t)(addr & 0xFFu);
+    tpm_cs_assert();
+    spi1_xfer_bytes(hdr, 0, 4u);
+    (void)tpm_tis_wait_ready();
+    for (i = 0; i < len; ++i) {
+        buf[i] = spi1_xfer_byte(0xFFu);
+    }
+    tpm_cs_deassert();
+}
+
+static void tpm_tis_write(uint16_t addr, const uint8_t *buf, uint32_t len)
+{
+    uint8_t hdr[4];
+    uint32_t i;
+    if (len == 0u) {
+        return;
+    }
+    hdr[0] = (uint8_t)(len - 1u);
+    hdr[1] = 0xD4u;
+    hdr[2] = (uint8_t)(addr >> 8);
+    hdr[3] = (uint8_t)(addr & 0xFFu);
+    tpm_cs_assert();
+    spi1_xfer_bytes(hdr, 0, 4u);
+    (void)tpm_tis_wait_ready();
+    for (i = 0; i < len; ++i) {
+        (void)spi1_xfer_byte(buf[i]);
+    }
+    tpm_cs_deassert();
 }
 
 static uint32_t spiflash_size_from_jedec(uint8_t density)
@@ -522,6 +630,7 @@ int main(void)
     uint32_t i;
     uint32_t errors = 0;
     volatile uint8_t *mmap = (volatile uint8_t *)0x60000000u;
+    uint8_t tpm_buf[16];
 
     gpio_config_usart3_pd8_pd9();
     usart3_init_115200();
@@ -588,6 +697,40 @@ int main(void)
                         printf("%02x ", mmap[i]);
                     }
                     printf("\r\n");
+
+                    printf("TPM TIS test start\r\n");
+                    tpm_tis_read(TPM_ACCESS, tpm_buf, 1u);
+                    printf("TPM_ACCESS: %02x\r\n", tpm_buf[0]);
+                    tpm_buf[0] = 0x02u; /* request locality */
+                    tpm_tis_write(TPM_ACCESS, tpm_buf, 1u);
+                    tpm_tis_read(TPM_STS, tpm_buf, 1u);
+                    printf("TPM_STS: %02x\r\n", tpm_buf[0]);
+                    tpm_tis_read(TPM_BURST_COUNT, tpm_buf, 2u);
+                    printf("TPM_BURST: %02x%02x\r\n", tpm_buf[1], tpm_buf[0]);
+
+                    {
+                        uint8_t cmd[12] = {
+                            0x80u, 0x01u, 0x00u, 0x00u, 0x00u, 0x0Cu,
+                            0x00u, 0x00u, 0x01u, 0x44u, 0x00u, 0x00u
+                        };
+                        uint8_t sts = TPM_STS_COMMAND_READY;
+                        tpm_tis_write(TPM_STS, &sts, 1u);
+                        tpm_tis_write(TPM_DATA_FIFO, cmd, sizeof(cmd));
+                        sts = TPM_STS_GO;
+                        tpm_tis_write(TPM_STS, &sts, 1u);
+                        for (i = 0; i < 64u; ++i) {
+                            tpm_tis_read(TPM_STS, tpm_buf, 1u);
+                            if ((tpm_buf[0] & TPM_STS_DATA_AVAIL) != 0u) {
+                                break;
+                            }
+                        }
+                        tpm_tis_read(TPM_DATA_FIFO, tpm_buf, 10u);
+                        printf("TPM2_Startup rsp: ");
+                        for (i = 0; i < 10u; ++i) {
+                            printf("%02x ", tpm_buf[i]);
+                        }
+                        printf("\r\n");
+                    }
                 }
                 last = now;
                 printf("Hello, world!\r\n");
