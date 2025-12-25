@@ -18,6 +18,7 @@ For the TUI, m33mu uses 'termbox2' library (MIT License) - see `tui/termbox2.h`.
 
 ## Requirements
 - Libcapstone (for optional self-debugging)
+- Libtpms (for optional TPM 2.0 emulator)
 
 ## Features
 - ARMv8-M baseline (Cortex-M33) CPU core
@@ -65,7 +66,7 @@ Run the test suite:
 ctest --test-dir build
 ```
 
-Automate firmware builds/runs (Makefile-based firmware remains unchanged):
+Automate firmware builds/runs (Makefile-based firmware build)
 
 ```sh
 cmake --build build --target firmware-build
