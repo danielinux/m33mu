@@ -71,13 +71,13 @@ Automate firmware builds/runs (Makefile-based firmware build)
 ```sh
 cmake --build build --target firmware-build
 cmake --build build --target test-firmware
-cmake --build build --target test-m33
+cmake --build build --target test-stm32h5
 ```
 
 Build firmware fixtures (arm-none-eabi toolchain required):
 
 ```sh
-make -C tests/firmware/test-cortex-m33 app.bin
+make -C tests/firmware/test-stm32h563 app.bin
 make -C tests/firmware/test-rtos-exceptions app.bin
 make -C tests/firmware/test-systick-wfi app.bin
 make -C tests/firmware/test-tz-bxns-cmse-sau-mpu clean all
@@ -85,7 +85,7 @@ make -C tests/firmware/test-tz-bxns-cmse-sau-mpu clean all
 
 Run the included sample firmwares:
 
-- Cortex-M33 bring-up: `build/m33mu tests/firmware/test-cortex-m33/app.bin`
+- Cortex-M33 bring-up: `build/m33mu tests/firmware/test-stm32h563/app.bin`
 - RTOS exception exercise (SysTick/SVC/PendSV, NVIC priorities): `build/m33mu tests/firmware/test-rtos-exceptions/app.bin`
 - SysTick + WFI blocking demo: `SYSTICK_TRACE=1 build/m33mu tests/firmware/test-systick-wfi/app.bin` (shows SysTick downcounter, COUNTFLAG, pended interrupt waking WFI).
 - TrustZone + CMSE + SAU + MPU (Secure+Non-secure images):
@@ -155,4 +155,3 @@ Options:
 Please report issues to the [GitHub issue tracker](https://github.com/ARMmbed/m33mu/issues).
 
 Include, if possible, a full capture using `--capstone` option, a reproducer firmware image and an explaination on how to reproduce.
-

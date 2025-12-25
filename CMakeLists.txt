@@ -222,7 +222,7 @@ endif()
 # Firmware build/run automation (Makefile-based)
 # -----------------------------------------------------------------------------
 add_custom_target(firmware-build
-  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-cortex-m33 app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563 app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-rtos-exceptions app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-systick-wfi app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-tz-bxns-cmse-sau-mpu clean all
@@ -230,7 +230,7 @@ add_custom_target(firmware-build
 )
 
 add_custom_target(test-firmware
-  COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-cortex-m33/app.bin || true"
+  COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-stm32h563/app.bin || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-rtos-exceptions/app.bin || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-systick-wfi/app.bin || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-tz-bxns-cmse-sau-mpu/build/secure.bin tests/firmware/test-tz-bxns-cmse-sau-mpu/build/nonsecure.bin:0x2000 || true"
@@ -238,19 +238,19 @@ add_custom_target(test-firmware
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
-add_custom_target(test-m33
-  COMMAND $<TARGET_FILE:m33mu> tests/firmware/test-cortex-m33/app.bin
+add_custom_target(test-stm32h5
+  COMMAND $<TARGET_FILE:m33mu> tests/firmware/test-stm32h563/app.bin
           --uart-stdout
-          --spiflash:SPI1:file=tests/firmware/test-cortex-m33/spi_flash.bin:size=2097152:mmap=0x60000000:cs=PB0
-          $<$<BOOL:${M33MU_HAS_LIBTPMS}>:--tpm:SPI1:cs=PB1:file=tests/firmware/test-cortex-m33/tpm_nv>
+          --spiflash:SPI1:file=tests/firmware/test-stm32h563/spi_flash.bin:size=2097152:mmap=0x60000000:cs=PB0
+          $<$<BOOL:${M33MU_HAS_LIBTPMS}>:--tpm:SPI1:cs=PB1:file=tests/firmware/test-stm32h563/tpm_nv>
   DEPENDS m33mu
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
-add_custom_target(test-m33-tui
-  COMMAND $<TARGET_FILE:m33mu> tests/firmware/test-cortex-m33/app.bin --tui
-          --spiflash:SPI1:file=tests/firmware/test-cortex-m33/spi_flash.bin:size=2097152:mmap=0x60000000:cs=PB0
-          $<$<BOOL:${M33MU_HAS_LIBTPMS}>:--tpm:SPI1:cs=PB1:file=tests/firmware/test-cortex-m33/tpm_nv>
+add_custom_target(test-stm32h5-tui
+  COMMAND $<TARGET_FILE:m33mu> tests/firmware/test-stm32h563/app.bin --tui
+          --spiflash:SPI1:file=tests/firmware/test-stm32h563/spi_flash.bin:size=2097152:mmap=0x60000000:cs=PB0
+          $<$<BOOL:${M33MU_HAS_LIBTPMS}>:--tpm:SPI1:cs=PB1:file=tests/firmware/test-stm32h563/tpm_nv>
   DEPENDS m33mu
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
