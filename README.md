@@ -130,9 +130,16 @@ Options:
 - `M33MU_DUMP_PSP_FRAME=1`: dump 8-word stacked frames during EXC_RETURN unstack.
 - `M33MU_TZ_BOOT_TRACE=1`: trace security-state transitions during TZ boot/hand-off.
 
-## Screenshots
+## Screenshots for TUI mode
+
+#### m33mu TUI, stopped, stepping with GDB:
+
 ![m33mu TUI, stopped, stepping with GDB](png/screen01.png)
 
+#### m33mu TUI, running in secure domain:
+
 ![m33mu TUI, running in secure domain (green bar)](png/screen02.png)
+
+#### m33mu TUI, running in non-secure domain:
 
 ![m33mu TUI, running in non-secure domain (blue bar)](png/screen03.png)
