@@ -120,6 +120,41 @@ static const char *type_name(enum mm_access_type type)
     }
 }
 
+static mm_bool mpcbb_attr_for_addr(const struct mm_prot_ctx *ctx,
+                                   mm_u32 addr,
+                                   enum mm_sau_attr *attr_out,
+                                   enum mm_sec_state *sec_out)
+{
+    const struct mm_target_cfg *cfg;
+    mm_u32 i;
+    if (ctx == 0 || attr_out == 0 || sec_out == 0) {
+        return MM_FALSE;
+    }
+    cfg = ctx->cfg;
+    if (cfg == 0 || cfg->mpcbb_block_secure == 0 || cfg->ram_regions == 0 ||
+        cfg->ram_region_count == 0u || cfg->mpcbb_block_size == 0u) {
+        return MM_FALSE;
+    }
+    for (i = 0; i < cfg->ram_region_count; ++i) {
+        const struct mm_ram_region *r = &cfg->ram_regions[i];
+        if (addr >= r->base_s && (addr - r->base_s) < r->size) {
+            mm_u32 block = (addr - r->base_s) / cfg->mpcbb_block_size;
+            mm_bool sec = cfg->mpcbb_block_secure(r->mpcbb_index, block);
+            *sec_out = sec ? MM_SECURE : MM_NONSECURE;
+            *attr_out = sec ? MM_SAU_SECURE : MM_SAU_NONSECURE;
+            return MM_TRUE;
+        }
+        if (addr >= r->base_ns && (addr - r->base_ns) < r->size) {
+            mm_u32 block = (addr - r->base_ns) / cfg->mpcbb_block_size;
+            mm_bool sec = cfg->mpcbb_block_secure(r->mpcbb_index, block);
+            *sec_out = sec ? MM_SECURE : MM_NONSECURE;
+            *attr_out = sec ? MM_SAU_SECURE : MM_SAU_NONSECURE;
+            return MM_TRUE;
+        }
+    }
+    return MM_FALSE;
+}
+
 static const char *attr_name(enum mm_sau_attr attr)
 {
     switch (attr) {
@@ -287,13 +322,14 @@ static void record_memfault(struct mm_prot_ctx *ctx, enum mm_sec_state sec, enum
     }
 }
 
-void mm_prot_init(struct mm_prot_ctx *ctx, struct mm_scs *scs)
+void mm_prot_init(struct mm_prot_ctx *ctx, struct mm_scs *scs, const struct mm_target_cfg *cfg)
 {
     if (ctx == 0) {
         return;
     }
     ctx->count = 0;
     ctx->scs = scs;
+    ctx->cfg = cfg;
 }
 
 mm_bool mm_prot_add_region(struct mm_prot_ctx *ctx, mm_u32 base, mm_u32 size, mm_u8 perms, enum mm_sec_state sec)
@@ -354,9 +390,12 @@ mm_bool mm_prot_interceptor(void *opaque, enum mm_access_type type, enum mm_sec_
 
     addr_sec = MM_SECURE;
     attr = MM_SAU_SECURE;
-    if (ctx->scs != 0) {
-        attr = mm_sau_attr_for_addr(ctx->scs, addr);
-        addr_sec = (attr == MM_SAU_NONSECURE) ? MM_NONSECURE : MM_SECURE;
+    {
+        mm_bool mpcbb_hit = mpcbb_attr_for_addr(ctx, addr, &attr, &addr_sec);
+        if (!mpcbb_hit && ctx->scs != 0) {
+            attr = mm_sau_attr_for_addr(ctx->scs, addr);
+            addr_sec = (attr == MM_SAU_NONSECURE) ? MM_NONSECURE : MM_SECURE;
+        }
         if (sec == MM_NONSECURE) {
             if (attr == MM_SAU_SECURE) {
                 record_securefault(ctx, type, addr);

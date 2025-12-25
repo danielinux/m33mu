@@ -100,6 +100,20 @@ static mm_bool parse_hex_u32(const char *s, mm_u32 *out)
     return MM_TRUE;
 }
 
+static mm_u32 cfg_total_ram(const struct mm_target_cfg *cfg)
+{
+    mm_u32 total = 0;
+    mm_u32 i;
+    if (cfg == 0) return 0;
+    if (cfg->ram_regions != 0 && cfg->ram_region_count > 0u) {
+        for (i = 0; i < cfg->ram_region_count; ++i) {
+            total += cfg->ram_regions[i].size;
+        }
+        return total;
+    }
+    return cfg->ram_size_s;
+}
+
 static mm_bool parse_pc_trace_range(const char *s, mm_u32 *start_out, mm_u32 *end_out)
 {
     const char *dash;
@@ -1394,7 +1408,7 @@ int main(int argc, char **argv)
     }
 
     flash = (mm_u8 *)malloc(cfg.flash_size_s);
-    ram = (mm_u8 *)malloc(cfg.ram_size_s);
+    ram = (mm_u8 *)malloc(cfg_total_ram(&cfg));
     if (flash == NULL || ram == NULL) {
         fprintf(stderr, "out of memory\n");
         rc = 1;
@@ -1405,7 +1419,7 @@ int main(int argc, char **argv)
         for (i = 0; i < cfg.flash_size_s; ++i) {
             flash[i] = 0xFFu;
         }
-        for (i = 0; i < cfg.ram_size_s; ++i) {
+        for (i = 0; i < cfg_total_ram(&cfg); ++i) {
             ram[i] = (mm_u8)(rand() & 0xFF);
         }
     }
@@ -1515,7 +1529,7 @@ int main(int argc, char **argv)
             mm_memmap_configure_ram(&map, &cfg, ram, MM_TRUE);
             mm_memmap_configure_ram(&map, &cfg, ram, MM_FALSE);
             map.ram.base = cfg.ram_base_s;
-            map.ram.length = cfg.ram_size_s;
+            map.ram.length = cfg_total_ram(&cfg);
             mm_target_register_mmio(&cfg, &map.mmio);
             mm_spiflash_register_mmap_regions(&map.mmio);
             mm_target_flash_bind(&cfg, &map, flash, cfg.flash_size_s, opt_persist ? &persist : 0);
@@ -1528,12 +1542,21 @@ int main(int argc, char **argv)
             mm_scs_init(&scs, 0x410fc241u);
             mm_scs_register_regions(&scs, &map.mmio, 0xE000ED00u, 0xE002ED00u, &nvic);
             mm_core_sys_register(&map.mmio);
-            mm_prot_init(&prot, &scs);
+            mm_prot_init(&prot, &scs, &cfg);
             mm_memmap_set_interceptor(&map, mm_prot_interceptor, &prot);
             mm_prot_add_region(&prot, cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
             mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
-            mm_prot_add_region(&prot, cfg.ram_base_s, cfg.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-            mm_prot_add_region(&prot, cfg.ram_base_ns, cfg.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+            if (cfg.ram_regions != 0 && cfg.ram_region_count > 0u) {
+                mm_u32 ri;
+                for (ri = 0; ri < cfg.ram_region_count; ++ri) {
+                    const struct mm_ram_region *r = &cfg.ram_regions[ri];
+                    mm_prot_add_region(&prot, r->base_s, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                    mm_prot_add_region(&prot, r->base_ns, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                }
+            } else {
+                mm_prot_add_region(&prot, cfg.ram_base_s, cfg.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&prot, cfg.ram_base_ns, cfg.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+            }
             /* Permit peripheral space (AHB/APB) for now; SAU still controls Secure vs Non-secure visibility. */
             mm_prot_add_region(&prot, 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
             mm_prot_add_region(&prot, 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);

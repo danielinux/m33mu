@@ -38,12 +38,13 @@ struct mm_prot_region {
 };
 
 struct mm_prot_ctx {
-    struct mm_prot_region regions[8];
+    struct mm_prot_region regions[16];
     size_t count;
     struct mm_scs *scs;
+    const struct mm_target_cfg *cfg;
 };
 
-void mm_prot_init(struct mm_prot_ctx *ctx, struct mm_scs *scs);
+void mm_prot_init(struct mm_prot_ctx *ctx, struct mm_scs *scs, const struct mm_target_cfg *cfg);
 mm_bool mm_prot_add_region(struct mm_prot_ctx *ctx, mm_u32 base, mm_u32 size, mm_u8 perms, enum mm_sec_state sec);
 mm_bool mm_prot_interceptor(void *opaque, enum mm_access_type type, enum mm_sec_state sec, mm_u32 addr, mm_u32 size_bytes);
 

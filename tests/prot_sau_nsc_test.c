@@ -75,7 +75,7 @@ static int test_nsc_exec_allowed_data_denied(void)
     scs.sau_rbar[3] = 0x0C000400u;
     scs.sau_rlar[3] = 0x0C0007E0u | 0x3u; /* ENABLE|NSC */
 
-    mm_prot_init(&prot, &scs);
+    mm_prot_init(&prot, &scs, 0);
     mm_memmap_set_interceptor(&map, mm_prot_interceptor, &prot);
     mm_prot_add_region(&prot, cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
     mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
@@ -153,7 +153,7 @@ static int test_secure_data_read_can_access_ns_window_even_if_sau_disabled(void)
     mm_scs_init(&scs, 0);
     scs.sau_ctrl = 0x0u; /* disabled => default Secure attribution */
 
-    mm_prot_init(&prot, &scs);
+    mm_prot_init(&prot, &scs, 0);
     mm_memmap_set_interceptor(&map, mm_prot_interceptor, &prot);
     mm_prot_add_region(&prot, cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
     mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);

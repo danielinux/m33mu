@@ -57,13 +57,22 @@ extern void mm_system_request_reset(void);
 #define GTZC_TZIC_S_BASE 0x50032800u
 #define GTZC_TZIC_NS_BASE 0x40032800u
 #define GTZC_TZSC_SIZE 0x400u
-#define GTZC_TZIC_SIZE 0x1000u
+#define GTZC_TZIC_SIZE 0x400u
 #define GTZC_BLK_SIZE 0x1000u
 
 /* RNG base addresses */
 #define RNG_BASE     0x420c0800u
 #define RNG_SEC_BASE 0x520c0800u
 #define RNG_SIZE     0x400u
+
+/* MPCBB base addresses */
+#define MPCBB1_BASE     0x40032c00u
+#define MPCBB1_SEC_BASE 0x50032c00u
+#define MPCBB2_BASE     0x40033000u
+#define MPCBB2_SEC_BASE 0x50033000u
+#define MPCBB3_BASE     0x40033400u
+#define MPCBB3_SEC_BASE 0x50033400u
+#define MPCBB_SIZE      0x400u
 
 /* EXTI base addresses */
 #define EXTI_BASE     0x44022000u
@@ -113,6 +122,11 @@ extern void mm_system_request_reset(void);
 #define GPIO_IDR_OFFSET 0x10u
 #define GPIO_ODR_OFFSET 0x14u
 
+/* MPCBB offsets */
+#define MPCBB_CR_OFFSET      0x000u
+#define MPCBB_SECCFGR_OFFSET 0x100u
+#define MPCBB_CR_INVSECSTATE (1u << 30)
+
 /* FLASH register offsets */
 #define FLASH_ACR      0x000u
 #define FLASH_NSKEYR   0x004u
@@ -153,6 +167,10 @@ struct pwr_state {
 
 struct simple_blk {
     mm_u32 regs[GTZC_BLK_SIZE / 4];
+};
+
+struct mpcbb_state {
+    mm_u32 regs[MPCBB_SIZE / 4];
 };
 
 struct rng_state {
@@ -206,6 +224,7 @@ typedef unsigned long mm_uptr;
 static void rcc_update_ready(struct rcc_state *r);
 static void rcc_update_sysclk(struct rcc_state *r);
 static void pwr_update_vos(struct pwr_state *p);
+static void mpcbb_init_defaults(void);
 
 static struct rcc_state rcc;
 static struct pwr_state pwr;
@@ -213,6 +232,7 @@ static struct simple_blk tzsc_s;
 static struct simple_blk tzsc_ns;
 static struct simple_blk tzic_s;
 static struct simple_blk tzic_ns;
+static struct mpcbb_state mpcbb[3];
 static struct rng_state rng;
 static struct exti_state exti;
 static struct iwdg_state iwdg;
@@ -228,6 +248,7 @@ static struct mm_nvic *g_exti_nvic = 0;
 static struct mm_nvic *g_wdg_nvic = 0;
 
 #define RNG_IRQ 114
+static const mm_u32 mpcbb_words[] = { 32u, 32u, 32u };
 
 static mm_u32 stm32h563_gpio_bank_read(void *opaque, int bank);
 static mm_u32 stm32h563_gpio_bank_read_moder(void *opaque, int bank);
@@ -261,6 +282,7 @@ void mm_stm32h563_mmio_reset(void)
     memset(&iwdg, 0, sizeof(iwdg));
     memset(&wwdg, 0, sizeof(wwdg));
     memset(&flash_ctl, 0, sizeof(flash_ctl));
+    mpcbb_init_defaults();
     memset(&gpdma1, 0, sizeof(gpdma1));
     memset(&gpdma2, 0, sizeof(gpdma2));
     for (i = 0; i < sizeof(gpio) / sizeof(gpio[0]); ++i) {
@@ -296,6 +318,28 @@ void mm_stm32h563_mmio_reset(void)
 mm_u32 *mm_stm32h563_tzsc_regs(void)
 {
     return tzsc_s.regs;
+}
+
+mm_bool mm_stm32h563_mpcbb_block_secure(int bank, mm_u32 block_index)
+{
+    mm_u32 word;
+    mm_u32 bit;
+    mm_u32 val;
+    mm_bool sec;
+    if (bank < 0 || bank >= (int)(sizeof(mpcbb) / sizeof(mpcbb[0]))) {
+        return MM_FALSE;
+    }
+    word = block_index / 32u;
+    if (word >= mpcbb_words[bank]) {
+        return MM_FALSE;
+    }
+    bit = block_index % 32u;
+    val = mpcbb[bank].regs[(MPCBB_SECCFGR_OFFSET / 4u) + word];
+    sec = ((val >> bit) & 1u) != 0u;
+    if ((mpcbb[bank].regs[MPCBB_CR_OFFSET / 4u] & MPCBB_CR_INVSECSTATE) != 0u) {
+        sec = !sec;
+    }
+    return sec;
 }
 
 static mm_bool gpio_clock_enabled(const struct rcc_state *rcc, int index)
@@ -703,6 +747,36 @@ static mm_bool simple_blk_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, 
     if ((offset + size_bytes) > GTZC_BLK_SIZE) return MM_FALSE;
     memcpy((mm_u8 *)b->regs + offset, &value, size_bytes);
     return MM_TRUE;
+}
+
+static mm_bool mpcbb_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
+{
+    struct mpcbb_state *b = (struct mpcbb_state *)opaque;
+    if (value_out == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
+    if ((offset + size_bytes) > MPCBB_SIZE) return MM_FALSE;
+    memcpy(value_out, (mm_u8 *)b->regs + offset, size_bytes);
+    return MM_TRUE;
+}
+
+static mm_bool mpcbb_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    struct mpcbb_state *b = (struct mpcbb_state *)opaque;
+    if (size_bytes == 0 || size_bytes > 4) return MM_FALSE;
+    if ((offset + size_bytes) > MPCBB_SIZE) return MM_FALSE;
+    memcpy((mm_u8 *)b->regs + offset, &value, size_bytes);
+    return MM_TRUE;
+}
+
+static void mpcbb_init_defaults(void)
+{
+    mm_u32 bank;
+    for (bank = 0; bank < (mm_u32)(sizeof(mpcbb) / sizeof(mpcbb[0])); ++bank) {
+        mm_u32 word;
+        memset(&mpcbb[bank], 0, sizeof(mpcbb[bank]));
+        for (word = 0; word < mpcbb_words[bank]; ++word) {
+            mpcbb[bank].regs[(MPCBB_SECCFGR_OFFSET / 4u) + word] = 0xFFFFFFFFu;
+        }
+    }
 }
 
 static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
@@ -1272,6 +1346,7 @@ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
     memset(&wwdg, 0, sizeof(wwdg));
     memset(&flash_ctl, 0, sizeof(flash_ctl));
     memset(gpio, 0, sizeof(gpio));
+    mpcbb_init_defaults();
     memset(&gpdma1, 0, sizeof(gpdma1));
     memset(&gpdma2, 0, sizeof(gpdma2));
     rcc.regs[RCC_CR / 4] |= 1u;
@@ -1344,6 +1419,28 @@ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
     /* GTZC TZIC non-secure alias */
     reg.base = GTZC_TZIC_NS_BASE;
     reg.opaque = &tzic_ns;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+
+    /* MPCBB1..3 (non-secure and secure aliases) */
+    reg.size = MPCBB_SIZE;
+    reg.read = mpcbb_read;
+    reg.write = mpcbb_write;
+    reg.base = MPCBB1_BASE;
+    reg.opaque = &mpcbb[0];
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    reg.base = MPCBB1_SEC_BASE;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+
+    reg.base = MPCBB2_BASE;
+    reg.opaque = &mpcbb[1];
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    reg.base = MPCBB2_SEC_BASE;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+
+    reg.base = MPCBB3_BASE;
+    reg.opaque = &mpcbb[2];
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    reg.base = MPCBB3_SEC_BASE;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* RNG (non-secure and secure aliases) */

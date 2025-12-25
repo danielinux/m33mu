@@ -29,6 +29,13 @@ struct mmio_bus;
 struct mm_nvic;
 struct mm_memmap;
 
+struct mm_ram_region {
+    mm_u32 base_s;
+    mm_u32 base_ns;
+    mm_u32 size;
+    int mpcbb_index; /* -1 if no MPCBB protection */
+};
+
 struct mm_target_cfg {
     mm_u32 flash_base_s;
     mm_u32 flash_size_s;
@@ -39,6 +46,11 @@ struct mm_target_cfg {
     mm_u32 ram_size_s;
     mm_u32 ram_base_ns;
     mm_u32 ram_size_ns;
+
+    const struct mm_ram_region *ram_regions;
+    mm_u32 ram_region_count;
+    mm_u32 mpcbb_block_size;
+    mm_bool (*mpcbb_block_secure)(int bank, mm_u32 block_index);
 
     mm_u32 flags;
 

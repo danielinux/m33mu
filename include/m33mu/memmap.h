@@ -49,6 +49,10 @@ typedef mm_bool (*mm_flash_write_cb)(void *opaque,
 struct mm_memmap {
     struct mm_mem flash;
     struct mm_mem ram;
+    struct mm_ram_region ram_regions[8];
+    mm_u32 ram_region_count;
+    mm_u32 ram_total_size;
+    mm_u32 ram_region_offsets[8];
     mm_u32 flash_base_s;
     mm_u32 flash_size_s;
     mm_u32 flash_base_ns;

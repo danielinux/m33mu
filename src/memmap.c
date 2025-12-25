@@ -63,6 +63,46 @@ static mm_bool read_buf_le(const mm_u8 *buf, mm_u32 offset, mm_u32 size, mm_u32 
     return MM_FALSE;
 }
 
+static mm_bool ram_offset_for_addr(const struct mm_memmap *map, mm_u32 addr, mm_u32 size, mm_u32 *offset_out)
+{
+    mm_u32 i;
+    if (map == 0 || offset_out == 0) {
+        return MM_FALSE;
+    }
+    if (map->ram_region_count > 0u) {
+        for (i = 0; i < map->ram_region_count; ++i) {
+            const struct mm_ram_region *r = &map->ram_regions[i];
+            mm_u32 end = r->size;
+            if (addr >= r->base_s && (addr - r->base_s) + size <= end) {
+                *offset_out = map->ram_region_offsets[i] + (addr - r->base_s);
+                return MM_TRUE;
+            }
+            if (addr >= r->base_ns && (addr - r->base_ns) + size <= end) {
+                *offset_out = map->ram_region_offsets[i] + (addr - r->base_ns);
+                return MM_TRUE;
+            }
+        }
+    } else {
+        mm_u32 base = map->ram_base_s;
+        mm_u32 size_limit = map->ram_size_s;
+        if (addr >= base && (addr - base) + size <= size_limit) {
+            *offset_out = addr - base;
+            return MM_TRUE;
+        }
+        base = map->ram_base_ns;
+        size_limit = map->ram_size_ns;
+        if (addr >= base && (addr - base) + size <= size_limit) {
+            *offset_out = addr - base;
+            return MM_TRUE;
+        }
+    }
+    if (map->ram_total_size > 0u && addr + size <= map->ram_total_size) {
+        *offset_out = addr;
+        return MM_TRUE;
+    }
+    return MM_FALSE;
+}
+
 static mm_bool intercept_ok(const struct mm_memmap *map, enum mm_access_type type, enum mm_sec_state sec, mm_u32 addr, mm_u32 size)
 {
     if (map->interceptor == 0) {
@@ -80,6 +120,16 @@ void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t r
     map->ram.buffer = 0;
     map->ram.length = 0;
     map->ram.base = 0;
+    map->ram_region_count = 0;
+    map->ram_total_size = 0;
+    map->ram_region_offsets[0] = 0;
+    map->ram_region_offsets[1] = 0;
+    map->ram_region_offsets[2] = 0;
+    map->ram_region_offsets[3] = 0;
+    map->ram_region_offsets[4] = 0;
+    map->ram_region_offsets[5] = 0;
+    map->ram_region_offsets[6] = 0;
+    map->ram_region_offsets[7] = 0;
     map->interceptor = 0;
     map->interceptor_opaque = 0;
     map->flash_write = 0;
@@ -132,11 +182,28 @@ mm_bool mm_memmap_configure_ram(struct mm_memmap *map, const struct mm_target_cf
     map->ram_base_ns = cfg->ram_base_ns;
     map->ram_size_s = cfg->ram_size_s;
     map->ram_size_ns = cfg->ram_size_ns;
+    if (cfg->ram_regions != 0 && cfg->ram_region_count > 0u) {
+        mm_u32 total = 0;
+        mm_u32 i;
+        map->ram_region_count = cfg->ram_region_count;
+        if (map->ram_region_count > (sizeof(map->ram_regions) / sizeof(map->ram_regions[0]))) {
+            map->ram_region_count = (mm_u32)(sizeof(map->ram_regions) / sizeof(map->ram_regions[0]));
+        }
+        for (i = 0; i < map->ram_region_count; ++i) {
+            map->ram_regions[i] = cfg->ram_regions[i];
+            map->ram_region_offsets[i] = total;
+            total += cfg->ram_regions[i].size;
+        }
+        map->ram_total_size = total;
+    } else {
+        map->ram_region_count = 0;
+        map->ram_total_size = cfg->ram_size_s;
+    }
     if (secure_view) {
-        map->ram.length = cfg->ram_size_s;
+        map->ram.length = (map->ram_total_size != 0u) ? map->ram_total_size : cfg->ram_size_s;
         map->ram.base = cfg->ram_base_s;
     } else {
-        map->ram.length = cfg->ram_size_ns;
+        map->ram.length = (map->ram_total_size != 0u) ? map->ram_total_size : cfg->ram_size_ns;
         map->ram.base = cfg->ram_base_ns;
     }
     return MM_TRUE;
@@ -182,31 +249,7 @@ mm_bool mm_memmap_read(const struct mm_memmap *map, enum mm_sec_state sec, mm_u3
     }
     /* RAM */
     if (map->ram.buffer != 0) {
-        /* Try secure SRAM window. */
-        base = map->ram_base_s;
-        size_limit = map->ram_size_s;
-        if (size_limit == 0u && map->ram.length > 0u) {
-            base = map->ram.base;
-            size_limit = (mm_u32)map->ram.length;
-        }
-        if (addr >= base && (addr - base) + size <= size_limit) {
-            offset = addr - base;
-            if (read_buf_le(map->ram.buffer, offset, size, &tmp)) { *value_out = tmp; return MM_TRUE; }
-        }
-        /* Try non-secure SRAM window. */
-        base = map->ram_base_ns;
-        size_limit = map->ram_size_ns;
-        if (size_limit == 0u && map->ram.length > 0u) {
-            base = map->ram.base;
-            size_limit = (mm_u32)map->ram.length;
-        }
-        if (addr >= base && (addr - base) + size <= size_limit) {
-            offset = addr - base;
-            if (read_buf_le(map->ram.buffer, offset, size, &tmp)) { *value_out = tmp; return MM_TRUE; }
-        }
-        /* Treat zero-based mirror for convenience (helps truncated addresses). */
-        if (addr < map->ram.length && size <= map->ram.length) {
-            offset = addr;
+        if (ram_offset_for_addr(map, addr, size, &offset)) {
             if (read_buf_le(map->ram.buffer, offset, size, &tmp)) { *value_out = tmp; return MM_TRUE; }
         }
     }
@@ -280,31 +323,8 @@ mm_bool mm_memmap_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 add
     }
     /* RAM only writable region for now */
     if (map->ram.buffer != 0) {
-        base = map->ram_base_s;
-        size_limit = map->ram_size_s;
-        if (addr >= base && (addr - base) + size <= size_limit) {
+        if (ram_offset_for_addr(map, addr, size, &offset)) {
             buf = (mm_u8 *)map->ram.buffer;
-            offset = addr - base;
-            if (size == 4u) {
-                buf[offset] = (mm_u8)(value & 0xffu);
-                buf[offset + 1u] = (mm_u8)((value >> 8) & 0xffu);
-                buf[offset + 2u] = (mm_u8)((value >> 16) & 0xffu);
-                buf[offset + 3u] = (mm_u8)((value >> 24) & 0xffu);
-                return MM_TRUE;
-            } else if (size == 2u) {
-                buf[offset] = (mm_u8)(value & 0xffu);
-                buf[offset + 1u] = (mm_u8)((value >> 8) & 0xffu);
-                return MM_TRUE;
-            } else if (size == 1u) {
-                buf[offset] = (mm_u8)(value & 0xffu);
-                return MM_TRUE;
-            }
-        }
-        base = map->ram_base_ns;
-        size_limit = map->ram_size_ns;
-        if (addr >= base && (addr - base) + size <= size_limit) {
-            buf = (mm_u8 *)map->ram.buffer;
-            offset = addr - base;
             if (size == 4u) {
                 buf[offset] = (mm_u8)(value & 0xffu);
                 buf[offset + 1u] = (mm_u8)((value >> 8) & 0xffu);
@@ -374,26 +394,7 @@ mm_bool mm_memmap_fetch_read16(const struct mm_memmap *map, enum mm_sec_state se
     }
     /* Execute from RAM if mapped. */
     if (map->ram.buffer != 0) {
-        base = map->ram_base_s;
-        size_limit = map->ram_size_s;
-        if (size_limit == 0u && map->ram.length > 0u) {
-            base = map->ram.base;
-            size_limit = (mm_u32)map->ram.length;
-        }
-        if (addr >= base && (addr - base) + 2u <= size_limit) {
-            offset = addr - base;
-            if (read_buf_le(map->ram.buffer, offset, 2u, &tmp)) { *value_out = tmp; return MM_TRUE; }
-            return MM_FALSE;
-        }
-
-        base = map->ram_base_ns;
-        size_limit = map->ram_size_ns;
-        if (size_limit == 0u && map->ram.length > 0u) {
-            base = map->ram.base;
-            size_limit = (mm_u32)map->ram.length;
-        }
-        if (addr >= base && (addr - base) + 2u <= size_limit) {
-            offset = addr - base;
+        if (ram_offset_for_addr(map, addr, 2u, &offset)) {
             if (read_buf_le(map->ram.buffer, offset, 2u, &tmp)) { *value_out = tmp; return MM_TRUE; }
             return MM_FALSE;
         }
@@ -405,7 +406,6 @@ mm_bool mm_memmap_read8(const struct mm_memmap *map, enum mm_sec_state sec, mm_u
 {
     mm_u32 base;
     mm_u32 size_limit;
-
     if (map == 0 || value_out == 0) {
         return MM_FALSE;
     }
@@ -435,24 +435,9 @@ mm_bool mm_memmap_read8(const struct mm_memmap *map, enum mm_sec_state sec, mm_u
         }
     }
     if (map->ram.buffer != 0) {
-        base = map->ram_base_s;
-        size_limit = map->ram_size_s;
-        if (size_limit == 0u && map->ram.length > 0u) {
-            base = map->ram.base;
-            size_limit = (mm_u32)map->ram.length;
-        }
-        if (addr >= base && (addr - base) < size_limit) {
-            *value_out = map->ram.buffer[addr - base];
-            return MM_TRUE;
-        }
-        base = map->ram_base_ns;
-        size_limit = map->ram_size_ns;
-        if (size_limit == 0u && map->ram.length > 0u) {
-            base = map->ram.base;
-            size_limit = (mm_u32)map->ram.length;
-        }
-        if (addr >= base && (addr - base) < size_limit) {
-            *value_out = map->ram.buffer[addr - base];
+        mm_u32 offset = 0;
+        if (ram_offset_for_addr(map, addr, 1u, &offset)) {
+            *value_out = map->ram.buffer[offset];
             return MM_TRUE;
         }
     }
@@ -468,8 +453,6 @@ mm_bool mm_memmap_read8(const struct mm_memmap *map, enum mm_sec_state sec, mm_u
 
 mm_bool mm_memmap_write8(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 addr, mm_u8 value)
 {
-    mm_u32 base;
-    mm_u32 size_limit;
     mm_u8 *buf;
 
     if (map == 0) {
@@ -479,26 +462,10 @@ mm_bool mm_memmap_write8(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 ad
         return MM_FALSE;
     }
     if (map->ram.buffer != 0) {
-        base = map->ram_base_s;
-        size_limit = map->ram_size_s;
-        if (size_limit == 0u && map->ram.length > 0u) {
-            base = map->ram.base;
-            size_limit = (mm_u32)map->ram.length;
-        }
-        if (addr >= base && (addr - base) < size_limit) {
+        mm_u32 offset = 0;
+        if (ram_offset_for_addr(map, addr, 1u, &offset)) {
             buf = (mm_u8 *)map->ram.buffer;
-            buf[addr - base] = value;
-            return MM_TRUE;
-        }
-        base = map->ram_base_ns;
-        size_limit = map->ram_size_ns;
-        if (size_limit == 0u && map->ram.length > 0u) {
-            base = map->ram.base;
-            size_limit = (mm_u32)map->ram.length;
-        }
-        if (addr >= base && (addr - base) < size_limit) {
-            buf = (mm_u8 *)map->ram.buffer;
-            buf[addr - base] = value;
+            buf[offset] = value;
             return MM_TRUE;
         }
     }

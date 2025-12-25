@@ -36,6 +36,15 @@
 #define STM32H563_PERIPH_BASE_S  0x50000000u
 #define STM32H563_PERIPH_BASE_NS 0x40000000u
 
+static const struct mm_ram_region STM32H563_RAM_REGIONS[] = {
+    { 0x30000000u, 0x20000000u, 0x00040000u, 0 }, /* SRAM1 256 KB */
+    { 0x30040000u, 0x20040000u, 0x00010000u, 1 }, /* SRAM2 64 KB */
+    { 0x30050000u, 0x20050000u, 0x00050000u, 2 }  /* SRAM3 320 KB */
+};
+
+#define STM32H563_RAM_REGION_COUNT (sizeof(STM32H563_RAM_REGIONS) / sizeof(STM32H563_RAM_REGIONS[0]))
+#define STM32H563_MPCBB_BLOCK_SIZE 512u
+
 #define STM32H563_SOC_RESET      mm_stm32h563_mmio_reset
 #define STM32H563_SOC_REGISTER   mm_stm32h563_register_mmio
 #define STM32H563_FLASH_BIND     mm_stm32h563_flash_bind

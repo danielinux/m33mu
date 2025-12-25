@@ -40,6 +40,7 @@ mm_u32 *mm_stm32h563_tzsc_regs(void);
 void mm_stm32h563_rng_set_nvic(struct mm_nvic *nvic);
 void mm_stm32h563_exti_set_nvic(struct mm_nvic *nvic);
 void mm_stm32h563_watchdog_tick(mm_u64 cycles);
+mm_bool mm_stm32h563_mpcbb_block_secure(int bank, mm_u32 block_index);
 void mm_stm32h563_mmio_reset(void);
 
 #endif /* M33MU_STM32H563_MMIO_H */

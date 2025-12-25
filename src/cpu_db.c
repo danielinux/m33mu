@@ -26,6 +26,11 @@
 #include "stm32h563/stm32h563_usart.h"
 #include "stm32h563/stm32h563_spi.h"
 #include "stm32h563/cpu_config.h"
+#include "stm32u585/stm32u585_mmio.h"
+#include "stm32u585/stm32u585_timers.h"
+#include "stm32u585/stm32u585_usart.h"
+#include "stm32u585/stm32u585_spi.h"
+#include "stm32u585/cpu_config.h"
 
 struct mm_cpu_entry {
     const char *name;
@@ -44,6 +49,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H563_RAM_SIZE,
             STM32H563_RAM_BASE_NS,
             STM32H563_RAM_SIZE,
+            STM32H563_RAM_REGIONS,
+            STM32H563_RAM_REGION_COUNT,
+            STM32H563_MPCBB_BLOCK_SIZE,
+            mm_stm32h563_mpcbb_block_secure,
             STM32H563_FLAGS,
             STM32H563_SOC_RESET,
             STM32H563_SOC_REGISTER,
@@ -58,6 +67,37 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H563_TIMER_INIT,
             STM32H563_TIMER_RESET,
             STM32H563_TIMER_TICK
+        }
+    },
+    {
+        "stm32u585",
+        {
+            STM32U585_FLASH_BASE_S,
+            STM32U585_FLASH_SIZE,
+            STM32U585_FLASH_BASE_NS,
+            STM32U585_FLASH_SIZE,
+            STM32U585_RAM_BASE_S,
+            STM32U585_RAM_SIZE,
+            STM32U585_RAM_BASE_NS,
+            STM32U585_RAM_SIZE,
+            STM32U585_RAM_REGIONS,
+            STM32U585_RAM_REGION_COUNT,
+            STM32U585_MPCBB_BLOCK_SIZE,
+            mm_stm32u585_mpcbb_block_secure,
+            STM32U585_FLAGS,
+            STM32U585_SOC_RESET,
+            STM32U585_SOC_REGISTER,
+            STM32U585_FLASH_BIND,
+            STM32U585_CLOCK_GET_HZ,
+            STM32U585_USART_INIT,
+            STM32U585_USART_RESET,
+            STM32U585_USART_POLL,
+            STM32U585_SPI_INIT,
+            STM32U585_SPI_RESET,
+            STM32U585_SPI_POLL,
+            STM32U585_TIMER_INIT,
+            STM32U585_TIMER_RESET,
+            STM32U585_TIMER_TICK
         }
     }
 };
