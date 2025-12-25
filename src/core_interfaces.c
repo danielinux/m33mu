@@ -242,6 +242,10 @@ static mm_gpio_bank_read_fn g_gpio_bank_reader = 0;
 static void *g_gpio_bank_reader_opaque = 0;
 static mm_gpio_bank_read_moder_fn g_gpio_bank_moder_reader = 0;
 static void *g_gpio_bank_moder_opaque = 0;
+static mm_gpio_bank_clock_fn g_gpio_bank_clock_reader = 0;
+static void *g_gpio_bank_clock_opaque = 0;
+static mm_gpio_bank_read_seccfgr_fn g_gpio_bank_seccfgr_reader = 0;
+static void *g_gpio_bank_seccfgr_opaque = 0;
 
 void mm_gpio_bank_set_reader(mm_gpio_bank_read_fn reader, void *opaque)
 {
@@ -253,6 +257,18 @@ void mm_gpio_bank_set_moder_reader(mm_gpio_bank_read_moder_fn reader, void *opaq
 {
     g_gpio_bank_moder_reader = reader;
     g_gpio_bank_moder_opaque = opaque;
+}
+
+void mm_gpio_bank_set_clock_reader(mm_gpio_bank_clock_fn reader, void *opaque)
+{
+    g_gpio_bank_clock_reader = reader;
+    g_gpio_bank_clock_opaque = opaque;
+}
+
+void mm_gpio_bank_set_seccfgr_reader(mm_gpio_bank_read_seccfgr_fn reader, void *opaque)
+{
+    g_gpio_bank_seccfgr_reader = reader;
+    g_gpio_bank_seccfgr_opaque = opaque;
 }
 
 mm_u32 mm_gpio_bank_read(int bank)
@@ -269,6 +285,22 @@ mm_u32 mm_gpio_bank_read_moder(int bank)
         return 0u;
     }
     return g_gpio_bank_moder_reader(g_gpio_bank_moder_opaque, bank);
+}
+
+mm_bool mm_gpio_bank_clock_enabled(int bank)
+{
+    if (g_gpio_bank_clock_reader == 0) {
+        return MM_TRUE;
+    }
+    return g_gpio_bank_clock_reader(g_gpio_bank_clock_opaque, bank);
+}
+
+mm_u32 mm_gpio_bank_read_seccfgr(int bank)
+{
+    if (g_gpio_bank_seccfgr_reader == 0) {
+        return 0u;
+    }
+    return g_gpio_bank_seccfgr_reader(g_gpio_bank_seccfgr_opaque, bank);
 }
 
 mm_bool mm_gpio_bank_reader_present(void)

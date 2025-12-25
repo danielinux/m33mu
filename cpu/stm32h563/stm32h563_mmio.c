@@ -231,6 +231,8 @@ static struct mm_nvic *g_wdg_nvic = 0;
 
 static mm_u32 stm32h563_gpio_bank_read(void *opaque, int bank);
 static mm_u32 stm32h563_gpio_bank_read_moder(void *opaque, int bank);
+static mm_bool stm32h563_gpio_bank_clock(void *opaque, int bank);
+static mm_u32 stm32h563_gpio_bank_read_seccfgr(void *opaque, int bank);
 static void exti_gpio_update(int bank, mm_u32 old_level, mm_u32 new_level);
 
 static mm_bool flash_trace_enabled(void)
@@ -266,6 +268,8 @@ void mm_stm32h563_mmio_reset(void)
     }
     mm_gpio_bank_set_reader(stm32h563_gpio_bank_read, 0);
     mm_gpio_bank_set_moder_reader(stm32h563_gpio_bank_read_moder, 0);
+    mm_gpio_bank_set_clock_reader(stm32h563_gpio_bank_clock, 0);
+    mm_gpio_bank_set_seccfgr_reader(stm32h563_gpio_bank_read_seccfgr, 0);
     /* Enable HSI by default and mark ready flags. */
     rcc.regs[0] |= 1u;
     rcc_update_ready(&rcc);
@@ -317,6 +321,21 @@ static mm_u32 stm32h563_gpio_bank_read_moder(void *opaque, int bank)
         return 0u;
     }
     return gpio[bank].regs[0x00u / 4];
+}
+
+static mm_bool stm32h563_gpio_bank_clock(void *opaque, int bank)
+{
+    (void)opaque;
+    return gpio_clock_enabled(&rcc, bank);
+}
+
+static mm_u32 stm32h563_gpio_bank_read_seccfgr(void *opaque, int bank)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)(sizeof(gpio) / sizeof(gpio[0]))) {
+        return 0u;
+    }
+    return gpio[bank].regs[0x30u / 4];
 }
 
 static mm_bool rng_clock_enabled(const struct rcc_state *rcc)

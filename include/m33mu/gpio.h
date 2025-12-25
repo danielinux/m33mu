@@ -31,6 +31,8 @@
 typedef void (*mm_gpio_listener_fn)(void *opaque, mm_u8 level);
 typedef mm_u32 (*mm_gpio_bank_read_fn)(void *opaque, int bank);
 typedef mm_u32 (*mm_gpio_bank_read_moder_fn)(void *opaque, int bank);
+typedef mm_bool (*mm_gpio_bank_clock_fn)(void *opaque, int bank);
+typedef mm_u32 (*mm_gpio_bank_read_seccfgr_fn)(void *opaque, int bank);
 
 struct mm_gpio_line {
     mm_gpio_listener_fn listener;
@@ -43,8 +45,12 @@ void mm_gpio_set_level(struct mm_gpio_line *line, mm_u8 level);
 mm_u8 mm_gpio_get_level(const struct mm_gpio_line *line);
 void mm_gpio_bank_set_reader(mm_gpio_bank_read_fn reader, void *opaque);
 void mm_gpio_bank_set_moder_reader(mm_gpio_bank_read_moder_fn reader, void *opaque);
+void mm_gpio_bank_set_clock_reader(mm_gpio_bank_clock_fn reader, void *opaque);
+void mm_gpio_bank_set_seccfgr_reader(mm_gpio_bank_read_seccfgr_fn reader, void *opaque);
 mm_u32 mm_gpio_bank_read(int bank);
 mm_u32 mm_gpio_bank_read_moder(int bank);
+mm_bool mm_gpio_bank_clock_enabled(int bank);
+mm_u32 mm_gpio_bank_read_seccfgr(int bank);
 mm_bool mm_gpio_bank_reader_present(void);
 
 #endif /* M33MU_GPIO_H */

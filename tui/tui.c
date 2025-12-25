@@ -37,6 +37,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include "m33mu/cpu.h"
+#include "m33mu/gpio.h"
 #include "tui.h"
 
 #define TUI_MAX_LINES 1024
@@ -46,12 +47,18 @@
 #define TUI_COLOR_MASK 0x00ffffffu
 #define TUI_FG_WHITE TUI_RGB(0xF5, 0xF5, 0xF5)
 #define TUI_FG_DIM   TUI_RGB(0xCF, 0xCF, 0xCF)
+#define TUI_FG_GREY  TUI_RGB(0x88, 0x88, 0x88)
+#define TUI_FG_CYAN  TUI_RGB(0x4D, 0xD0, 0xE1)
+#define TUI_FG_RED   TUI_RGB(0xE5, 0x39, 0x35)
+#define TUI_FG_GREEN TUI_RGB(0x43, 0xA0, 0x47)
+#define TUI_FG_MAGENTA TUI_RGB(0xBA, 0x68, 0xC8)
 #define TUI_FG_BLACK TB_HI_BLACK
 #define TUI_BG_BLACK TB_HI_BLACK
 #define TUI_BG_MENU  TUI_RGB(0x6A, 0x0D, 0xAD)
 #define TUI_BG_STATUS TUI_RGB(0xFF, 0xD5, 0x4F)
 #define TUI_BG_STOP  TUI_RGB(0xB8, 0x22, 0x22)
 #define TUI_BG_RUN   TUI_RGB(0x1F, 0x8A, 0x3B)
+#define TUI_BG_NS    TUI_RGB(0x1E, 0x5A, 0xB5)
 
 static struct mm_tui *g_tui = 0;
 
@@ -184,6 +191,62 @@ static void tui_draw_filled(int x0, int y0, int x1, int y1, uintattr_t fg, uinta
     }
 }
 
+static void tui_draw_gpio_line(int x, int y, int max_x, int bank, mm_u32 moder, mm_u32 odr,
+                               mm_bool clock_on, uintattr_t bg)
+{
+    int pin;
+    int cx = x;
+    if (cx >= max_x) return;
+    tb_set_cell(cx++, y, (uint32_t)('A' + bank), tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
+    if (cx < max_x) {
+        tb_set_cell(cx++, y, ' ', tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
+    }
+    for (pin = 0; pin < 16 && cx < max_x; ++pin, ++cx) {
+        mm_u32 mode = (moder >> (pin * 2)) & 0x3u;
+        mm_u32 bit = (odr >> pin) & 0x1u;
+        uintattr_t fg = TUI_FG_GREY;
+        char ch = '-';
+        if (mode == 0u) {
+            ch = 'I';
+            fg = TUI_FG_CYAN;
+        } else if (mode == 1u) {
+            ch = bit ? '1' : '0';
+            fg = bit ? TUI_FG_GREEN : TUI_FG_RED;
+        } else if (mode == 2u) {
+            ch = 'P';
+            fg = TUI_FG_MAGENTA;
+        } else {
+            ch = 'A';
+            fg = TUI_FG_CYAN;
+        }
+        if (!clock_on) {
+            fg = TUI_FG_GREY;
+        }
+        tb_set_cell(cx, y, (uint32_t)ch, tui_attr(fg), tui_attr(bg));
+    }
+}
+
+static void tui_draw_gpio_sec_line(int x, int y, int max_x, int bank, mm_u32 seccfgr,
+                                   mm_bool clock_on, uintattr_t bg)
+{
+    int pin;
+    int cx = x;
+    if (cx >= max_x) return;
+    tb_set_cell(cx++, y, (uint32_t)('A' + bank), tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
+    if (cx < max_x) {
+        tb_set_cell(cx++, y, ' ', tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
+    }
+    for (pin = 0; pin < 16 && cx < max_x; ++pin, ++cx) {
+        mm_u32 bit = (seccfgr >> pin) & 0x1u;
+        char ch = bit ? 'S' : 'N';
+        uintattr_t fg = bit ? TUI_FG_GREEN : TUI_FG_CYAN;
+        if (!clock_on) {
+            fg = TUI_FG_GREY;
+        }
+        tb_set_cell(cx, y, (uint32_t)ch, tui_attr(fg), tui_attr(bg));
+    }
+}
+
 static const char *tui_window1_title(const struct mm_tui *tui)
 {
     if (tui->window1_mode == MM_TUI_WIN1_CPU) {
@@ -206,22 +269,52 @@ static const char *tui_window2_title(const struct mm_tui *tui)
     }
 }
 
+static void tui_serial_backspace(struct mm_tui *tui)
+{
+    if (tui->serial_cur_len > 0) {
+        tui->serial_cur_len--;
+        tui->serial_cur_line[tui->serial_cur_len] = '\0';
+    }
+}
+
 static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod)
 {
     if (tui == 0) return;
     (void)mod;
 
-    if (ch == 'a' || ch == 'A') {
-        key = TB_KEY_ARROW_LEFT;
-        ch = 0;
-    } else if (ch == 'd' || ch == 'D') {
-        key = TB_KEY_ARROW_RIGHT;
-        ch = 0;
-    }
     if (ch == 0x11) {
         tui->want_quit = MM_TRUE;
         tui->actions |= MM_TUI_ACTION_QUIT;
         return;
+    }
+    if (tui->window2_mode == MM_TUI_WIN2_UART && tui->serial_fd >= 0) {
+        mm_u8 b = 0;
+        mm_bool send = MM_FALSE;
+        mm_bool backspace = MM_FALSE;
+        mm_bool enter = MM_FALSE;
+        if (key == TB_KEY_ENTER || ch == '\n' || ch == '\r') {
+            b = '\r';
+            send = MM_TRUE;
+            enter = MM_TRUE;
+        } else if (key == TB_KEY_BACKSPACE || key == TB_KEY_BACKSPACE2 || ch == 0x7Fu || ch == 0x08u) {
+            b = 0x7Fu;
+            send = MM_TRUE;
+            backspace = MM_TRUE;
+        } else if (ch != 0) {
+            b = (mm_u8)ch;
+            send = MM_TRUE;
+        }
+        if (send) {
+            (void)write(tui->serial_fd, &b, 1);
+            if (backspace) {
+                tui_serial_backspace(tui);
+            } else if (enter) {
+                tui_append_serial_text(tui, "\n", 1);
+            } else {
+                tui_append_serial_text(tui, (const char *)&b, 1);
+            }
+            tui->input_dirty = MM_TRUE;
+        }
     }
     if (key == TB_KEY_ARROW_LEFT) {
         tui->window2_mode = (mm_u8)((tui->window2_mode + 3u) % 4u);
@@ -259,6 +352,14 @@ static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod
         if (!tui->target_running) {
             tui->actions |= MM_TUI_ACTION_RESET;
         }
+        return;
+    }
+    if (key == TB_KEY_F6) {
+        tui->actions |= MM_TUI_ACTION_TOGGLE_CAPSTONE;
+        return;
+    }
+    if (key == TB_KEY_F9) {
+        tui->actions |= MM_TUI_ACTION_LAUNCH_GDB;
         return;
     }
 }
@@ -304,6 +405,11 @@ static void tui_consume_raw(struct mm_tui *tui, const unsigned char *buf, size_t
                 tui->esc_len = 0;
                 continue;
             }
+            if (tui->esc_buf[2] == '1' && tui->esc_buf[3] == '7' && tui->esc_buf[4] == '~') {
+                tui_handle_key(tui, TB_KEY_F6, 0, 0);
+                tui->esc_len = 0;
+                continue;
+            }
             if (tui->esc_buf[2] == '1' && tui->esc_buf[3] == '8' && tui->esc_buf[4] == '~') {
                 tui_handle_key(tui, TB_KEY_F7, 0, 0);
                 tui->esc_len = 0;
@@ -311,6 +417,11 @@ static void tui_consume_raw(struct mm_tui *tui, const unsigned char *buf, size_t
             }
             if (tui->esc_buf[2] == '1' && tui->esc_buf[3] == '9' && tui->esc_buf[4] == '~') {
                 tui_handle_key(tui, TB_KEY_F8, 0, 0);
+                tui->esc_len = 0;
+                continue;
+            }
+            if (tui->esc_buf[2] == '2' && tui->esc_buf[3] == '0' && tui->esc_buf[4] == '~') {
+                tui_handle_key(tui, TB_KEY_F9, 0, 0);
                 tui->esc_len = 0;
                 continue;
             }
@@ -351,10 +462,10 @@ static void tui_draw(struct mm_tui *tui)
     uintattr_t menu_bg = TUI_BG_MENU;
     uintattr_t menu_fg = TUI_FG_WHITE;
     uintattr_t status_bg = TUI_BG_STATUS;
-    uintattr_t status_fg = TUI_FG_BLACK;
+    uintattr_t status_fg = TUI_FG_WHITE;
     uintattr_t title_bg = TUI_BG_STATUS;
     uintattr_t title_fg = TUI_FG_BLACK;
-    uintattr_t control_bg = tui->target_running ? TUI_BG_RUN : TUI_BG_STOP;
+    uintattr_t control_bg = TUI_BG_RUN;
     uintattr_t control_fg = TUI_FG_WHITE;
 
     w = tb_width();
@@ -384,6 +495,17 @@ static void tui_draw(struct mm_tui *tui)
     log_h = inner_h - title_h;
     if (log_h < 1) log_h = 1;
     log_y = inner_y + title_h;
+
+    if (!tui->target_running) {
+        status_bg = TUI_BG_STOP;
+        control_bg = TUI_BG_STOP;
+    } else if (tui->core_sec == MM_SECURE) {
+        status_bg = TUI_BG_RUN;
+        control_bg = TUI_BG_RUN;
+    } else {
+        status_bg = TUI_BG_NS;
+        control_bg = TUI_BG_NS;
+    }
 
     tb_clear();
 
@@ -422,7 +544,14 @@ static void tui_draw(struct mm_tui *tui)
         tui_draw_text(console_w + 2, 11, w - 1, step_fg, menu_bg, "Step (F7)");
         tui_draw_text(console_w + 2, 13, w - 1, step_fg, menu_bg, "CPU Reset (F8)");
     }
-    tui_draw_text(console_w + 2, 15, w - 1, menu_fg, menu_bg, "Quit (Ctrl+Q)");
+    if (tui->capstone_supported) {
+        const char *cap = tui->capstone_enabled ? "Capstone: on (F6)" : "Capstone: off (F6)";
+        tui_draw_text(console_w + 2, 15, w - 1, menu_fg, menu_bg, cap);
+    } else {
+        tui_draw_text(console_w + 2, 15, w - 1, menu_fg, menu_bg, "Capstone: n/a (F6)");
+    }
+    tui_draw_text(console_w + 2, 17, w - 1, menu_fg, menu_bg, "GDB TUI (F9)");
+    tui_draw_text(console_w + 2, 19, w - 1, menu_fg, menu_bg, "Quit (Ctrl+Q)");
 
     /* Control bar */
     {
@@ -575,6 +704,30 @@ static void tui_draw(struct mm_tui *tui)
                 tui_draw_text(split_x + 1, log_y + log_h - 1, inner_x + inner_w - 1,
                               console_fg, console_bg, tui->serial_cur_line);
             }
+        } else if (tui->window2_mode == MM_TUI_WIN2_GPIO) {
+            int row;
+            if (!mm_gpio_bank_reader_present()) {
+                tui_draw_text(split_x + 2, log_y, inner_x + inner_w - 1,
+                              console_fg, console_bg, "GPIO unavailable");
+            } else {
+                int y = log_y;
+                for (row = 0; row < 9 && y < log_y + log_h; ++row, ++y) {
+                    mm_u32 moder = mm_gpio_bank_read_moder(row);
+                    mm_u32 odr = mm_gpio_bank_read(row);
+                    mm_bool clk = mm_gpio_bank_clock_enabled(row);
+                    tui_draw_gpio_line(split_x + 2, y, inner_x + inner_w - 1,
+                                       row, moder, odr, clk, console_bg);
+                }
+                if (y < log_y + log_h) {
+                    y++;
+                }
+                for (row = 0; row < 9 && y < log_y + log_h; ++row, ++y) {
+                    mm_u32 seccfgr = mm_gpio_bank_read_seccfgr(row);
+                    mm_bool clk = mm_gpio_bank_clock_enabled(row);
+                    tui_draw_gpio_sec_line(split_x + 2, y, inner_x + inner_w - 1,
+                                           row, seccfgr, clk, console_bg);
+                }
+            }
         } else {
             const char *placeholder = "Not implemented";
             tui_draw_text(split_x + 2, log_y, inner_x + inner_w - 1,
@@ -604,8 +757,11 @@ mm_bool mm_tui_init(struct mm_tui *tui)
             close(ttyfd);
         }
     }
-    tui->window1_mode = MM_TUI_WIN1_LOG;
-    tui->window2_mode = MM_TUI_WIN2_UART;
+    tui->window1_mode = MM_TUI_WIN1_CPU;
+    tui->window2_mode = MM_TUI_WIN2_GPIO;
+    tui->capstone_supported = MM_FALSE;
+    tui->capstone_enabled = MM_FALSE;
+    tui->image0_path[0] = '\0';
     tui->target_running = MM_TRUE;
     tui->gdb_connected = MM_FALSE;
     tui->gdb_port = 0;
@@ -727,7 +883,10 @@ mm_u8 mm_tui_window1_mode(const struct mm_tui *tui)
 void mm_tui_set_target_running(struct mm_tui *tui, mm_bool running)
 {
     if (tui == 0) return;
-    tui->target_running = running;
+    if (tui->target_running != running) {
+        tui->target_running = running;
+        tui->input_dirty = MM_TRUE;
+    }
 }
 
 void mm_tui_set_gdb_status(struct mm_tui *tui, mm_bool connected, int port)
@@ -735,6 +894,19 @@ void mm_tui_set_gdb_status(struct mm_tui *tui, mm_bool connected, int port)
     if (tui == 0) return;
     tui->gdb_connected = connected;
     tui->gdb_port = port;
+}
+
+void mm_tui_set_capstone(struct mm_tui *tui, mm_bool supported, mm_bool enabled)
+{
+    if (tui == 0) return;
+    tui->capstone_supported = supported;
+    tui->capstone_enabled = enabled;
+}
+
+void mm_tui_set_image0(struct mm_tui *tui, const char *path)
+{
+    if (tui == 0 || path == 0) return;
+    snprintf(tui->image0_path, sizeof(tui->image0_path), "%s", path);
 }
 
 void mm_tui_set_core_state(struct mm_tui *tui,

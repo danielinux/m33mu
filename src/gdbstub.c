@@ -682,7 +682,10 @@ static mm_bool gdb_recv_packet(struct mm_gdb_stub *stub, char *out, size_t out_c
     /* Wait for '$' */
     do {
         r = read(stub->client_fd, &ch, 1);
-        if (r <= 0) return MM_FALSE;
+        if (r <= 0) {
+            mm_gdb_stub_close(stub);
+            return MM_FALSE;
+        }
         if (ch == 0x03) {
             stub->to_interrupt = MM_TRUE;
             return MM_FALSE;
@@ -691,7 +694,10 @@ static mm_bool gdb_recv_packet(struct mm_gdb_stub *stub, char *out, size_t out_c
 
     while (1) {
         r = read(stub->client_fd, &ch, 1);
-        if (r <= 0) return MM_FALSE;
+        if (r <= 0) {
+            mm_gdb_stub_close(stub);
+            return MM_FALSE;
+        }
         if (ch == 0x03) {
             stub->to_interrupt = MM_TRUE;
             return MM_FALSE;
@@ -705,9 +711,15 @@ static mm_bool gdb_recv_packet(struct mm_gdb_stub *stub, char *out, size_t out_c
         sum += (unsigned char)ch;
     }
     out[len] = '\0';
-    if (read(stub->client_fd, &ch, 1) <= 0) return MM_FALSE;
+    if (read(stub->client_fd, &ch, 1) <= 0) {
+        mm_gdb_stub_close(stub);
+        return MM_FALSE;
+    }
     expect = (unsigned char)(hex_to_nibble(ch) << 4);
-    if (read(stub->client_fd, &ch, 1) <= 0) return MM_FALSE;
+    if (read(stub->client_fd, &ch, 1) <= 0) {
+        mm_gdb_stub_close(stub);
+        return MM_FALSE;
+    }
     expect |= (unsigned char)hex_to_nibble(ch);
     if (sum != expect) {
         (void)write(stub->client_fd, "-", 1);
@@ -988,12 +1000,12 @@ void mm_gdb_stub_handle(struct mm_gdb_stub *stub, struct mm_cpu *cpu, struct mm_
         break;
     case 'D':
         gdb_send_ok(stub);
-        stub->alive = MM_FALSE;
         stub->running = MM_FALSE;
+        mm_gdb_stub_close(stub);
         break;
     case 'k':
-        stub->alive = MM_FALSE;
         stub->running = MM_FALSE;
+        mm_gdb_stub_close(stub);
         break;
     default:
         gdb_send_packet(stub->client_fd, "");

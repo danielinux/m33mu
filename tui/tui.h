@@ -39,6 +39,9 @@ struct mm_tui {
     volatile mm_u64 core_steps;
     volatile mm_u8 core_sec;
     volatile mm_u8 core_mode;
+    volatile mm_bool capstone_supported;
+    volatile mm_bool capstone_enabled;
+    char image0_path[256];
     int input_fd;
     char esc_buf[16];
     mm_u8 esc_len;
@@ -87,7 +90,9 @@ enum mm_tui_action {
     MM_TUI_ACTION_PAUSE = 1u << 2,
     MM_TUI_ACTION_CONTINUE = 1u << 3,
     MM_TUI_ACTION_STEP = 1u << 4,
-    MM_TUI_ACTION_RELOAD = 1u << 5
+    MM_TUI_ACTION_RELOAD = 1u << 5,
+    MM_TUI_ACTION_TOGGLE_CAPSTONE = 1u << 6,
+    MM_TUI_ACTION_LAUNCH_GDB = 1u << 7
 };
 
 enum mm_tui_window1_mode {
@@ -111,6 +116,8 @@ mm_u32 mm_tui_take_actions(struct mm_tui *tui);
 mm_u8 mm_tui_window1_mode(const struct mm_tui *tui);
 void mm_tui_set_target_running(struct mm_tui *tui, mm_bool running);
 void mm_tui_set_gdb_status(struct mm_tui *tui, mm_bool connected, int port);
+void mm_tui_set_capstone(struct mm_tui *tui, mm_bool supported, mm_bool enabled);
+void mm_tui_set_image0(struct mm_tui *tui, const char *path);
 void mm_tui_set_core_state(struct mm_tui *tui,
                            mm_u32 pc,
                            mm_u32 sp,

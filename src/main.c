@@ -22,6 +22,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "m33mu/cpu_db.h"
 #include "m33mu/target.h"
 #include "m33mu/cpu.h"
@@ -239,10 +240,59 @@ static void apply_reset_view(struct mm_tui *tui,
     }
 }
 
+static void set_tui_image0(struct mm_tui *tui, struct mm_image_spec *images, int image_count)
+{
+    int i;
+    if (tui == 0 || images == 0) return;
+    for (i = 0; i < image_count; ++i) {
+        if (images[i].offset == 0 && images[i].path != 0) {
+            mm_tui_set_image0(tui, images[i].path);
+            return;
+        }
+    }
+}
+
+static void launch_gdb_tui(const struct mm_tui *tui)
+{
+    char elf_path[512];
+    char cmd[1024];
+    const char *elf = 0;
+    int port;
+    size_t len;
+    if (tui == 0) return;
+    port = tui->gdb_port != 0 ? tui->gdb_port : 1234;
+    if (tui->image0_path[0] != '\0') {
+        len = strlen(tui->image0_path);
+        if (len > 4 && strcmp(tui->image0_path + len - 4, ".bin") == 0) {
+            snprintf(elf_path, sizeof(elf_path), "%.*s.elf", (int)(len - 4), tui->image0_path);
+            if (access(elf_path, R_OK) == 0) {
+                elf = elf_path;
+            }
+        }
+    }
+    if (elf != 0) {
+        snprintf(cmd, sizeof(cmd),
+                 "exec arm-none-eabi-gdb -q -ex \"file %s\" -ex \"tar rem:%d\" -ex \"tui enable\" -ex \"focus cmd\"",
+                 elf, port);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+                 "exec arm-none-eabi-gdb -q -ex \"tar rem:%d\" -ex \"tui enable\" -ex \"focus cmd\"",
+                 port);
+    }
+    if (fork() == 0) {
+        execl("/usr/bin/x-terminal-emulator", "/usr/bin/x-terminal-emulator",
+              "-e", "/bin/sh", "-c", cmd, (char *)0);
+        _exit(127);
+    }
+}
+
 static mm_bool handle_tui(struct mm_tui *tui,
                           mm_bool opt_tui,
-                          mm_bool opt_gdb,
+                          mm_bool *opt_capstone,
+                          mm_bool *opt_gdb,
                           struct mm_gdb_stub *gdb,
+                          const char *cpu_name,
+                          const char *gdb_symbols,
                           struct mm_cpu *cpu,
                           struct mm_memmap *map,
                           mm_u64 cycle_total,
@@ -259,7 +309,9 @@ static mm_bool handle_tui(struct mm_tui *tui,
     if (!opt_tui || tui == 0) {
         return MM_FALSE;
     }
-    running = target_should_run(opt_gdb, gdb, (tui_paused != 0 ? *tui_paused : MM_FALSE), (tui_step != 0 ? *tui_step : MM_FALSE));
+    running = target_should_run((opt_gdb != 0 ? *opt_gdb : MM_FALSE), gdb,
+                                (tui_paused != 0 ? *tui_paused : MM_FALSE),
+                                (tui_step != 0 ? *tui_step : MM_FALSE));
     if (steps_offset == 0) {
         return MM_FALSE;
     }
@@ -267,7 +319,14 @@ static mm_bool handle_tui(struct mm_tui *tui,
         *steps_offset = cycle_total;
     }
     mm_tui_set_target_running(tui, running);
-    mm_tui_set_gdb_status(tui, opt_gdb ? gdb->connected : MM_FALSE, opt_gdb ? gdb_port : 0);
+    mm_tui_set_gdb_status(tui, (opt_gdb != 0 && *opt_gdb) ? gdb->connected : MM_FALSE,
+                          (opt_gdb != 0 && *opt_gdb) ? gdb_port : 0);
+#ifdef M33MU_USE_LIBCAPSTONE
+    mm_tui_set_capstone(tui, capstone_available() ? MM_TRUE : MM_FALSE,
+                        capstone_is_enabled() ? MM_TRUE : MM_FALSE);
+#else
+    mm_tui_set_capstone(tui, MM_FALSE, MM_FALSE);
+#endif
     if (cpu != 0 && steps_latched != 0) {
         mm_tui_set_core_state(tui,
                               cpu->r[15],
@@ -290,7 +349,7 @@ static mm_bool handle_tui(struct mm_tui *tui,
         }
     }
     if ((actions & MM_TUI_ACTION_PAUSE) != 0u) {
-        if (opt_gdb && gdb != 0) {
+        if (opt_gdb != 0 && *opt_gdb && gdb != 0) {
             gdb->running = MM_FALSE;
             mm_gdb_stub_notify_stop(gdb, 5);
         } else if (tui_paused != 0) {
@@ -298,19 +357,66 @@ static mm_bool handle_tui(struct mm_tui *tui,
         }
     }
     if ((actions & MM_TUI_ACTION_CONTINUE) != 0u) {
-        if (opt_gdb && gdb != 0) {
+        if (opt_gdb != 0 && *opt_gdb && gdb != 0) {
             gdb->running = MM_TRUE;
         } else if (tui_paused != 0) {
             *tui_paused = MM_FALSE;
         }
     }
     if ((actions & MM_TUI_ACTION_STEP) != 0u) {
-        if (opt_gdb && gdb != 0) {
+        if (opt_gdb != 0 && *opt_gdb && gdb != 0) {
             gdb->step_pending = MM_TRUE;
             gdb->running = MM_TRUE;
         } else {
             if (tui_step != 0) *tui_step = MM_TRUE;
             if (tui_paused != 0) *tui_paused = MM_FALSE;
+        }
+    }
+    if ((actions & MM_TUI_ACTION_TOGGLE_CAPSTONE) != 0u) {
+#ifdef M33MU_USE_LIBCAPSTONE
+        if (capstone_available()) {
+            if (!capstone_is_enabled()) {
+                if (capstone_init()) {
+                    (void)capstone_set_enabled(MM_TRUE);
+                    if (opt_capstone != 0) {
+                        *opt_capstone = MM_TRUE;
+                    }
+                } else {
+                    fprintf(stderr, "failed to initialize capstone\n");
+                }
+            } else {
+                (void)capstone_set_enabled(MM_FALSE);
+            }
+        }
+#else
+        (void)opt_capstone;
+#endif
+    }
+    if ((actions & MM_TUI_ACTION_LAUNCH_GDB) != 0u) {
+        if (gdb_port <= 0 || gdb_port > 65535) {
+            fprintf(stderr, "invalid gdb port: %d\n", gdb_port);
+        } else {
+            if (gdb != 0 && *opt_gdb) {
+                mm_gdb_stub_close(gdb);
+                *opt_gdb = MM_FALSE;
+            }
+            mm_gdb_stub_set_cpu_name(gdb, cpu_name);
+            printf("Starting GDB server on port %d...\n", gdb_port);
+            if (mm_gdb_stub_start(gdb, gdb_port)) {
+                *opt_gdb = MM_TRUE;
+                launch_gdb_tui(tui);
+                printf("Waiting for GDB connection...\n");
+                if (mm_gdb_stub_wait_client(gdb)) {
+                    const char *exec_path = (gdb_symbols != 0) ? gdb_symbols : tui->image0_path;
+                    if (exec_path != 0 && exec_path[0] != '\0') {
+                        mm_gdb_stub_set_exec_path(gdb, exec_path);
+                    }
+                } else {
+                    fprintf(stderr, "Failed to accept GDB connection\n");
+                }
+            } else {
+                fprintf(stderr, "Failed to start GDB server\n");
+            }
         }
     }
     return MM_FALSE;
@@ -1255,6 +1361,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "failed to initialize capstone\n");
             return 1;
         }
+        (void)capstone_set_enabled(MM_FALSE);
     }
 
     for (i = 0; i < spiflash_count; ++i) {
@@ -1278,6 +1385,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "failed to initialize TUI\n");
             return 1;
         }
+        set_tui_image0(&tui, images, image_count);
         tui_active = MM_TRUE;
         mm_tui_register(&tui);
         if (!mm_tui_start_thread(&tui)) {
@@ -1504,6 +1612,12 @@ int main(int argc, char **argv)
                     if (mm_gdb_stub_poll(&gdb, 0)) {
                         mm_gdb_stub_handle(&gdb, &cpu, &map);
                     }
+                    if (!gdb.connected && gdb.listen_fd >= 0) {
+                        if (mm_gdb_stub_wait_client(&gdb)) {
+                            const char *exec_path = (gdb_symbols != 0) ? gdb_symbols : images[0].path;
+                            mm_gdb_stub_set_exec_path(&gdb, exec_path);
+                        }
+                    }
                     if (mm_gdb_stub_take_reset(&gdb)) {
                         apply_reset_view(opt_tui ? &tui : 0, &cpu, &map, cycle_total,
                                          opt_tui ? &tui_steps_offset : 0,
@@ -1514,7 +1628,7 @@ int main(int argc, char **argv)
                         continue;
                     }
                     if (!gdb.alive) {
-                        break;
+                        gdb.alive = MM_TRUE;
                     }
                     if (gdb.to_interrupt) {
                         mm_gdb_stub_notify_stop(&gdb, 2);
@@ -1533,7 +1647,7 @@ int main(int argc, char **argv)
                 if (opt_tui) {
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
-                    if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, gdb_symbols, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                         done = MM_TRUE;
                         continue;
                     }
@@ -1568,7 +1682,7 @@ int main(int argc, char **argv)
                     mm_target_spi_poll(&cfg);
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
-                    if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, gdb_symbols, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                         done = MM_TRUE;
                         continue;
                     }
@@ -1647,7 +1761,7 @@ int main(int argc, char **argv)
                             mm_target_spi_poll(&cfg);
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
-                            if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, gdb_symbols, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                                 done = MM_TRUE;
                                 continue;
                             }
@@ -1671,7 +1785,7 @@ int main(int argc, char **argv)
                             mm_target_spi_poll(&cfg);
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
-                            if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, gdb_symbols, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                                 done = MM_TRUE;
                                 continue;
                             }
@@ -1984,7 +2098,7 @@ handle_pending:
                     mm_target_spi_poll(&cfg);
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
-                    if (handle_tui(&tui, opt_tui, opt_gdb, &gdb, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, gdb_symbols, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                         done = MM_TRUE;
                         continue;
                     }
