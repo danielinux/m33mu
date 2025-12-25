@@ -274,6 +274,25 @@ add_custom_target(test-stm32u5-tui
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
+add_custom_target(test-stm32l5
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32l552 app.bin
+  COMMAND $<TARGET_FILE:m33mu> --cpu stm32l552 tests/firmware/test-stm32l552/app.bin
+          --uart-stdout
+          --spiflash:SPI1:file=tests/firmware/test-stm32l552/spi_flash.bin:size=2097152:mmap=0x60000000:cs=PB0
+          $<$<BOOL:${M33MU_HAS_LIBTPMS}>:--tpm:SPI1:cs=PB1:file=tests/firmware/test-stm32l552/tpm_nv>
+  DEPENDS m33mu
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+add_custom_target(test-stm32l5-tui
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32l552 app.bin
+  COMMAND $<TARGET_FILE:m33mu> --cpu stm32l552 tests/firmware/test-stm32l552/app.bin --tui
+          --spiflash:SPI1:file=tests/firmware/test-stm32l552/spi_flash.bin:size=2097152:mmap=0x60000000:cs=PB0
+          $<$<BOOL:${M33MU_HAS_LIBTPMS}>:--tpm:SPI1:cs=PB1:file=tests/firmware/test-stm32l552/tpm_nv>
+  DEPENDS m33mu
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
 # -----------------------------------------------------------------------------
 # Summary
 # -----------------------------------------------------------------------------

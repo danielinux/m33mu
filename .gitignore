@@ -7,5 +7,5 @@ test.log
 .tags
 *.bin
 *.elf
-tests/firmware/test-cortex-m33/tpm_nv.permall
+tpm_nv.permall
 AGENTS.md

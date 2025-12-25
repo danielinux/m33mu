@@ -31,6 +31,11 @@
 #include "stm32u585/stm32u585_usart.h"
 #include "stm32u585/stm32u585_spi.h"
 #include "stm32u585/cpu_config.h"
+#include "stm32l552/stm32l552_mmio.h"
+#include "stm32l552/stm32l552_timers.h"
+#include "stm32l552/stm32l552_usart.h"
+#include "stm32l552/stm32l552_spi.h"
+#include "stm32l552/cpu_config.h"
 
 struct mm_cpu_entry {
     const char *name;
@@ -98,6 +103,37 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32U585_TIMER_INIT,
             STM32U585_TIMER_RESET,
             STM32U585_TIMER_TICK
+        }
+    },
+    {
+        "stm32l552",
+        {
+            STM32L552_FLASH_BASE_S,
+            STM32L552_FLASH_SIZE,
+            STM32L552_FLASH_BASE_NS,
+            STM32L552_FLASH_SIZE,
+            STM32L552_RAM_BASE_S,
+            STM32L552_RAM_SIZE,
+            STM32L552_RAM_BASE_NS,
+            STM32L552_RAM_SIZE,
+            STM32L552_RAM_REGIONS,
+            STM32L552_RAM_REGION_COUNT,
+            STM32L552_MPCBB_BLOCK_SIZE,
+            mm_stm32l552_mpcbb_block_secure,
+            STM32L552_FLAGS,
+            STM32L552_SOC_RESET,
+            STM32L552_SOC_REGISTER,
+            STM32L552_FLASH_BIND,
+            STM32L552_CLOCK_GET_HZ,
+            STM32L552_USART_INIT,
+            STM32L552_USART_RESET,
+            STM32L552_USART_POLL,
+            STM32L552_SPI_INIT,
+            STM32L552_SPI_RESET,
+            STM32L552_SPI_POLL,
+            STM32L552_TIMER_INIT,
+            STM32L552_TIMER_RESET,
+            STM32L552_TIMER_TICK
         }
     }
 };
