@@ -1,6 +1,8 @@
+![m33mu logo](png/m33mu.png)
+
 # m33mu
 
-m33mu (pron. mee-moo) is a Cortex-M33 emulator.
+m33mu is a Cortex-M33 emulator.
 m33mu emulates ARMv8-M Cortex-M targets with TrustZone awareness.
 
 Current status: Beta
@@ -127,3 +129,10 @@ Options:
 - `M33MU_PROT_TRACE=1..3`: print SAU/MPU attribution decisions; higher levels include region scans.
 - `M33MU_DUMP_PSP_FRAME=1`: dump 8-word stacked frames during EXC_RETURN unstack.
 - `M33MU_TZ_BOOT_TRACE=1`: trace security-state transitions during TZ boot/hand-off.
+
+## Screenshots
+![m33mu TUI, stopped, stepping with GDB](png/screen01.png)
+
+![m33mu TUI, running in secure domain (green bar)](png/screen02.png)
+
+![m33mu TUI, running in non-secure domain (blue bar)](png/screen03.png)
