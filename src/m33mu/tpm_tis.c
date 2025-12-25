@@ -9,7 +9,7 @@
 #include "m33mu/spi_bus.h"
 #include "m33mu/gpio.h"
 
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
 #include <libtpms/tpm_library.h>
 #include <libtpms/tpm_error.h>
 #endif
@@ -35,7 +35,7 @@
 #define TPM_STS_DATA_AVAIL 0x10u
 #define TPM_STS_EXPECT     0x08u
 
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
 struct tpm_nv_entry {
     char name[64];
     mm_u8 *data;
@@ -69,7 +69,7 @@ struct mm_tpm_tis {
     mm_u8 rsp_buf[TPM_RSP_MAX];
     mm_u32 rsp_len;
     mm_u32 rsp_read;
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
     struct tpm_nv_store nv;
 #endif
 };
@@ -132,7 +132,7 @@ static mm_u8 tpm_cs_level(void *opaque)
     return tpm_sample_cs(tpm);
 }
 
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
 static void tpm_nv_free_entry(struct tpm_nv_entry *e)
 {
     if (e->data != 0) {
@@ -409,7 +409,7 @@ static void tpm_backend_process(struct mm_tpm_tis *tpm)
     if (tpm->cmd_len == 0) return;
     tpm->rsp_len = 0;
     tpm->rsp_read = 0;
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
     {
         unsigned char *resp = 0;
         uint32_t resp_len = 0;
@@ -627,7 +627,7 @@ mm_bool mm_tpm_tis_register_cfg(const struct mm_tpm_tis_cfg *cfg)
 {
     struct mm_tpm_tis *tpm;
     struct mm_spi_device dev;
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
     static mm_bool libtpms_init = MM_FALSE;
     static struct libtpms_callbacks callbacks;
     if (!libtpms_init) {
@@ -646,7 +646,7 @@ mm_bool mm_tpm_tis_register_cfg(const struct mm_tpm_tis_cfg *cfg)
     tpm->cs_mask = (cfg->cs_valid && cfg->cs_pin >= 0) ? (1u << (mm_u32)cfg->cs_pin) : 0u;
     tpm->cs_level = 1u;
     tpm->burst_count = 64u;
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
     tpm->nv.use_file = cfg->has_nv_path ? MM_TRUE : MM_FALSE;
     if (cfg->has_nv_path) {
         strncpy(tpm->nv.base, cfg->nv_path, sizeof(tpm->nv.base) - 1u);
@@ -655,7 +655,7 @@ mm_bool mm_tpm_tis_register_cfg(const struct mm_tpm_tis_cfg *cfg)
 #else
 #endif
 
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
     g_nv_store = &tpm->nv;
     memset(&callbacks, 0, sizeof(callbacks));
     callbacks.sizeOfStruct = sizeof(callbacks);
@@ -679,7 +679,7 @@ mm_bool mm_tpm_tis_register_cfg(const struct mm_tpm_tis_cfg *cfg)
                (char)('A' + tpm->cs_bank),
                tpm->cs_pin);
     }
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
     if (tpm->nv.use_file) {
         printf("[TPM] NV file base=%s\n", tpm->nv.base);
     }
@@ -712,7 +712,7 @@ void mm_tpm_tis_shutdown_all(void)
     for (i = 0; i < g_tpm_count; ++i) {
         printf("[TPM] SPI%d disconnected\n", g_tpm[i].bus);
     }
-#ifdef USE_LIBTPMS
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
     TPMLIB_Terminate();
 #endif
     g_tpm_count = 0;

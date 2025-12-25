@@ -28,6 +28,8 @@
 #include "m33mu/flash_persist.h"
 #include "m33mu/gpio.h"
 
+extern void mm_system_request_reset(void);
+
 /* RCC base addresses (system domain) */
 #define RCC_BASE     0x44020c00u
 #define RCC_SEC_BASE 0x54020c00u
@@ -63,11 +65,53 @@
 #define RNG_SEC_BASE 0x520c0800u
 #define RNG_SIZE     0x400u
 
+/* EXTI base addresses */
+#define EXTI_BASE     0x44022000u
+#define EXTI_SEC_BASE 0x54022000u
+#define EXTI_SIZE     0x400u
+
+/* IWDG/WWDG base addresses */
+#define IWDG_BASE     0x40003000u
+#define IWDG_SEC_BASE 0x50003000u
+#define IWDG_SIZE     0x400u
+#define WWDG_BASE     0x40002C00u
+#define WWDG_SEC_BASE 0x50002C00u
+#define WWDG_SIZE     0x400u
+
 #define RNG_CR_OFFSET   0x0u
 #define RNG_SR_OFFSET   0x4u
 #define RNG_DR_OFFSET   0x8u
 #define RNG_NSCR_OFFSET 0xcu
 #define RNG_HTCR_OFFSET 0x10u
+
+/* EXTI offsets (subset) */
+#define EXTI_RTSR1  0x000u
+#define EXTI_FTSR1  0x004u
+#define EXTI_SWIER1 0x008u
+#define EXTI_RPR1   0x00Cu
+#define EXTI_FPR1   0x010u
+#define EXTI_EXTICR1 0x060u
+#define EXTI_EXTICR2 0x064u
+#define EXTI_EXTICR3 0x068u
+#define EXTI_EXTICR4 0x06Cu
+#define EXTI_IMR1   0x080u
+#define EXTI_EMR1   0x084u
+
+/* WWDG offsets */
+#define WWDG_CR  0x000u
+#define WWDG_CFR 0x004u
+#define WWDG_SR  0x008u
+
+/* IWDG offsets */
+#define IWDG_KR   0x000u
+#define IWDG_PR   0x004u
+#define IWDG_RLR  0x008u
+#define IWDG_SR   0x00Cu
+#define IWDG_WINR 0x010u
+#define IWDG_EWCR 0x014u
+
+#define GPIO_IDR_OFFSET 0x10u
+#define GPIO_ODR_OFFSET 0x14u
 
 /* FLASH register offsets */
 #define FLASH_ACR      0x000u
@@ -117,6 +161,25 @@ struct rng_state {
     mm_bool dr_valid;
 };
 
+struct exti_state {
+    mm_u32 regs[EXTI_SIZE / 4];
+};
+
+struct iwdg_state {
+    mm_u32 regs[IWDG_SIZE / 4];
+    mm_u32 counter;
+    mm_u32 prescaler;
+    mm_bool running;
+    mm_bool write_access;
+    mm_u64 accum;
+};
+
+struct wwdg_state {
+    mm_u32 regs[WWDG_SIZE / 4];
+    mm_u32 counter;
+    mm_u64 accum;
+};
+
 struct flash_state {
     mm_u32 regs[FLASH_SIZE / 4];
     mm_u8 *flash;
@@ -151,6 +214,9 @@ static struct simple_blk tzsc_ns;
 static struct simple_blk tzic_s;
 static struct simple_blk tzic_ns;
 static struct rng_state rng;
+static struct exti_state exti;
+static struct iwdg_state iwdg;
+static struct wwdg_state wwdg;
 static struct flash_state flash_ctl;
 static struct gpio_state gpio[9]; /* A..I */
 static struct gpdma_state gpdma1;
@@ -158,11 +224,14 @@ static struct gpdma_state gpdma2;
 static void *gpio_ctx[18][4];
 static void *rng_ctx[2][4];
 static struct mm_nvic *g_rng_nvic = 0;
+static struct mm_nvic *g_exti_nvic = 0;
+static struct mm_nvic *g_wdg_nvic = 0;
 
 #define RNG_IRQ 114
 
 static mm_u32 stm32h563_gpio_bank_read(void *opaque, int bank);
 static mm_u32 stm32h563_gpio_bank_read_moder(void *opaque, int bank);
+static void exti_gpio_update(int bank, mm_u32 old_level, mm_u32 new_level);
 
 static mm_bool flash_trace_enabled(void)
 {
@@ -186,6 +255,9 @@ void mm_stm32h563_mmio_reset(void)
     memset(&tzic_s, 0, sizeof(tzic_s));
     memset(&tzic_ns, 0, sizeof(tzic_ns));
     memset(&rng, 0, sizeof(rng));
+    memset(&exti, 0, sizeof(exti));
+    memset(&iwdg, 0, sizeof(iwdg));
+    memset(&wwdg, 0, sizeof(wwdg));
     memset(&flash_ctl, 0, sizeof(flash_ctl));
     memset(&gpdma1, 0, sizeof(gpdma1));
     memset(&gpdma2, 0, sizeof(gpdma2));
@@ -198,6 +270,12 @@ void mm_stm32h563_mmio_reset(void)
     rcc.regs[0] |= 1u;
     rcc_update_ready(&rcc);
     rcc_update_sysclk(&rcc);
+    iwdg.regs[IWDG_RLR / 4u] = 0x00000FFFu;
+    iwdg.regs[IWDG_WINR / 4u] = 0x00000FFFu;
+    wwdg.regs[WWDG_CR / 4u] = 0x0000007Fu;
+    wwdg.regs[WWDG_CFR / 4u] = 0x0000007Fu;
+    wwdg.counter = 0x7Fu;
+    exti.regs[EXTI_IMR1 / 4u] = 0xFFFE0000u;
     /* Power ready flags. */
     pwr_update_vos(&pwr);
 
@@ -659,6 +737,15 @@ static void gpio_apply_bsrr(struct gpio_state *g, mm_u32 val, mm_u32 mask)
     g->regs[0x14u / 4] = odr;
 }
 
+static void gpio_sync_odr(struct gpio_state *g, int bank, mm_u32 old_odr)
+{
+    mm_u32 new_odr = g->regs[GPIO_ODR_OFFSET / 4];
+    if (new_odr != old_odr) {
+        g->regs[GPIO_IDR_OFFSET / 4] = new_odr;
+        exti_gpio_update(bank, old_odr, new_odr);
+    }
+}
+
 static mm_u32 gpio_mask_to_2bit(mm_u32 mask)
 {
     mm_u32 out = 0;
@@ -695,10 +782,14 @@ static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32
         }
         /* Mask out secure pins */
         if (offset == 0x18u) { /* BSRR */
+            mm_u32 old_odr = g->regs[GPIO_ODR_OFFSET / 4];
             gpio_apply_bsrr(g, value, mask & 0xFFFFu);
+            gpio_sync_odr(g, index, old_odr);
             return MM_TRUE;
         } else if (offset == 0x28u) { /* BRR */
+            mm_u32 old_odr = g->regs[GPIO_ODR_OFFSET / 4];
             gpio_apply_brr(g, value & 0xFFFFu, mask & 0xFFFFu);
+            gpio_sync_odr(g, index, old_odr);
             return MM_TRUE;
         } else {
             /* General regs: apply mask */
@@ -712,11 +803,22 @@ static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32
     }
 
     if (offset == 0x18u) { /* BSRR */
+        mm_u32 old_odr = g->regs[GPIO_ODR_OFFSET / 4];
         gpio_apply_bsrr(g, value, 0xFFFFu);
+        gpio_sync_odr(g, index, old_odr);
         return MM_TRUE;
     }
     if (offset == 0x28u) { /* BRR */
+        mm_u32 old_odr = g->regs[GPIO_ODR_OFFSET / 4];
         gpio_apply_brr(g, value & 0xFFFFu, 0xFFFFu);
+        gpio_sync_odr(g, index, old_odr);
+        return MM_TRUE;
+    }
+
+    if (offset == GPIO_ODR_OFFSET) {
+        mm_u32 old_odr = g->regs[GPIO_ODR_OFFSET / 4];
+        memcpy((mm_u8 *)g->regs + offset, &value, size_bytes);
+        gpio_sync_odr(g, index, old_odr);
         return MM_TRUE;
     }
 
@@ -869,6 +971,203 @@ static mm_bool rng_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     return MM_TRUE;
 }
 
+static mm_bool wwdg_clock_enabled(void)
+{
+    return ((rcc.regs[0x9c / 4] >> 11) & 1u) != 0u;
+}
+
+static int exti_line_bank(int line)
+{
+    mm_u32 reg;
+    mm_u32 shift;
+    mm_u32 val;
+    if (line < 0 || line > 15) return -1;
+    reg = exti.regs[(EXTI_EXTICR1 + (mm_u32)(line / 4) * 4u) / 4u];
+    shift = (mm_u32)(line % 4) * 8u;
+    val = (reg >> shift) & 0xFFu;
+    if (val > 8u) return -1;
+    return (int)val;
+}
+
+static void exti_raise_irq(int line)
+{
+    if (g_exti_nvic != 0) {
+        mm_nvic_set_pending(g_exti_nvic, (mm_u32)(11 + line), MM_TRUE);
+    }
+}
+
+static void exti_set_pending_rise(int line)
+{
+    exti.regs[EXTI_RPR1 / 4u] |= (1u << line);
+    if ((exti.regs[EXTI_IMR1 / 4u] & (1u << line)) != 0u) {
+        exti_raise_irq(line);
+    }
+}
+
+static void exti_set_pending_fall(int line)
+{
+    exti.regs[EXTI_FPR1 / 4u] |= (1u << line);
+    if ((exti.regs[EXTI_IMR1 / 4u] & (1u << line)) != 0u) {
+        exti_raise_irq(line);
+    }
+}
+
+static void exti_gpio_update(int bank, mm_u32 old_level, mm_u32 new_level)
+{
+    int line;
+    mm_u32 changed = old_level ^ new_level;
+    if (changed == 0u) return;
+    for (line = 0; line < 16; ++line) {
+        mm_u32 mask = (1u << line);
+        if ((changed & mask) == 0u) continue;
+        if (exti_line_bank(line) != bank) continue;
+        if ((new_level & mask) != 0u) {
+            if ((exti.regs[EXTI_RTSR1 / 4u] & mask) != 0u) {
+                exti_set_pending_rise(line);
+            }
+        } else {
+            if ((exti.regs[EXTI_FTSR1 / 4u] & mask) != 0u) {
+                exti_set_pending_fall(line);
+            }
+        }
+    }
+}
+
+static mm_bool exti_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
+{
+    struct exti_state *e = (struct exti_state *)opaque;
+    if (value_out == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
+    if ((offset + size_bytes) > EXTI_SIZE) return MM_FALSE;
+    if (offset == EXTI_SWIER1) {
+        *value_out = 0;
+        return MM_TRUE;
+    }
+    memcpy(value_out, (mm_u8 *)e->regs + offset, size_bytes);
+    return MM_TRUE;
+}
+
+static mm_bool exti_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    struct exti_state *e = (struct exti_state *)opaque;
+    int line;
+    if (size_bytes == 0 || size_bytes > 4) return MM_FALSE;
+    if ((offset + size_bytes) > EXTI_SIZE) return MM_FALSE;
+    if (offset == EXTI_SWIER1) {
+        mm_u32 v = value & 0xFFFFu;
+        for (line = 0; line < 16; ++line) {
+            if ((v & (1u << line)) != 0u) {
+                exti_set_pending_rise(line);
+            }
+        }
+        return MM_TRUE;
+    }
+    if (offset == EXTI_RPR1) {
+        e->regs[offset / 4u] &= ~value;
+        return MM_TRUE;
+    }
+    if (offset == EXTI_FPR1) {
+        e->regs[offset / 4u] &= ~value;
+        return MM_TRUE;
+    }
+    memcpy((mm_u8 *)e->regs + offset, &value, size_bytes);
+    return MM_TRUE;
+}
+
+static mm_bool iwdg_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
+{
+    struct iwdg_state *w = (struct iwdg_state *)opaque;
+    if (value_out == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
+    if ((offset + size_bytes) > IWDG_SIZE) return MM_FALSE;
+    if (offset == IWDG_KR) {
+        *value_out = 0;
+        return MM_TRUE;
+    }
+    memcpy(value_out, (mm_u8 *)w->regs + offset, size_bytes);
+    return MM_TRUE;
+}
+
+static void iwdg_apply_key(struct iwdg_state *w, mm_u32 key)
+{
+    if (key == 0x5555u) {
+        w->write_access = MM_TRUE;
+    } else if (key == 0xAAAAu) {
+        w->counter = w->regs[IWDG_RLR / 4u] & 0x0FFFu;
+    } else if (key == 0xCCCCu) {
+        w->running = MM_TRUE;
+        w->write_access = MM_FALSE;
+        w->counter = w->regs[IWDG_RLR / 4u] & 0x0FFFu;
+    }
+}
+
+static mm_bool iwdg_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    struct iwdg_state *w = (struct iwdg_state *)opaque;
+    if (size_bytes == 0 || size_bytes > 4) return MM_FALSE;
+    if ((offset + size_bytes) > IWDG_SIZE) return MM_FALSE;
+    if (offset == IWDG_KR) {
+        iwdg_apply_key(w, value & 0xFFFFu);
+        return MM_TRUE;
+    }
+    if (!w->write_access) {
+        return MM_TRUE;
+    }
+    if (offset == IWDG_PR) {
+        w->regs[IWDG_PR / 4u] = value & 0x7u;
+        return MM_TRUE;
+    }
+    if (offset == IWDG_RLR) {
+        w->regs[IWDG_RLR / 4u] = value & 0x0FFFu;
+        return MM_TRUE;
+    }
+    if (offset == IWDG_WINR) {
+        w->regs[IWDG_WINR / 4u] = value & 0x0FFFu;
+        return MM_TRUE;
+    }
+    if (offset == IWDG_EWCR) {
+        w->regs[IWDG_EWCR / 4u] = value;
+        return MM_TRUE;
+    }
+    return MM_TRUE;
+}
+
+static mm_bool wwdg_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
+{
+    struct wwdg_state *w = (struct wwdg_state *)opaque;
+    if (value_out == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
+    if ((offset + size_bytes) > WWDG_SIZE) return MM_FALSE;
+    if (!wwdg_clock_enabled()) {
+        *value_out = 0;
+        return MM_TRUE;
+    }
+    memcpy(value_out, (mm_u8 *)w->regs + offset, size_bytes);
+    return MM_TRUE;
+}
+
+static mm_bool wwdg_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    struct wwdg_state *w = (struct wwdg_state *)opaque;
+    if (size_bytes == 0 || size_bytes > 4) return MM_FALSE;
+    if ((offset + size_bytes) > WWDG_SIZE) return MM_FALSE;
+    if (!wwdg_clock_enabled()) {
+        return MM_TRUE;
+    }
+    if (offset == WWDG_CR) {
+        w->regs[WWDG_CR / 4u] = value & 0xFFu;
+        w->counter = w->regs[WWDG_CR / 4u] & 0x7Fu;
+        return MM_TRUE;
+    }
+    if (offset == WWDG_CFR) {
+        w->regs[WWDG_CFR / 4u] = value;
+        return MM_TRUE;
+    }
+    if (offset == WWDG_SR) {
+        w->regs[WWDG_SR / 4u] &= ~value;
+        return MM_TRUE;
+    }
+    memcpy((mm_u8 *)w->regs + offset, &value, size_bytes);
+    return MM_TRUE;
+}
+
 mm_u32 *mm_stm32h563_rcc_regs(void)
 {
     return rcc.regs;
@@ -877,6 +1176,65 @@ mm_u32 *mm_stm32h563_rcc_regs(void)
 mm_u64 mm_stm32h563_cpu_hz(void)
 {
     return rcc.cpu_hz;
+}
+
+void mm_stm32h563_exti_set_nvic(struct mm_nvic *nvic)
+{
+    g_exti_nvic = nvic;
+    g_wdg_nvic = nvic;
+}
+
+void mm_stm32h563_watchdog_tick(mm_u64 cycles)
+{
+    static const mm_u32 iwdg_presc_div[8] = { 4u, 8u, 16u, 32u, 64u, 128u, 256u, 256u };
+    mm_u64 cpu_hz = mm_stm32h563_cpu_hz();
+
+    if (wwdg_clock_enabled() && wwdg.counter != 0u && (wwdg.regs[WWDG_CR / 4u] & 0x80u) != 0u) {
+        mm_u32 wdgtb = (wwdg.regs[WWDG_CFR / 4u] >> 11) & 0x7u;
+        mm_u64 step = 4096u * (mm_u64)(1u << wdgtb);
+        wwdg.accum += cycles;
+        while (wwdg.accum >= step) {
+            wwdg.accum -= step;
+            if (wwdg.counter > 0u) {
+                wwdg.counter--;
+                wwdg.regs[WWDG_CR / 4u] = (wwdg.regs[WWDG_CR / 4u] & ~0x7Fu) | (wwdg.counter & 0x7Fu);
+                if (wwdg.counter == 0x40u && (wwdg.regs[WWDG_CFR / 4u] & (1u << 9)) != 0u) {
+                    wwdg.regs[WWDG_SR / 4u] |= 1u;
+                    if (g_wdg_nvic != 0) {
+                        mm_nvic_set_pending(g_wdg_nvic, 0u, MM_TRUE);
+                    }
+                }
+                if (wwdg.counter == 0x3Fu) {
+                    mm_system_request_reset();
+                    break;
+                }
+            }
+        }
+    }
+
+    if (iwdg.running) {
+        mm_u32 pr = iwdg.regs[IWDG_PR / 4u] & 0x7u;
+        mm_u64 ticks_per_sec;
+        mm_u64 cycles_per_tick;
+        mm_u64 lsi = 32000u;
+        mm_u32 div = iwdg_presc_div[pr];
+        ticks_per_sec = lsi / (mm_u64)div;
+        if (ticks_per_sec == 0) ticks_per_sec = 1;
+        if (cpu_hz == 0) cpu_hz = 1;
+        cycles_per_tick = cpu_hz / ticks_per_sec;
+        if (cycles_per_tick == 0) cycles_per_tick = 1;
+        iwdg.accum += cycles;
+        while (iwdg.accum >= cycles_per_tick) {
+            iwdg.accum -= cycles_per_tick;
+            if (iwdg.counter > 0u) {
+                iwdg.counter--;
+            }
+            if (iwdg.counter == 0u) {
+                mm_system_request_reset();
+                break;
+            }
+        }
+    }
 }
 
 mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
@@ -890,6 +1248,9 @@ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
     memset(&tzic_s, 0, sizeof(tzic_s));
     memset(&tzic_ns, 0, sizeof(tzic_ns));
     memset(&rng, 0, sizeof(rng));
+    memset(&exti, 0, sizeof(exti));
+    memset(&iwdg, 0, sizeof(iwdg));
+    memset(&wwdg, 0, sizeof(wwdg));
     memset(&flash_ctl, 0, sizeof(flash_ctl));
     memset(gpio, 0, sizeof(gpio));
     memset(&gpdma1, 0, sizeof(gpdma1));
@@ -902,6 +1263,12 @@ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
     flash_ctl.regs[FLASH_ACR / 4] = 0x00000013u;
     flash_ctl.regs[FLASH_NSCR / 4] = 0x00000001u;
     flash_ctl.regs[FLASH_SECCR / 4] = 0x00000001u;
+    iwdg.regs[IWDG_RLR / 4] = 0x00000FFFu;
+    iwdg.regs[IWDG_WINR / 4] = 0x00000FFFu;
+    wwdg.regs[WWDG_CR / 4] = 0x0000007Fu;
+    wwdg.regs[WWDG_CFR / 4] = 0x0000007Fu;
+    wwdg.counter = 0x7Fu;
+    exti.regs[EXTI_IMR1 / 4u] = 0xFFFE0000u;
 
     /* RCC */
     reg.base = RCC_BASE;
@@ -978,6 +1345,36 @@ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
     rng_ctx[1][2] = &rcc;
     rng_ctx[1][3] = &tzsc_s;
     reg.opaque = rng_ctx[1];
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+
+    /* EXTI (non-secure and secure aliases) */
+    reg.base = EXTI_BASE;
+    reg.size = EXTI_SIZE;
+    reg.opaque = &exti;
+    reg.read = exti_read;
+    reg.write = exti_write;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    reg.base = EXTI_SEC_BASE;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+
+    /* IWDG (non-secure and secure aliases) */
+    reg.base = IWDG_BASE;
+    reg.size = IWDG_SIZE;
+    reg.opaque = &iwdg;
+    reg.read = iwdg_read;
+    reg.write = iwdg_write;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    reg.base = IWDG_SEC_BASE;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+
+    /* WWDG (non-secure and secure aliases) */
+    reg.base = WWDG_BASE;
+    reg.size = WWDG_SIZE;
+    reg.opaque = &wwdg;
+    reg.read = wwdg_read;
+    reg.write = wwdg_write;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    reg.base = WWDG_SEC_BASE;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* GPDMA1/GPDMA2 (non-secure and secure aliases) */

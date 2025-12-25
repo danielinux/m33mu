@@ -309,6 +309,7 @@ void mm_stm32h563_timers_tick(mm_u64 cycles)
     for (i = 0; i < sizeof(timers) / sizeof(timers[0]); ++i) {
         tim_tick(&timers[i], cycles);
     }
+    mm_stm32h563_watchdog_tick(cycles);
 }
 
 void mm_stm32h563_timers_init(struct mmio_bus *bus, struct mm_nvic *nvic)
@@ -321,6 +322,7 @@ void mm_stm32h563_timers_init(struct mmio_bus *bus, struct mm_nvic *nvic)
     mm_u32 *tz1 = tz != 0 ? tz + (0x10u / 4u) : 0;
     size_t i;
     g_nvic = nvic;
+    mm_stm32h563_exti_set_nvic(nvic);
     for (i = 0; i < sizeof(timers) / sizeof(timers[0]); ++i) {
         struct tim_inst *t = &timers[i];
         struct mmio_region reg;

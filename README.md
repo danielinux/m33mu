@@ -46,20 +46,44 @@ For the TUI, m33mu uses 'termbox2' library (MIT License) - see `tui/termbox2.h`.
 
 
 ## Getting started
-Build everything with warnings-as-errors:
+Configure and build (warnings-as-errors are enabled):
 
 ```sh
-make
+cmake -S . -B build
+cmake --build build
+```
+
+Run the test suite:
+
+```sh
+ctest --test-dir build
+```
+
+Automate firmware builds/runs (Makefile-based firmware remains unchanged):
+
+```sh
+cmake --build build --target firmware-build
+cmake --build build --target test-firmware
+cmake --build build --target test-m33
+```
+
+Build firmware fixtures (arm-none-eabi toolchain required):
+
+```sh
+make -C tests/firmware/test-cortex-m33 app.bin
+make -C tests/firmware/test-rtos-exceptions app.bin
+make -C tests/firmware/test-systick-wfi app.bin
+make -C tests/firmware/test-tz-bxns-cmse-sau-mpu clean all
 ```
 
 Run the included sample firmwares:
 
-- Cortex-M33 bring-up: `bin/m33mu test-cortex-m33/app.bin`
-- RTOS exception exercise (SysTick/SVC/PendSV, NVIC priorities): `bin/m33mu test-rtos-exceptions/app.bin`
-- SysTick + WFI blocking demo: `SYSTICK_TRACE=1 bin/m33mu test-systick-wfi/app.bin` (shows SysTick downcounter, COUNTFLAG, pended interrupt waking WFI).
+- Cortex-M33 bring-up: `build/m33mu tests/firmware/test-cortex-m33/app.bin`
+- RTOS exception exercise (SysTick/SVC/PendSV, NVIC priorities): `build/m33mu tests/firmware/test-rtos-exceptions/app.bin`
+- SysTick + WFI blocking demo: `SYSTICK_TRACE=1 build/m33mu tests/firmware/test-systick-wfi/app.bin` (shows SysTick downcounter, COUNTFLAG, pended interrupt waking WFI).
 - TrustZone + CMSE + SAU + MPU (Secure+Non-secure images):
-  - Build: `make -C test-tz-bxns-cmse-sau-mpu clean all`
-  - Run: `timeout 3s bin/m33mu test-tz-bxns-cmse-sau-mpu/build/secure.bin test-tz-bxns-cmse-sau-mpu/build/nonsecure.bin:0x2000`
+  - Build: `make -C tests/firmware/test-tz-bxns-cmse-sau-mpu clean all`
+  - Run: `timeout 3s build/m33mu tests/firmware/test-tz-bxns-cmse-sau-mpu/build/secure.bin tests/firmware/test-tz-bxns-cmse-sau-mpu/build/nonsecure.bin:0x2000`
 
 Both tests execute entirely from the in-repo binaries; no downloads required. Use `--gdb` to start the integrated GDB RSP server on port 1234.
 
@@ -69,13 +93,13 @@ Both tests execute entirely from the in-repo binaries; no downloads required. Us
 Example (Secure image at offset 0, Non-secure image at offset 0x2000):
 
 ```sh
-bin/m33mu test-tz-bxns-cmse-sau-mpu/build/secure.bin test-tz-bxns-cmse-sau-mpu/build/nonsecure.bin:0x2000
+build/m33mu tests/firmware/test-tz-bxns-cmse-sau-mpu/build/secure.bin tests/firmware/test-tz-bxns-cmse-sau-mpu/build/nonsecure.bin:0x2000
 ```
 
 ## Command line usage
 
 ```
-bin/m33mu [--cpu <cpu>] [--gdb] [--port <n>] [--gdb-symbols <elf>] [--dump] [--tui] [--persist] [--capstone] [--uart-stdout] [--quit-on-faults] [--meminfo] <image.bin[:offset]> [more images...]
+build/m33mu [--cpu <cpu>] [--gdb] [--port <n>] [--gdb-symbols <elf>] [--dump] [--tui] [--persist] [--capstone] [--uart-stdout] [--quit-on-faults] [--meminfo] <image.bin[:offset]> [more images...]
 ```
 
 Options:
