@@ -36,6 +36,11 @@
 #include "stm32l552/stm32l552_usart.h"
 #include "stm32l552/stm32l552_spi.h"
 #include "stm32l552/cpu_config.h"
+#include "mcxw71c/mcxw71c_mmio.h"
+#include "mcxw71c/mcxw71c_timers.h"
+#include "mcxw71c/mcxw71c_usart.h"
+#include "mcxw71c/mcxw71c_spi.h"
+#include "mcxw71c/cpu_config.h"
 
 struct mm_cpu_entry {
     const char *name;
@@ -134,6 +139,37 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32L552_TIMER_INIT,
             STM32L552_TIMER_RESET,
             STM32L552_TIMER_TICK
+        }
+    },
+    {
+        "mcxw71c",
+        {
+            MCXW71C_FLASH_BASE_S,
+            MCXW71C_FLASH_SIZE,
+            MCXW71C_FLASH_BASE_NS,
+            MCXW71C_FLASH_SIZE,
+            MCXW71C_RAM_BASE_S,
+            MCXW71C_RAM_SIZE,
+            MCXW71C_RAM_BASE_NS,
+            MCXW71C_RAM_SIZE,
+            MCXW71C_RAM_REGIONS,
+            MCXW71C_RAM_REGION_COUNT,
+            MCXW71C_MPCBB_BLOCK_SIZE,
+            0,
+            MCXW71C_FLAGS,
+            MCXW71C_SOC_RESET,
+            MCXW71C_SOC_REGISTER,
+            MCXW71C_FLASH_BIND,
+            MCXW71C_CLOCK_GET_HZ,
+            MCXW71C_USART_INIT,
+            MCXW71C_USART_RESET,
+            MCXW71C_USART_POLL,
+            MCXW71C_SPI_INIT,
+            MCXW71C_SPI_RESET,
+            MCXW71C_SPI_POLL,
+            MCXW71C_TIMER_INIT,
+            MCXW71C_TIMER_RESET,
+            MCXW71C_TIMER_TICK
         }
     }
 };

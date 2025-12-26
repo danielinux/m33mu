@@ -293,6 +293,15 @@ add_custom_target(test-stm32l5-tui
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
+add_custom_target(test-mcxw
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-mcxw app.bin
+  COMMAND $<TARGET_FILE:m33mu> --cpu mcxw71c tests/firmware/test-mcxw/app.bin
+          --uart-stdout
+          --spiflash:SPI0:file=tests/firmware/test-mcxw/spi_flash.bin:size=2097152:mmap=0x01000000:cs=PA0
+  DEPENDS m33mu
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
 # -----------------------------------------------------------------------------
 # Summary
 # -----------------------------------------------------------------------------
