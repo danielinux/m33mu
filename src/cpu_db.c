@@ -41,6 +41,10 @@
 #include "mcxw71c/mcxw71c_usart.h"
 #include "mcxw71c/mcxw71c_spi.h"
 #include "mcxw71c/cpu_config.h"
+#include "nrf5340/nrf5340_mmio.h"
+#include "nrf5340/nrf5340_timers.h"
+#include "nrf5340/nrf5340_uart_spi.h"
+#include "nrf5340/cpu_config.h"
 
 struct mm_cpu_entry {
     const char *name;
@@ -170,6 +174,37 @@ static const struct mm_cpu_entry cpu_table[] = {
             MCXW71C_TIMER_INIT,
             MCXW71C_TIMER_RESET,
             MCXW71C_TIMER_TICK
+        }
+    },
+    {
+        "nrf5340",
+        {
+            NRF5340_FLASH_BASE_S,
+            NRF5340_FLASH_SIZE,
+            NRF5340_FLASH_BASE_NS,
+            NRF5340_FLASH_SIZE,
+            NRF5340_RAM_BASE_S,
+            NRF5340_RAM_SIZE,
+            NRF5340_RAM_BASE_NS,
+            NRF5340_RAM_SIZE,
+            NRF5340_RAM_REGIONS,
+            NRF5340_RAM_REGION_COUNT,
+            NRF5340_MPCBB_BLOCK_SIZE,
+            0,
+            NRF5340_FLAGS,
+            NRF5340_SOC_RESET,
+            NRF5340_SOC_REGISTER,
+            NRF5340_FLASH_BIND,
+            NRF5340_CLOCK_GET_HZ,
+            NRF5340_USART_INIT,
+            NRF5340_USART_RESET,
+            NRF5340_USART_POLL,
+            NRF5340_SPI_INIT,
+            NRF5340_SPI_RESET,
+            NRF5340_SPI_POLL,
+            NRF5340_TIMER_INIT,
+            NRF5340_TIMER_RESET,
+            NRF5340_TIMER_TICK
         }
     }
 };

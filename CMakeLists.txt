@@ -302,6 +302,15 @@ add_custom_target(test-mcxw
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
+add_custom_target(test-nrf5340
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-nrf5340 app.bin
+  COMMAND $<TARGET_FILE:m33mu> --cpu nrf5340 tests/firmware/test-nrf5340/app.bin
+          --uart-stdout
+          --spiflash:SPI0:file=tests/firmware/test-nrf5340/spi_flash.bin:size=2097152:mmap=0x10000000:cs=PA0
+  DEPENDS m33mu
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
 # -----------------------------------------------------------------------------
 # Summary
 # -----------------------------------------------------------------------------

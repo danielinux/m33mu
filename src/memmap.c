@@ -26,6 +26,7 @@ static mm_bool g_memwatch_enabled = MM_FALSE;
 static mm_u32 g_memwatch_addr = 0;
 static mm_u32 g_memwatch_size = 0;
 static mm_u32 g_memwatch_pc = 0;
+static struct mm_memmap *g_current_map = 0;
 
 static mm_bool read_buf_le(const mm_u8 *buf, mm_u32 offset, mm_u32 size, mm_u32 *value_out)
 {
@@ -138,6 +139,12 @@ void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t r
     map->flash_size_s = map->flash_size_ns = 0;
     map->ram_base_s = map->ram_base_ns = 0;
     map->ram_size_s = map->ram_size_ns = 0;
+    g_current_map = map;
+}
+
+struct mm_memmap *mm_memmap_current(void)
+{
+    return g_current_map;
 }
 
 void mm_memmap_set_interceptor(struct mm_memmap *map, mm_access_interceptor fn, void *opaque)

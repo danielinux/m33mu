@@ -69,6 +69,7 @@ struct mm_memmap {
 };
 
 void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t region_capacity);
+struct mm_memmap *mm_memmap_current(void);
 void mm_memmap_set_interceptor(struct mm_memmap *map, mm_access_interceptor fn, void *opaque);
 void mm_memmap_set_flash_writer(struct mm_memmap *map, mm_flash_write_cb fn, void *opaque);
 mm_bool mm_memmap_configure_flash(struct mm_memmap *map, const struct mm_target_cfg *cfg, const mm_u8 *backing, mm_bool secure_view);
