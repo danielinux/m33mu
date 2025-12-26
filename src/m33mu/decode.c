@@ -23,6 +23,14 @@
 #include "m33mu/fetch.h"
 #include <stdio.h>
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L)
+#define MM_INLINE static inline
+#elif defined(__GNUC__)
+#define MM_INLINE static __inline
+#else
+#define MM_INLINE static
+#endif
+
 static mm_u32 thumb_expand_imm12(mm_u32 imm12)
 {
     /* ThumbExpandImm per Arm ARM A7.4.2 / ThumbExpandImmWithC (carry ignored). */
@@ -67,88 +75,78 @@ static struct mm_decoded mm_decoded_default(const struct mm_fetch_result *fetch)
     return d;
 }
 
-static struct mm_decoded decode_16(mm_u16 hw1)
+MM_INLINE mm_bool decode_16_control(mm_u16 hw1, struct mm_decoded *d)
 {
-    struct mm_decoded d;
-    d = mm_decoded_default(0);
-    d.len = 2;
-    d.raw = hw1;
-
     /* UDF */
     if ((hw1 & 0xff00u) == 0xde00u) {
-        d.kind = MM_OP_UDF;
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_UDF;
+        d->imm = (mm_u32)(hw1 & 0x00ffu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* BKPT */
     if ((hw1 & 0xff00u) == 0xbe00u) {
-        d.kind = MM_OP_BKPT;
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_BKPT;
+        d->imm = (mm_u32)(hw1 & 0x00ffu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* SVC */
     if ((hw1 & 0xff00u) == 0xdf00u) {
-        d.kind = MM_OP_SVC;
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_SVC;
+        d->imm = (mm_u32)(hw1 & 0x00ffu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* NOP */
     if (hw1 == 0xbf00u) {
-        d.kind = MM_OP_NOP;
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_NOP;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* Hints: YIELD/WFE/WFI/SEV (low nibble must be 0) */
     if ((hw1 & 0xff0fu) == 0xbf00u) {
         mm_u8 op = (mm_u8)(hw1 & 0x00f0u);
         if (op == 0x10u) {
-            d.kind = MM_OP_YIELD;
+            d->kind = MM_OP_YIELD;
         } else if (op == 0x20u) {
-            d.kind = MM_OP_WFE;
+            d->kind = MM_OP_WFE;
         } else if (op == 0x30u) {
-            d.kind = MM_OP_WFI;
+            d->kind = MM_OP_WFI;
         } else if (op == 0x40u) {
-            d.kind = MM_OP_SEV;
+            d->kind = MM_OP_SEV;
         }
-        if (d.kind != MM_OP_UNDEFINED) {
-            d.undefined = MM_FALSE;
-            return d;
+        if (d->kind != MM_OP_UNDEFINED) {
+            d->undefined = MM_FALSE;
+            return MM_TRUE;
         }
     }
 
     /* CPSIE/CPSID (only I-bit handled); pattern 1011 0110 I 10 0 0 im[2:0] */
     if ((hw1 & 0xffe0u) == 0xb660u) {
-        d.kind = MM_OP_CPS;
-        d.imm = (mm_u32)(hw1 & 0x001fu); /* bit4=imod (0=IE,1=ID), bits2:0=mask bits */
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_CPS;
+        d->imm = (mm_u32)(hw1 & 0x001fu); /* bit4=imod (0=IE,1=ID), bits2:0=mask bits */
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* IT (ITSTATE capture only) */
     if ((hw1 & 0xff00u) == 0xbf00u) {
-        d.kind = MM_OP_IT;
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_IT;
+        d->imm = (mm_u32)(hw1 & 0x00ffu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
-    /* UXTB (16-bit) */
-    if ((hw1 & 0xffc0u) == 0xb2c0u) {
-        d.kind = MM_OP_UXTB;
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.imm = 0u;
-        d.undefined = MM_FALSE;
-        return d;
-    }
+    return MM_FALSE;
+}
 
+MM_INLINE mm_bool decode_16_branch_cond(mm_u16 hw1, struct mm_decoded *d)
+{
     /* Conditional branch (b<c>) */
     if ((hw1 & 0xf000u) == 0xd000u) {
         mm_u8 cond = (mm_u8)((hw1 >> 8) & 0x0fu);
@@ -158,14 +156,18 @@ static struct mm_decoded decode_16(mm_u16 hw1)
             if (imm & 0x0000100u) { /* sign extend 9 bits (8+sign) */
                 imm |= 0xfffffe00u;
             }
-            d.kind = MM_OP_B_COND;
-            d.cond = (enum mm_cond)cond;
-            d.imm = imm;
-            d.undefined = MM_FALSE;
-            return d;
+            d->kind = MM_OP_B_COND;
+            d->cond = (enum mm_cond)cond;
+            d->imm = imm;
+            d->undefined = MM_FALSE;
+            return MM_TRUE;
         }
     }
+    return MM_FALSE;
+}
 
+MM_INLINE mm_bool decode_16_branch_uncond(mm_u16 hw1, struct mm_decoded *d)
+{
     /* Unconditional B (short) */
     if ((hw1 & 0xf800u) == 0xe000u) {
         mm_u32 imm11 = (mm_u32)(hw1 & 0x07ffu);
@@ -173,12 +175,16 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         if (imm & 0x00000800u) {
             imm |= 0xfffff000u;
         }
-        d.kind = MM_OP_B_UNCOND;
-        d.imm = imm;
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_B_UNCOND;
+        d->imm = imm;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
+    return MM_FALSE;
+}
 
+MM_INLINE mm_bool decode_16_branch_misc(mm_u16 hw1, struct mm_decoded *d)
+{
     /* CBZ/CBNZ */
     if ((hw1 & 0xf500u) == 0xb100u) {
         mm_u8 i = (mm_u8)((hw1 >> 9) & 0x1u);
@@ -186,194 +192,171 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 rn = (mm_u8)(hw1 & 0x7u);
         mm_u32 imm = ((mm_u32)(i << 6) | (mm_u32)(imm5 << 1));
         if ((hw1 & 0x0800u) != 0u) {
-            d.kind = MM_OP_CBNZ;
+            d->kind = MM_OP_CBNZ;
         } else {
-            d.kind = MM_OP_CBZ;
+            d->kind = MM_OP_CBZ;
         }
-        d.rn = rn;
-        d.imm = imm;
-        d.undefined = MM_FALSE;
-        return d;
+        d->rn = rn;
+        d->imm = imm;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* BXNS/BLXNS (secure state change branches) */
     if ((hw1 & 0xff87u) == 0x4704u) {
-        d.kind = MM_OP_BXNS;
-        d.rm = (mm_u8)((hw1 >> 3) & 0x0fu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_BXNS;
+        d->rm = (mm_u8)((hw1 >> 3) & 0x0fu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
     if ((hw1 & 0xff87u) == 0x4784u) {
-        d.kind = MM_OP_BLXNS;
-        d.rm = (mm_u8)((hw1 >> 3) & 0x0fu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_BLXNS;
+        d->rm = (mm_u8)((hw1 >> 3) & 0x0fu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* BX */
     if ((hw1 & 0xff87u) == 0x4700u) {
-        d.kind = MM_OP_BX;
-        d.rm = (mm_u8)((hw1 >> 3) & 0x0fu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_BX;
+        d->rm = (mm_u8)((hw1 >> 3) & 0x0fu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
     /* BLX (register) */
     if ((hw1 & 0xff87u) == 0x4780u) {
-        d.kind = MM_OP_BLX;
-        d.rm = (mm_u8)((hw1 >> 3) & 0x0fu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_BLX;
+        d->rm = (mm_u8)((hw1 >> 3) & 0x0fu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
+    return MM_FALSE;
+}
+
+MM_INLINE mm_bool decode_16_ext_rev(mm_u16 hw1, struct mm_decoded *d)
+{
+    /* UXTB (16-bit) */
+    if ((hw1 & 0xffc0u) == 0xb2c0u) {
+        d->kind = MM_OP_UXTB;
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->rm = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->imm = 0u;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+
+    /* SXTB (Thumb16) */
+    if ((hw1 & 0xffc0u) == 0xb240u) {
+        d->kind = MM_OP_SXTB;
+        d->rm = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->imm = 0;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+
+    /* SXTH (Thumb16) */
+    if ((hw1 & 0xffc0u) == 0xb200u) {
+        d->kind = MM_OP_SXTH;
+        d->rm = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+
+    /* UXTH (Thumb16) */
+    if ((hw1 & 0xffc0u) == 0xb280u) {
+        d->kind = MM_OP_UXTH;
+        d->rm = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+
+    /* REV/REV16/REVSH */
+    if ((hw1 & 0xffc0u) == 0xba00u) {
+        d->kind = MM_OP_REV;
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->rm = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+    if ((hw1 & 0xffc0u) == 0xba40u) {
+        d->kind = MM_OP_REV16;
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->rm = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+    if ((hw1 & 0xffc0u) == 0xbac0u) {
+        d->kind = MM_OP_REVSH;
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->rm = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+
+    return MM_FALSE;
+}
+
+MM_INLINE mm_bool decode_16_data_proc(mm_u16 hw1, struct mm_decoded *d)
+{
     /* ADD/CMP/MOV (high registers) */
     if ((hw1 & 0xfc00u) == 0x4400u) {
         mm_u8 op = (mm_u8)((hw1 >> 8) & 0x3u);
         mm_u8 rm = (mm_u8)((hw1 >> 3) & 0x0fu);
         mm_u8 rd = (mm_u8)((hw1 & 0x7u) | ((hw1 >> 4) & 0x8u));
-        d.rm = rm;
-        d.rd = rd;
-        d.rn = rd;
+        d->rm = rm;
+        d->rd = rd;
+        d->rn = rd;
         if (op == 0u) {
-            d.kind = MM_OP_ADD_REG;
+            d->kind = MM_OP_ADD_REG;
         } else if (op == 1u) {
-            d.kind = MM_OP_CMP_REG;
+            d->kind = MM_OP_CMP_REG;
         } else if (op == 2u) {
-            d.kind = MM_OP_MOV_REG;
+            d->kind = MM_OP_MOV_REG;
         }
-        if (d.kind != MM_OP_UNDEFINED) {
-            d.undefined = MM_FALSE;
-            return d;
+        if (d->kind != MM_OP_UNDEFINED) {
+            d->undefined = MM_FALSE;
+            return MM_TRUE;
         }
-    }
-
-    /* SXTB (Thumb16) */
-    if ((hw1 & 0xffc0u) == 0xb240u) {
-        d.kind = MM_OP_SXTB;
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.imm = 0; /* rotate = 0 */
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
-    /* SXTH (Thumb16) */
-    if ((hw1 & 0xffc0u) == 0xb200u) {
-        d.kind = MM_OP_SXTH;
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
-    /* UXTH (Thumb16) */
-    if ((hw1 & 0xffc0u) == 0xb280u) {
-        d.kind = MM_OP_UXTH;
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
-    /* ADR (ADD (PC-relative) to Rd) */
-    if ((hw1 & 0xf800u) == 0xa000u) {
-        mm_u8 rd = (mm_u8)((hw1 >> 8) & 0x7u);
-        mm_u32 imm = (mm_u32)(hw1 & 0x00ffu) << 2;
-        d.kind = MM_OP_ADR;
-        d.rd = rd;
-        d.imm = imm;
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
-    /* ADD (SP plus immediate) */
-    if ((hw1 & 0xf800u) == 0xa800u) {
-        mm_u8 rd = (mm_u8)((hw1 >> 8) & 0x7u);
-        mm_u32 imm = (mm_u32)(hw1 & 0x00ffu) << 2;
-        d.kind = MM_OP_ADD_SP_IMM;
-        d.rd = rd;
-        d.rn = 13u;
-        d.imm = imm;
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
-    /* ADD/SUB SP, #imm7*4 */
-    if ((hw1 & 0xff80u) == 0xb000u) {
-        mm_u32 imm = (mm_u32)(hw1 & 0x007fu) << 2;
-        d.kind = MM_OP_ADD_SP_IMM;
-        d.rd = 13u;
-        d.rn = 13u;
-        d.imm = imm;
-        d.undefined = MM_FALSE;
-        return d;
-    }
-    if ((hw1 & 0xff80u) == 0xb080u) {
-        mm_u32 imm = (mm_u32)(hw1 & 0x007fu) << 2;
-        d.kind = MM_OP_SUB_SP_IMM;
-        d.rd = 13u;
-        d.rn = 13u;
-        d.imm = imm;
-        d.undefined = MM_FALSE;
-        return d;
     }
 
     /* MOV immediate (MOVS) */
     if ((hw1 & 0xf800u) == 0x2000u) {
-        d.kind = MM_OP_MOV_IMM;
-        d.rd = (mm_u8)((hw1 >> 8) & 0x7u);
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_MOV_IMM;
+        d->rd = (mm_u8)((hw1 >> 8) & 0x7u);
+        d->imm = (mm_u32)(hw1 & 0x00ffu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* CMP immediate */
     if ((hw1 & 0xf800u) == 0x2800u) {
-        d.kind = MM_OP_CMP_IMM;
-        d.rn = (mm_u8)((hw1 >> 8) & 0x7u);
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_CMP_IMM;
+        d->rn = (mm_u8)((hw1 >> 8) & 0x7u);
+        d->imm = (mm_u32)(hw1 & 0x00ffu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* ADD/SUB immediate (8-bit) */
     if ((hw1 & 0xf800u) == 0x3000u) {
-        d.kind = MM_OP_ADD_IMM;
-        d.rd = (mm_u8)((hw1 >> 8) & 0x7u);
-        d.rn = d.rd;
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_ADD_IMM;
+        d->rd = (mm_u8)((hw1 >> 8) & 0x7u);
+        d->rn = d->rd;
+        d->imm = (mm_u32)(hw1 & 0x00ffu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
     if ((hw1 & 0xf800u) == 0x3800u) {
-        d.kind = MM_OP_SUB_IMM;
-        d.rd = (mm_u8)((hw1 >> 8) & 0x7u);
-        d.rn = d.rd;
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
-    /* REV/REV16/REVSH */
-    if ((hw1 & 0xffc0u) == 0xba00u) {
-        d.kind = MM_OP_REV;
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-    if ((hw1 & 0xffc0u) == 0xba40u) {
-        d.kind = MM_OP_REV16;
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-    if ((hw1 & 0xffc0u) == 0xbac0u) {
-        d.kind = MM_OP_REVSH;
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_SUB_IMM;
+        d->rd = (mm_u8)((hw1 >> 8) & 0x7u);
+        d->rn = d->rd;
+        d->imm = (mm_u32)(hw1 & 0x00ffu);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* ADD/SUB (register or 3-bit immediate)
@@ -388,17 +371,17 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 rn = (mm_u8)((hw1 >> 3) & 0x7u);
         mm_u8 rd = (mm_u8)(hw1 & 0x7u);
 
-        d.rn = rn;
-        d.rd = rd;
+        d->rn = rn;
+        d->rd = rd;
         if (is_imm) {
-            d.imm = (mm_u32)bits8_6;
-            d.kind = (op == 0) ? MM_OP_ADD_IMM : MM_OP_SUB_IMM;
+            d->imm = (mm_u32)bits8_6;
+            d->kind = (op == 0) ? MM_OP_ADD_IMM : MM_OP_SUB_IMM;
         } else {
-            d.rm = bits8_6;
-            d.kind = (op == 0) ? MM_OP_ADD_REG : MM_OP_SUB_REG;
+            d->rm = bits8_6;
+            d->kind = (op == 0) ? MM_OP_ADD_REG : MM_OP_SUB_REG;
         }
-        d.undefined = MM_FALSE;
-        return d;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* ALU operations on registers (AND/EOR/LSL/LSR/ASR/ADC/SBC/ROR/TST/NEG/CMP/CMN/ORR/MUL/BIC/MVN) */
@@ -406,32 +389,32 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 opcode = (mm_u8)((hw1 >> 6) & 0x0fu);
         mm_u8 rm = (mm_u8)((hw1 >> 3) & 0x7u);
         mm_u8 rd = (mm_u8)(hw1 & 0x7u);
-        d.rm = rm;
-        d.rd = rd;
+        d->rm = rm;
+        d->rd = rd;
         switch (opcode) {
-        case 0x0: d.kind = MM_OP_AND_REG; d.rn = rd; break;
-        case 0x1: d.kind = MM_OP_EOR_REG; d.rn = rd; break;
-        case 0x2: d.kind = MM_OP_LSL_REG; d.rn = rd; break; /* LSL Rd,Rd,Rm */
-        case 0x3: d.kind = MM_OP_LSR_REG; d.rn = rd; break;
-        case 0x4: d.kind = MM_OP_ASR_REG; d.rn = rd; break;
-        case 0x5: d.kind = MM_OP_ADCS_REG; d.rn = rd; break;
-        case 0x6: d.kind = MM_OP_SBCS_REG; d.rn = rd; break;
-        case 0x7: d.kind = MM_OP_ROR_REG; d.rn = rd; break;
-        case 0x8: d.kind = MM_OP_TST_REG; d.rn = rd; break;
-        case 0x9: d.kind = MM_OP_NEG; break;
-        case 0xa: d.kind = MM_OP_CMP_REG; d.rn = rd; break;
-        case 0xb: d.kind = MM_OP_CMN_REG; d.rn = rd; break;
-        case 0xc: d.kind = MM_OP_ORR_REG; d.rn = rd; break;
-        case 0xd: d.kind = MM_OP_MUL; d.rn = rd; break;
-        case 0xe: d.kind = MM_OP_BIC_REG; d.rn = rd; break;
-        case 0xf: d.kind = MM_OP_MVN_REG; d.rn = rd; break;
+        case 0x0: d->kind = MM_OP_AND_REG; d->rn = rd; break;
+        case 0x1: d->kind = MM_OP_EOR_REG; d->rn = rd; break;
+        case 0x2: d->kind = MM_OP_LSL_REG; d->rn = rd; break; /* LSL Rd,Rd,Rm */
+        case 0x3: d->kind = MM_OP_LSR_REG; d->rn = rd; break;
+        case 0x4: d->kind = MM_OP_ASR_REG; d->rn = rd; break;
+        case 0x5: d->kind = MM_OP_ADCS_REG; d->rn = rd; break;
+        case 0x6: d->kind = MM_OP_SBCS_REG; d->rn = rd; break;
+        case 0x7: d->kind = MM_OP_ROR_REG; d->rn = rd; break;
+        case 0x8: d->kind = MM_OP_TST_REG; d->rn = rd; break;
+        case 0x9: d->kind = MM_OP_NEG; break;
+        case 0xa: d->kind = MM_OP_CMP_REG; d->rn = rd; break;
+        case 0xb: d->kind = MM_OP_CMN_REG; d->rn = rd; break;
+        case 0xc: d->kind = MM_OP_ORR_REG; d->rn = rd; break;
+        case 0xd: d->kind = MM_OP_MUL; d->rn = rd; break;
+        case 0xe: d->kind = MM_OP_BIC_REG; d->rn = rd; break;
+        case 0xf: d->kind = MM_OP_MVN_REG; d->rn = rd; break;
         default:
-            d.kind = MM_OP_UNDEFINED;
+            d->kind = MM_OP_UNDEFINED;
             break;
         }
-        if (d.kind != MM_OP_UNDEFINED) {
-            d.undefined = MM_FALSE;
-            return d;
+        if (d->kind != MM_OP_UNDEFINED) {
+            d->undefined = MM_FALSE;
+            return MM_TRUE;
         }
     }
 
@@ -442,26 +425,31 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 rm = (mm_u8)((hw1 >> 3) & 0x7u);
         mm_u8 rd = (mm_u8)(hw1 & 0x7u);
         if (op <= 2u) {
-            d.rm = rm;
-            d.rd = rd;
-            d.imm = (mm_u32)imm5;
-            if (op == 0) d.kind = MM_OP_LSL_IMM;
-            else if (op == 1) d.kind = MM_OP_LSR_IMM;
-            else d.kind = MM_OP_ASR_IMM;
-            d.undefined = MM_FALSE;
-            return d;
+            d->rm = rm;
+            d->rd = rd;
+            d->imm = (mm_u32)imm5;
+            if (op == 0) d->kind = MM_OP_LSL_IMM;
+            else if (op == 1) d->kind = MM_OP_LSR_IMM;
+            else d->kind = MM_OP_ASR_IMM;
+            d->undefined = MM_FALSE;
+            return MM_TRUE;
         }
     }
 
+    return MM_FALSE;
+}
+
+MM_INLINE mm_bool decode_16_loadstore(mm_u16 hw1, struct mm_decoded *d)
+{
     /* LDR literal (PC-relative) */
     if ((hw1 & 0xf800u) == 0x4800u) {
         mm_u8 rd = (mm_u8)((hw1 >> 8) & 0x7u);
         mm_u32 imm = (mm_u32)(hw1 & 0x00ffu) << 2;
-        d.kind = MM_OP_LDR_LITERAL;
-        d.rd = rd;
-        d.imm = imm;
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_LDR_LITERAL;
+        d->rd = rd;
+        d->imm = imm;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* STR/LDR (immediate, word) */
@@ -470,16 +458,16 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 rn = (mm_u8)((hw1 >> 3) & 0x7u);
         mm_u8 rt = (mm_u8)(hw1 & 0x7u);
         mm_u32 imm = (mm_u32)(imm5 << 2);
-        d.rn = rn;
-        d.rd = rt;
-        d.imm = imm;
+        d->rn = rn;
+        d->rd = rt;
+        d->imm = imm;
         if ((hw1 & 0x0800u) != 0) {
-            d.kind = MM_OP_LDR_IMM;
+            d->kind = MM_OP_LDR_IMM;
         } else {
-            d.kind = MM_OP_STR_IMM;
+            d->kind = MM_OP_STR_IMM;
         }
-        d.undefined = MM_FALSE;
-        return d;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* STR/LDR (SP-relative, word) */
@@ -487,16 +475,16 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 rt = (mm_u8)((hw1 >> 8) & 0x7u);
         mm_u8 imm8 = (mm_u8)(hw1 & 0xffu);
         mm_u32 imm = (mm_u32)imm8 << 2;
-        d.rn = 13u;
-        d.rd = rt;
-        d.imm = imm;
+        d->rn = 13u;
+        d->rd = rt;
+        d->imm = imm;
         if ((hw1 & 0x0800u) != 0) {
-            d.kind = MM_OP_LDR_IMM;
+            d->kind = MM_OP_LDR_IMM;
         } else {
-            d.kind = MM_OP_STR_IMM;
+            d->kind = MM_OP_STR_IMM;
         }
-        d.undefined = MM_FALSE;
-        return d;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* STRB/LDRB (immediate) */
@@ -504,12 +492,12 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 imm5 = (mm_u8)((hw1 >> 6) & 0x1fu);
         mm_u8 rn = (mm_u8)((hw1 >> 3) & 0x7u);
         mm_u8 rt = (mm_u8)(hw1 & 0x7u);
-        d.rn = rn;
-        d.rd = rt;
-        d.imm = imm5;
-        d.kind = ((hw1 & 0x0800u) != 0u) ? MM_OP_LDRB_IMM : MM_OP_STRB_IMM;
-        d.undefined = MM_FALSE;
-        return d;
+        d->rn = rn;
+        d->rd = rt;
+        d->imm = imm5;
+        d->kind = ((hw1 & 0x0800u) != 0u) ? MM_OP_LDRB_IMM : MM_OP_STRB_IMM;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* STRH/LDRH (immediate) */
@@ -517,16 +505,16 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 imm5 = (mm_u8)((hw1 >> 6) & 0x1fu);
         mm_u8 rn = (mm_u8)((hw1 >> 3) & 0x7u);
         mm_u8 rt = (mm_u8)(hw1 & 0x7u);
-        d.rn = rn;
-        d.rd = rt;
-        d.imm = (mm_u32)(imm5 << 1); /* halfword scaling */
+        d->rn = rn;
+        d->rd = rt;
+        d->imm = (mm_u32)(imm5 << 1); /* halfword scaling */
         if ((hw1 & 0x0800u) != 0u) {
-            d.kind = MM_OP_LDRH_IMM;
+            d->kind = MM_OP_LDRH_IMM;
         } else {
-            d.kind = MM_OP_STRH_IMM;
+            d->kind = MM_OP_STRH_IMM;
         }
-        d.undefined = MM_FALSE;
-        return d;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* STR/LDR (register offset, word) */
@@ -534,16 +522,16 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 rm = (mm_u8)((hw1 >> 6) & 0x7u);
         mm_u8 rn = (mm_u8)((hw1 >> 3) & 0x7u);
         mm_u8 rt = (mm_u8)(hw1 & 0x7u);
-        d.rn = rn;
-        d.rm = rm;
-        d.rd = rt;
+        d->rn = rn;
+        d->rm = rm;
+        d->rd = rt;
         if ((hw1 & 0x0800u) != 0u) {
-            d.kind = MM_OP_LDR_REG;
+            d->kind = MM_OP_LDR_REG;
         } else {
-            d.kind = MM_OP_STR_REG;
+            d->kind = MM_OP_STR_REG;
         }
-        d.undefined = MM_FALSE;
-        return d;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* STRH/LDRH (register offset) */
@@ -551,59 +539,107 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         mm_u8 rm = (mm_u8)((hw1 >> 6) & 0x7u);
         mm_u8 rn = (mm_u8)((hw1 >> 3) & 0x7u);
         mm_u8 rt = (mm_u8)(hw1 & 0x7u);
-        d.rn = rn;
-        d.rm = rm;
-        d.rd = rt;
+        d->rn = rn;
+        d->rm = rm;
+        d->rd = rt;
         if ((hw1 & 0x0200u) != 0u) {
-            d.kind = MM_OP_LDRH_REG;
+            d->kind = MM_OP_LDRH_REG;
         } else {
-            d.kind = MM_OP_STRH_REG;
+            d->kind = MM_OP_STRH_REG;
         }
-        d.undefined = MM_FALSE;
-        return d;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* STRB (register offset) */
     if ((hw1 & 0xfe00u) == 0x5400u) {
-        d.kind = MM_OP_STRB_REG;
-        d.rm = (mm_u8)((hw1 >> 6) & 0x7u);
-        d.rn = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_STRB_REG;
+        d->rm = (mm_u8)((hw1 >> 6) & 0x7u);
+        d->rn = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* LDRB (register offset) */
     if ((hw1 & 0xfe00u) == 0x5c00u) {
-        d.kind = MM_OP_LDRB_REG;
-        d.rm = (mm_u8)((hw1 >> 6) & 0x7u);
-        d.rn = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_LDRB_REG;
+        d->rm = (mm_u8)((hw1 >> 6) & 0x7u);
+        d->rn = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* LDRSB (register offset, 16-bit) */
     if ((hw1 & 0xfe00u) == 0x5600u) {
-        d.kind = MM_OP_LDRSB_REG;
-        d.rm = (mm_u8)((hw1 >> 6) & 0x7u);
-        d.rn = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_LDRSB_REG;
+        d->rm = (mm_u8)((hw1 >> 6) & 0x7u);
+        d->rn = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* LDRSH (register offset, 16-bit) */
     if ((hw1 & 0xfe00u) == 0x5e00u) {
-        d.kind = MM_OP_LDRSH_REG;
-        d.rm = (mm_u8)((hw1 >> 6) & 0x7u);
-        d.rn = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
+        d->kind = MM_OP_LDRSH_REG;
+        d->rm = (mm_u8)((hw1 >> 6) & 0x7u);
+        d->rn = (mm_u8)((hw1 >> 3) & 0x7u);
+        d->rd = (mm_u8)(hw1 & 0x7u);
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
     /* LDRSH (immediate) Thumb-2, T1/T2 handled in decode_32(). */
+
+    return MM_FALSE;
+}
+
+MM_INLINE mm_bool decode_16_stack_misc(mm_u16 hw1, struct mm_decoded *d)
+{
+    /* ADR (ADD (PC-relative) to Rd) */
+    if ((hw1 & 0xf800u) == 0xa000u) {
+        mm_u8 rd = (mm_u8)((hw1 >> 8) & 0x7u);
+        mm_u32 imm = (mm_u32)(hw1 & 0x00ffu) << 2;
+        d->kind = MM_OP_ADR;
+        d->rd = rd;
+        d->imm = imm;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+
+    /* ADD (SP plus immediate) */
+    if ((hw1 & 0xf800u) == 0xa800u) {
+        mm_u8 rd = (mm_u8)((hw1 >> 8) & 0x7u);
+        mm_u32 imm = (mm_u32)(hw1 & 0x00ffu) << 2;
+        d->kind = MM_OP_ADD_SP_IMM;
+        d->rd = rd;
+        d->rn = 13u;
+        d->imm = imm;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+
+    /* ADD/SUB SP, #imm7*4 */
+    if ((hw1 & 0xff80u) == 0xb000u) {
+        mm_u32 imm = (mm_u32)(hw1 & 0x007fu) << 2;
+        d->kind = MM_OP_ADD_SP_IMM;
+        d->rd = 13u;
+        d->rn = 13u;
+        d->imm = imm;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+    if ((hw1 & 0xff80u) == 0xb080u) {
+        mm_u32 imm = (mm_u32)(hw1 & 0x007fu) << 2;
+        d->kind = MM_OP_SUB_SP_IMM;
+        d->rd = 13u;
+        d->rn = 13u;
+        d->imm = imm;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
 
     /* PUSH/POP */
     if ((hw1 & 0xf600u) == 0xb400u) {
@@ -611,76 +647,91 @@ static struct mm_decoded decode_16(mm_u16 hw1)
         if ((hw1 & 0x0100u) != 0u) {
             reglist |= 0x0100u; /* LR or PC depending on push/pop */
         }
-        d.imm = reglist;
+        d->imm = reglist;
         if ((hw1 & 0x0800u) != 0) {
-            d.kind = MM_OP_POP;
+            d->kind = MM_OP_POP;
         } else {
-            d.kind = MM_OP_PUSH;
+            d->kind = MM_OP_PUSH;
         }
-        d.undefined = MM_FALSE;
-        return d;
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
     }
 
+    return MM_FALSE;
+}
+
+MM_INLINE mm_bool decode_16_stm_ldm(mm_u16 hw1, struct mm_decoded *d)
+{
     /* STMIA/LDMIA (16-bit) */
     if ((hw1 & 0xf000u) == 0xc000u) {
         mm_u8 l = (mm_u8)((hw1 >> 11) & 0x1u);
         mm_u8 rn = (mm_u8)((hw1 >> 8) & 0x7u);
         mm_u16 reglist = (mm_u16)(hw1 & 0x00ffu);
         if (reglist == 0u) {
-            return d; /* UNPRED: treat as undefined */
+            return MM_FALSE; /* UNPRED: treat as undefined */
         }
-        d.kind = l ? MM_OP_LDM : MM_OP_STM;
-        d.rn = rn;
-        d.imm = (1u << 24) | (1u << 16) | (mm_u32)reglist; /* IA with writeback */
-        d.undefined = MM_FALSE;
+        d->kind = l ? MM_OP_LDM : MM_OP_STM;
+        d->rn = rn;
+        d->imm = (1u << 24) | (1u << 16) | (mm_u32)reglist; /* IA with writeback */
+        d->undefined = MM_FALSE;
+        return MM_TRUE;
+    }
+
+    return MM_FALSE;
+}
+
+static struct mm_decoded decode_16(mm_u16 hw1)
+{
+    struct mm_decoded d;
+    mm_u16 top;
+    d = mm_decoded_default(0);
+    d.len = 2;
+    d.raw = hw1;
+
+    if (decode_16_control(hw1, &d)) {
         return d;
     }
 
-    /* REV/REV16/REVSH */
-    if ((hw1 & 0xffc0u) == 0xba00u) {
-        d.kind = MM_OP_REV;
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-    if ((hw1 & 0xffc0u) == 0xba40u) {
-        d.kind = MM_OP_REV16;
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-    if ((hw1 & 0xffc0u) == 0xbac0u) {
-        d.kind = MM_OP_REVSH;
-        d.rd = (mm_u8)(hw1 & 0x7u);
-        d.rm = (mm_u8)((hw1 >> 3) & 0x7u);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
-    /* SVC */
-    if ((hw1 & 0xff00u) == 0xdf00u) {
-        d.kind = MM_OP_SVC;
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
-    /* BKPT */
-    if ((hw1 & 0xff00u) == 0xbe00u) {
-        d.kind = MM_OP_BKPT;
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
-    /* UDF */
-    if ((hw1 & 0xff00u) == 0xde00u) {
-        d.kind = MM_OP_UDF;
-        d.imm = (mm_u32)(hw1 & 0x00ffu);
-        d.undefined = MM_FALSE;
-        return d;
+    top = (mm_u16)(hw1 & 0xf000u);
+    switch (top) {
+    case 0x0000u:
+    case 0x1000u:
+        if (decode_16_data_proc(hw1, &d)) return d;
+        break;
+    case 0x2000u:
+    case 0x3000u:
+        if (decode_16_data_proc(hw1, &d)) return d;
+        break;
+    case 0x4000u:
+    case 0x5000u:
+        if (decode_16_branch_misc(hw1, &d)) return d;
+        if (decode_16_data_proc(hw1, &d)) return d;
+        if (decode_16_ext_rev(hw1, &d)) return d;
+        if (decode_16_loadstore(hw1, &d)) return d;
+        break;
+    case 0x6000u:
+    case 0x7000u:
+    case 0x8000u:
+    case 0x9000u:
+        if (decode_16_loadstore(hw1, &d)) return d;
+        break;
+    case 0xa000u:
+    case 0xb000u:
+        if (decode_16_stack_misc(hw1, &d)) return d;
+        if (decode_16_branch_misc(hw1, &d)) return d;
+        if (decode_16_ext_rev(hw1, &d)) return d;
+        break;
+    case 0xc000u:
+        if (decode_16_stm_ldm(hw1, &d)) return d;
+        break;
+    case 0xd000u:
+        if (decode_16_branch_cond(hw1, &d)) return d;
+        break;
+    case 0xe000u:
+        if (decode_16_branch_uncond(hw1, &d)) return d;
+        break;
+    default:
+        break;
     }
 
     return d;
