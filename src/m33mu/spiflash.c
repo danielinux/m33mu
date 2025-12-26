@@ -569,8 +569,14 @@ mm_bool mm_spiflash_register_cfg(const struct mm_spiflash_cfg *cfg)
     flash->cs_mask = (cfg->cs_valid && cfg->cs_pin >= 0) ? (1u << (mm_u32)cfg->cs_pin) : 0u;
     flash->cs_pin = cfg->cs_pin;
     flash->cs_level = 1u;
-    strncpy(flash->path, cfg->path, sizeof(flash->path) - 1u);
-    flash->path[sizeof(flash->path) - 1u] = '\0';
+    {
+        size_t n = strlen(cfg->path);
+        if (n >= sizeof(flash->path)) {
+            n = sizeof(flash->path) - 1u;
+        }
+        memcpy(flash->path, cfg->path, n);
+        flash->path[n] = '\0';
+    }
     if (!spiflash_load(flash)) {
         return MM_FALSE;
     }

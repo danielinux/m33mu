@@ -1272,16 +1272,6 @@ static struct mm_decoded decode_32(mm_u32 insn)
         d.undefined = MM_FALSE;
         return d;
     }
-    if ((insn & 0xff700000u) == 0xf1200000u && (((insn >> 21) & 0xfu) == 0x8u)) { /* ADD (imm) T3: op=0100, S=1 */
-        mm_u32 imm12 = (((insn >> 26) & 1u) << 11) | (((insn >> 12) & 0x7u) << 8) | (insn & 0xffu);
-        d.kind = MM_OP_ADD_IMM;
-        d.rn = (mm_u8)((insn >> 16) & 0x0fu);
-        d.rd = (mm_u8)((insn >> 8) & 0x0fu);
-        d.imm = thumb_expand_imm12(imm12);
-        d.undefined = MM_FALSE;
-        return d;
-    }
-
     /* MOV (immediate) Thumb-2 (alias of ORR immediate with Rn=1111). */
     if ((insn & 0xfbf08000u) == 0xf0400000u && ((insn >> 16) & 0x0fu) == 0x0fu) {
         mm_u32 imm12 = (((insn >> 26) & 1u) << 11) | (((insn >> 12) & 0x7u) << 8) | (insn & 0xffu);

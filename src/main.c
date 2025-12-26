@@ -400,6 +400,9 @@ static mm_bool handle_tui(struct mm_tui *tui,
                 }
             } else {
                 (void)capstone_set_enabled(MM_FALSE);
+                if (opt_capstone != 0) {
+                    *opt_capstone = MM_FALSE;
+                }
             }
         }
 #else
@@ -1186,6 +1189,7 @@ int main(int argc, char **argv)
     mm_bool opt_persist = MM_FALSE;
     mm_bool opt_quit_on_faults = MM_FALSE;
     mm_bool opt_capstone = MM_FALSE;
+    mm_bool opt_capstone_verbose = MM_FALSE;
     mm_bool opt_uart_stdout = MM_FALSE;
     mm_bool opt_meminfo = MM_FALSE;
     const char *gdb_symbols = 0;
@@ -1305,6 +1309,9 @@ int main(int argc, char **argv)
 #ifdef M33MU_USE_LIBCAPSTONE
         } else if (strcmp(argv[i], "--capstone") == 0) {
             opt_capstone = MM_TRUE;
+        } else if (strcmp(argv[i], "--capstone-verbose") == 0) {
+            opt_capstone = MM_TRUE;
+            opt_capstone_verbose = MM_TRUE;
 #endif
         } else if (strcmp(argv[i], "--uart-stdout") == 0) {
             opt_uart_stdout = MM_TRUE;
@@ -1356,7 +1363,7 @@ int main(int argc, char **argv)
     if (image_count == 0) {
         fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] [--tui] [--persist] "
 #ifdef M33MU_USE_LIBCAPSTONE
-                        "[--capstone] "
+                        "[--capstone] [--capstone-verbose] "
 #endif
                         "[--uart-stdout] [--quit-on-faults] [--meminfo] [--gdb-symbols <elf>] "
                         "[--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] "
@@ -1396,7 +1403,8 @@ int main(int argc, char **argv)
             fprintf(stderr, "failed to initialize capstone\n");
             return 1;
         }
-        (void)capstone_set_enabled(MM_FALSE);
+        (void)capstone_set_enabled(MM_TRUE);
+        printf("[CAPSTONE] Cross-checker activated\n");
     }
 
     for (i = 0; i < spiflash_count; ++i) {
@@ -2015,7 +2023,9 @@ handle_pending:
                             }
                         }
                         if (capstone_match) {
-                            capstone_log(&f);
+                            if (opt_capstone_verbose) {
+                                capstone_log(&f);
+                            }
                             if (!capstone_cross_check(&f, &d)) {
                                 rc = 1;
                                 goto cleanup;

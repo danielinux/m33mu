@@ -22,7 +22,7 @@
 #include "m33mu/core_sys.h"
 
 struct mm_core_stub {
-    /* no state needed yet */
+    int unused;
 };
 
 static mm_bool stub_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)

@@ -32,6 +32,9 @@ include(CheckCCompilerFlag)
 set(M33MU_COMMON_WARN_FLAGS
   -Wall -Wextra -Werror -Wdeclaration-after-statement
 )
+set(M33MU_COMMON_OPT_FLAGS
+  -O2
+)
 
 # -----------------------------------------------------------------------------
 # Include dirs (match Makefile)
@@ -149,12 +152,12 @@ add_library(m33mu_lib STATIC ${M33MU_SOURCES})
 target_include_directories(m33mu_lib PUBLIC ${M33MU_INCLUDE_DIRS})
 
 set_target_properties(m33mu_lib PROPERTIES
-  C_STANDARD 90
+  C_STANDARD 11
   C_STANDARD_REQUIRED YES
   C_EXTENSIONS OFF
 )
 
-target_compile_options(m33mu_lib PRIVATE ${M33MU_COMMON_WARN_FLAGS})
+target_compile_options(m33mu_lib PRIVATE ${M33MU_COMMON_WARN_FLAGS} ${M33MU_COMMON_OPT_FLAGS})
 
 # File-specific flags (match Makefile special cases)
 set_source_files_properties(
@@ -187,11 +190,11 @@ endif()
 add_executable(m33mu "${CMAKE_SOURCE_DIR}/src/main.c")
 target_link_libraries(m33mu PRIVATE m33mu_lib)
 set_target_properties(m33mu PROPERTIES
-  C_STANDARD 90
+  C_STANDARD 11
   C_STANDARD_REQUIRED YES
   C_EXTENSIONS OFF
 )
-target_compile_options(m33mu PRIVATE ${M33MU_COMMON_WARN_FLAGS})
+target_compile_options(m33mu PRIVATE ${M33MU_COMMON_WARN_FLAGS} ${M33MU_COMMON_OPT_FLAGS})
 
 # -----------------------------------------------------------------------------
 # Tests (ctest)
@@ -206,11 +209,11 @@ if(M33MU_BUILD_TESTS)
     add_executable("${test_name}" "${test_src}")
     target_link_libraries("${test_name}" PRIVATE m33mu_lib)
     set_target_properties("${test_name}" PROPERTIES
-      C_STANDARD 90
+      C_STANDARD 11
       C_STANDARD_REQUIRED YES
       C_EXTENSIONS OFF
     )
-    target_compile_options("${test_name}" PRIVATE ${M33MU_COMMON_WARN_FLAGS})
+    target_compile_options("${test_name}" PRIVATE ${M33MU_COMMON_WARN_FLAGS} ${M33MU_COMMON_OPT_FLAGS})
     add_test(NAME "${test_name}" COMMAND "${test_name}")
     set_tests_properties("${test_name}" PROPERTIES
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

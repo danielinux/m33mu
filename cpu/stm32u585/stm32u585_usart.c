@@ -239,7 +239,7 @@ void mm_stm32u585_usart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
     if (usart_count == 0) {
         usart_count = sizeof(bases) / sizeof(bases[0]);
     }
-    for (i = 0; i < usart_count; ++i) {
+    for (i = 0; i < usart_count && i < (sizeof(usarts) / sizeof(usarts[0])); ++i) {
         struct usart_inst *u = &usarts[i];
         struct mmio_region reg;
         memset(u, 0, sizeof(*u));
@@ -250,7 +250,20 @@ void mm_stm32u585_usart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
             strncpy(u->label, labels[i], sizeof(u->label) - 1u);
             u->label[sizeof(u->label) - 1u] = '\0';
         } else {
-            sprintf(u->label, "USART%u", (unsigned)(i + 1u));
+            mm_u32 idx = (mm_u32)(i + 1u);
+            u->label[0] = 'U';
+            u->label[1] = 'S';
+            u->label[2] = 'A';
+            u->label[3] = 'R';
+            u->label[4] = 'T';
+            if (idx < 10u) {
+                u->label[5] = (char)('0' + idx);
+                u->label[6] = '\0';
+            } else {
+                u->label[5] = (char)('0' + ((idx / 10u) % 10u));
+                u->label[6] = (char)('0' + (idx % 10u));
+                u->label[7] = '\0';
+            }
         }
         u->irq = (i < (sizeof(irq_map)/sizeof(irq_map[0]))) ? irq_map[i] : -1;
         u->rcc_regs = mm_stm32u585_rcc_regs();

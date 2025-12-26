@@ -649,8 +649,14 @@ mm_bool mm_tpm_tis_register_cfg(const struct mm_tpm_tis_cfg *cfg)
 #if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
     tpm->nv.use_file = cfg->has_nv_path ? MM_TRUE : MM_FALSE;
     if (cfg->has_nv_path) {
-        strncpy(tpm->nv.base, cfg->nv_path, sizeof(tpm->nv.base) - 1u);
-        tpm->nv.base[sizeof(tpm->nv.base) - 1u] = '\0';
+        {
+            size_t n = strlen(cfg->nv_path);
+            if (n >= sizeof(tpm->nv.base)) {
+                n = sizeof(tpm->nv.base) - 1u;
+            }
+            memcpy(tpm->nv.base, cfg->nv_path, n);
+            tpm->nv.base[n] = '\0';
+        }
     }
 #else
 #endif
