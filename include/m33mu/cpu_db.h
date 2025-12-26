@@ -30,4 +30,8 @@ mm_bool mm_cpu_lookup(const char *name, struct mm_target_cfg *cfg_out);
 /* Get the default CPU name compiled in. */
 const char *mm_cpu_default_name(void);
 
+/* Enumerate supported CPU names. */
+size_t mm_cpu_count(void);
+const char *mm_cpu_name_at(size_t idx);
+
 #endif /* M33MU_CPU_DB_H */

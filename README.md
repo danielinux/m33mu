@@ -20,6 +20,18 @@ For the TUI, m33mu uses 'termbox2' library (MIT License) - see `tui/termbox2.h`.
 - Libcapstone (for optional self-debugging)
 - Libtpms (for optional TPM 2.0 emulator)
 
+
+## Emulated Microcontrollers
+
+
+These are the current valid `--cpu` option values:
+
+- stm32h563 (default)
+- stm32u585
+- stm32l552
+- mcxw71c
+
+
 ## Features
 - ARMv8-M baseline (Cortex-M33) CPU core
 - TrustZone security extensions
@@ -72,6 +84,9 @@ Automate firmware builds/runs (Makefile-based firmware build)
 cmake --build build --target firmware-build
 cmake --build build --target test-firmware
 cmake --build build --target test-stm32h5
+cmake --build build --target test-stm32u5
+cmake --build build --target test-stm32l5
+cmake --build build --target test-mcxw
 ```
 
 Build firmware fixtures (arm-none-eabi toolchain required):

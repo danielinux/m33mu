@@ -179,6 +179,19 @@ const char *mm_cpu_default_name(void)
     return cpu_table[0].name;
 }
 
+size_t mm_cpu_count(void)
+{
+    return sizeof(cpu_table) / sizeof(cpu_table[0]);
+}
+
+const char *mm_cpu_name_at(size_t idx)
+{
+    if (idx >= mm_cpu_count()) {
+        return 0;
+    }
+    return cpu_table[idx].name;
+}
+
 mm_bool mm_cpu_lookup(const char *name, struct mm_target_cfg *cfg_out)
 {
     size_t i;

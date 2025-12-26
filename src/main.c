@@ -1286,6 +1286,18 @@ int main(int argc, char **argv)
             gdb_port = atoi(argv[i + 1]);
             i++;
         } else if (strcmp(argv[i], "--cpu") == 0 && i + 1 < argc) {
+            if (strcmp(argv[i + 1], "?") == 0 || strcmp(argv[i + 1], "list") == 0) {
+                size_t ci;
+                fprintf(stderr, "valid cpus:");
+                for (ci = 0; ci < mm_cpu_count(); ++ci) {
+                    const char *name = mm_cpu_name_at(ci);
+                    if (name != 0) {
+                        fprintf(stderr, "\n%s", name);
+                    }
+                }
+                fprintf(stderr, "\n");
+                return 0;
+            }
             cpu_name = argv[i + 1];
             i++;
         } else if (strcmp(argv[i], "--persist") == 0) {
@@ -1366,7 +1378,16 @@ int main(int argc, char **argv)
         cpu_name = mm_cpu_default_name();
     }
     if (!mm_cpu_lookup(cpu_name, &cfg)) {
+        size_t ci;
         fprintf(stderr, "unknown cpu: %s\n", cpu_name);
+        fprintf(stderr, "valid cpus:");
+        for (ci = 0; ci < mm_cpu_count(); ++ci) {
+            const char *name = mm_cpu_name_at(ci);
+            if (name != 0) {
+                fprintf(stderr, " %s", name);
+            }
+        }
+        fprintf(stderr, "\n");
         return 1;
     }
 
