@@ -1667,6 +1667,16 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                  }
                                                  cpu.r[d.rd] = val & 0xffffu;
                                              } break;
+                        case MM_OP_LDRH_PRE_IMM: {
+                                                    mm_u32 addr = cpu.r[d.rn] + d.imm;
+                                                    mm_u32 val = 0;
+                                                    if (!mm_memmap_read(&map, cpu.sec_state, addr, 2u, &val)) {
+                                                        if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;
+                                                        return MM_EXEC_CONTINUE;
+                                                    }
+                                                    cpu.r[d.rd] = val & 0xffffu;
+                                                    cpu.r[d.rn] = addr;
+                                                } break;
                         case MM_OP_LDRH_POST_IMM: {
                                                      mm_u32 base = cpu.r[d.rn];
                                                      mm_u32 val = 0;
@@ -1703,6 +1713,15 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                      return MM_EXEC_CONTINUE;
                                                  }
                                              } break;
+                        case MM_OP_STRH_PRE_IMM: {
+                                                    mm_u32 addr = cpu.r[d.rn] + d.imm;
+                                                    mm_u32 val = cpu.r[d.rd] & 0xffffu;
+                                                    if (!mm_memmap_write(&map, cpu.sec_state, addr, 2u, val)) {
+                                                        if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;
+                                                        return MM_EXEC_CONTINUE;
+                                                    }
+                                                    cpu.r[d.rn] = addr;
+                                                } break;
                         case MM_OP_STRH_POST_IMM: {
                                                      mm_u32 base = cpu.r[d.rn];
                                                      mm_u32 val = cpu.r[d.rd] & 0xffffu;

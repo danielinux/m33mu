@@ -66,6 +66,7 @@ struct mm_tpm_tis {
     mm_bool locality_active;
     mm_u8 cmd_buf[TPM_CMD_MAX];
     mm_u32 cmd_len;
+    mm_u32 cmd_expected;
     mm_u8 rsp_buf[TPM_RSP_MAX];
     mm_u32 rsp_len;
     mm_u32 rsp_read;
@@ -77,7 +78,7 @@ struct mm_tpm_tis {
 static struct mm_tpm_tis g_tpm[TPM_TIS_MAX];
 static size_t g_tpm_count = 0;
 
-static mm_bool tpm_trace_enabled(void)
+static mm_bool tpm_spi_trace_enabled(void)
 {
     static mm_bool init = MM_FALSE;
     static mm_bool enabled = MM_FALSE;
@@ -89,6 +90,49 @@ static mm_bool tpm_trace_enabled(void)
     return enabled;
 }
 
+static mm_bool tpm_tis_trace_enabled(void)
+{
+    static mm_bool init = MM_FALSE;
+    static mm_bool enabled = MM_FALSE;
+    if (!init) {
+        const char *env = getenv("M33MU_TPM_TRACE");
+        enabled = (env != 0 && env[0] != '\0') ? MM_TRUE : MM_FALSE;
+        init = MM_TRUE;
+    }
+    return enabled;
+}
+
+static void tpm_tis_trace_dump(const char *tag, const mm_u8 *buf, mm_u32 len)
+{
+    mm_u32 i;
+    mm_u32 max_len = len;
+    if (!tpm_tis_trace_enabled()) {
+        return;
+    }
+    if (buf == 0) {
+        fprintf(stderr, "[TPM_TRACE] %s len=%lu (null)\n",
+                tag, (unsigned long)len);
+        return;
+    }
+    if (max_len > 256u) {
+        max_len = 256u;
+    }
+    fprintf(stderr, "[TPM_TRACE] %s len=%lu\n", tag, (unsigned long)len);
+    for (i = 0; i < max_len; i += 16u) {
+        mm_u32 j;
+        mm_u32 line_len = max_len - i;
+        if (line_len > 16u) line_len = 16u;
+        fprintf(stderr, "[TPM_TRACE]   %04lx:", (unsigned long)i);
+        for (j = 0; j < line_len; ++j) {
+            fprintf(stderr, " %02x", buf[i + j]);
+        }
+        fprintf(stderr, "\n");
+    }
+    if (max_len < len) {
+        fprintf(stderr, "[TPM_TRACE]   ... (%lu bytes omitted)\n",
+                (unsigned long)(len - max_len));
+    }
+}
 static mm_u8 tpm_sample_cs(struct mm_tpm_tis *tpm)
 {
     mm_u8 level = 1u;
@@ -109,7 +153,7 @@ static mm_u8 tpm_sample_cs(struct mm_tpm_tis *tpm)
     }
     if (level != tpm->cs_level) {
         tpm->cs_level = level ? 1u : 0u;
-        if (tpm_trace_enabled()) {
+        if (tpm_spi_trace_enabled()) {
             printf("[SPI] SPI%d CS %s (P%c%d)\n",
                    tpm->bus,
                    tpm->cs_level ? "deasserted" : "asserted",
@@ -356,6 +400,7 @@ static void tpm_reset(struct mm_tpm_tis *tpm)
     tpm->burst_count = 64u;
     tpm->locality_active = MM_FALSE;
     tpm->cmd_len = 0;
+    tpm->cmd_expected = 0;
     tpm->rsp_len = 0;
     tpm->rsp_read = 0;
 }
@@ -369,7 +414,7 @@ static mm_u8 tpm_read_reg(struct mm_tpm_tis *tpm, mm_u16 addr)
     case TPM_STS:
         return (mm_u8)(TPM_STS_VALID |
                        TPM_STS_COMMAND_READY |
-                       (tpm->cmd_len < TPM_CMD_MAX ? TPM_STS_EXPECT : 0) |
+                       ((tpm->cmd_expected == 0 || tpm->cmd_len < tpm->cmd_expected) ? TPM_STS_EXPECT : 0) |
                        (tpm->rsp_len > tpm->rsp_read ? TPM_STS_DATA_AVAIL : 0));
     case TPM_STS + 1u:
         return (mm_u8)(tpm->burst_count & 0xFFu);
@@ -393,6 +438,7 @@ static mm_u8 tpm_read_reg(struct mm_tpm_tis *tpm, mm_u16 addr)
             mm_u8 v = tpm->rsp_buf[tpm->rsp_read++];
             if (tpm->rsp_read >= tpm->rsp_len) {
                 tpm->cmd_len = 0;
+                tpm->cmd_expected = 0;
                 tpm->rsp_len = 0;
                 tpm->rsp_read = 0;
             }
@@ -451,10 +497,12 @@ static void tpm_backend_process(struct mm_tpm_tis *tpm)
     tpm->rsp_buf[9] = 0x01u;
     tpm->rsp_len = 10u;
 #endif
-    if (tpm_trace_enabled()) {
-        printf("[TPM] cmd=%lu rsp=%lu\n",
-               (unsigned long)tpm->cmd_len,
-               (unsigned long)tpm->rsp_len);
+    if (tpm_tis_trace_enabled()) {
+        fprintf(stderr, "[TPM_TRACE] cmd=%lu rsp=%lu\n",
+                (unsigned long)tpm->cmd_len,
+                (unsigned long)tpm->rsp_len);
+        tpm_tis_trace_dump("cmd", tpm->cmd_buf, tpm->cmd_len);
+        tpm_tis_trace_dump("rsp", tpm->rsp_buf, tpm->rsp_len);
     }
 }
 
@@ -472,6 +520,7 @@ static void tpm_write_reg(struct mm_tpm_tis *tpm, mm_u16 addr, mm_u8 value)
     if (addr == TPM_STS) {
         if ((value & TPM_STS_COMMAND_READY) != 0u) {
             tpm->cmd_len = 0;
+            tpm->cmd_expected = 0;
             tpm->rsp_len = 0;
             tpm->rsp_read = 0;
         }
@@ -483,6 +532,16 @@ static void tpm_write_reg(struct mm_tpm_tis *tpm, mm_u16 addr, mm_u8 value)
     if (addr >= TPM_DATA_FIFO && addr < TPM_DATA_FIFO + 4u) {
         if (tpm->cmd_len < TPM_CMD_MAX) {
             tpm->cmd_buf[tpm->cmd_len++] = value;
+            if (tpm->cmd_expected == 0 && tpm->cmd_len >= 6u) {
+                mm_u32 size =
+                    ((mm_u32)tpm->cmd_buf[2] << 24) |
+                    ((mm_u32)tpm->cmd_buf[3] << 16) |
+                    ((mm_u32)tpm->cmd_buf[4] << 8) |
+                    (mm_u32)tpm->cmd_buf[5];
+                if (size >= 10u && size <= TPM_CMD_MAX) {
+                    tpm->cmd_expected = size;
+                }
+            }
         }
         return;
     }

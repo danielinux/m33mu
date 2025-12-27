@@ -403,8 +403,10 @@ static mm_bool cross_check_kind(const cs_insn *insn, const struct mm_decoded *de
         case ARM_INS_STR: return (dec->kind == MM_OP_STR_IMM || dec->kind == MM_OP_STR_REG || dec->kind == MM_OP_STR_POST_IMM || dec->kind == MM_OP_STR_PRE_IMM);
         case ARM_INS_LDRB: return (dec->kind == MM_OP_LDRB_IMM || dec->kind == MM_OP_LDRB_REG || dec->kind == MM_OP_LDRB_POST_IMM || dec->kind == MM_OP_LDRB_PRE_IMM);
         case ARM_INS_STRB: return (dec->kind == MM_OP_STRB_IMM || dec->kind == MM_OP_STRB_REG || dec->kind == MM_OP_STRB_POST_IMM || dec->kind == MM_OP_STRB_PRE_IMM);
-        case ARM_INS_LDRH: return (dec->kind == MM_OP_LDRH_IMM || dec->kind == MM_OP_LDRH_REG || dec->kind == MM_OP_LDRH_POST_IMM);
-        case ARM_INS_STRH: return (dec->kind == MM_OP_STRH_IMM || dec->kind == MM_OP_STRH_REG || dec->kind == MM_OP_STRH_POST_IMM);
+        case ARM_INS_LDRH: return (dec->kind == MM_OP_LDRH_IMM || dec->kind == MM_OP_LDRH_REG ||
+                                   dec->kind == MM_OP_LDRH_POST_IMM || dec->kind == MM_OP_LDRH_PRE_IMM);
+        case ARM_INS_STRH: return (dec->kind == MM_OP_STRH_IMM || dec->kind == MM_OP_STRH_REG ||
+                                   dec->kind == MM_OP_STRH_POST_IMM || dec->kind == MM_OP_STRH_PRE_IMM);
         case ARM_INS_LDRD: return dec->kind == MM_OP_LDRD;
         case ARM_INS_STRD: return dec->kind == MM_OP_STRD;
         case ARM_INS_LDRSB: return (dec->kind == MM_OP_LDRSB_IMM || dec->kind == MM_OP_LDRSB_REG);
@@ -631,11 +633,13 @@ static mm_bool cross_check_operands(const struct mm_fetch_result *fetch, const c
                 mm_bool expect_post = MM_FALSE;
                 long imm_expected = signed_imm32(dec->imm);
                 if (dec->kind == MM_OP_LDR_POST_IMM || dec->kind == MM_OP_STR_POST_IMM ||
-                    dec->kind == MM_OP_LDRB_POST_IMM || dec->kind == MM_OP_STRB_POST_IMM) {
+                    dec->kind == MM_OP_LDRB_POST_IMM || dec->kind == MM_OP_STRB_POST_IMM ||
+                    dec->kind == MM_OP_LDRH_POST_IMM || dec->kind == MM_OP_STRH_POST_IMM) {
                     expect_wb = MM_TRUE;
                     expect_post = MM_TRUE;
                 } else if (dec->kind == MM_OP_LDR_PRE_IMM || dec->kind == MM_OP_STR_PRE_IMM ||
-                           dec->kind == MM_OP_LDRB_PRE_IMM || dec->kind == MM_OP_STRB_PRE_IMM) {
+                           dec->kind == MM_OP_LDRB_PRE_IMM || dec->kind == MM_OP_STRB_PRE_IMM ||
+                           dec->kind == MM_OP_LDRH_PRE_IMM || dec->kind == MM_OP_STRH_PRE_IMM) {
                     expect_wb = MM_TRUE;
                     expect_post = MM_FALSE;
                 }

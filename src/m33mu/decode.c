@@ -1811,6 +1811,15 @@ static struct mm_decoded decode_32(mm_u32 insn)
             d.undefined = MM_FALSE;
             return d;
         }
+        if (p == 1u && w == 1u && rt != 13u && rt != 15u) {
+            /* Pre-index writeback form: LDRH Rt, [Rn, #+/-imm8]! */
+            d.kind = MM_OP_LDRH_PRE_IMM;
+            d.rn = rn;
+            d.rd = rt;
+            d.imm = u ? imm8 : (mm_u32)(0u - imm8);
+            d.undefined = MM_FALSE;
+            return d;
+        }
         /* Pre-indexed no-writeback form (P=1, W=0). */
         if (p == 1u && w == 0u && rt != 13u && rt != 15u) {
             d.kind = MM_OP_LDRH_IMM;
@@ -1833,6 +1842,15 @@ static struct mm_decoded decode_32(mm_u32 insn)
         if (p == 0u && w == 1u && rt != 13u && rt != 15u) {
             /* Post-index writeback form: STRH Rt, [Rn], #+/-imm8 */
             d.kind = MM_OP_STRH_POST_IMM;
+            d.rn = rn;
+            d.rd = rt;
+            d.imm = u ? imm8 : (mm_u32)(0u - imm8);
+            d.undefined = MM_FALSE;
+            return d;
+        }
+        if (p == 1u && w == 1u && rt != 13u && rt != 15u) {
+            /* Pre-index writeback form: STRH Rt, [Rn, #+/-imm8]! */
+            d.kind = MM_OP_STRH_PRE_IMM;
             d.rn = rn;
             d.rd = rt;
             d.imm = u ? imm8 : (mm_u32)(0u - imm8);
