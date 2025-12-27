@@ -263,6 +263,8 @@ static mm_bool flash_trace_enabled(void)
     return enabled;
 }
 
+static mm_bool stm32l552_rcc_clock_list_line(void *opaque, int line, char *out, size_t out_len);
+
 void mm_stm32l552_mmio_reset(void)
 {
     size_t i;
@@ -286,6 +288,7 @@ void mm_stm32l552_mmio_reset(void)
     mm_gpio_bank_set_moder_reader(stm32l552_gpio_bank_read_moder, 0);
     mm_gpio_bank_set_clock_reader(stm32l552_gpio_bank_clock, 0);
     mm_gpio_bank_set_seccfgr_reader(stm32l552_gpio_bank_read_seccfgr, 0);
+    mm_rcc_set_clock_list_reader(stm32l552_rcc_clock_list_line, 0);
     /* Enable HSI by default and mark ready flags. */
     rcc.regs[0] |= 1u;
     rcc_update_ready(&rcc);
@@ -342,6 +345,113 @@ static mm_bool gpio_clock_enabled(const struct rcc_state *rcc, int index)
     /* AHB2ENR offset 0x4C, GPIOAEN bit0..GPIOHEN bit7 */
     mm_u32 ahb2enr = rcc->regs[0x4c / 4];
     return ((ahb2enr >> index) & 1u) != 0u;
+}
+
+enum rcc_bus_kind {
+    RCC_BUS_AHB2 = 0,
+    RCC_BUS_APB1 = 1,
+    RCC_BUS_APB1_2 = 2,
+    RCC_BUS_APB2 = 3
+};
+
+struct rcc_clk_name {
+    const char *name;
+    enum rcc_bus_kind bus;
+    mm_u32 bit;
+};
+
+static const struct rcc_clk_name rcc_clk_names[] = {
+    { "GPIOA", RCC_BUS_AHB2, 0u },
+    { "GPIOB", RCC_BUS_AHB2, 1u },
+    { "GPIOC", RCC_BUS_AHB2, 2u },
+    { "GPIOD", RCC_BUS_AHB2, 3u },
+    { "GPIOE", RCC_BUS_AHB2, 4u },
+    { "GPIOF", RCC_BUS_AHB2, 5u },
+    { "GPIOG", RCC_BUS_AHB2, 6u },
+    { "GPIOH", RCC_BUS_AHB2, 7u },
+    { "RNG", RCC_BUS_AHB2, 18u },
+    { "TIM2", RCC_BUS_APB1, 0u },
+    { "TIM3", RCC_BUS_APB1, 1u },
+    { "TIM4", RCC_BUS_APB1, 2u },
+    { "TIM5", RCC_BUS_APB1, 3u },
+    { "USART2", RCC_BUS_APB1, 17u },
+    { "USART3", RCC_BUS_APB1, 18u },
+    { "UART4", RCC_BUS_APB1, 19u },
+    { "UART5", RCC_BUS_APB1, 20u },
+    { "USART1", RCC_BUS_APB2, 14u },
+    { "LPUART1", RCC_BUS_APB1_2, 0u }
+};
+
+static mm_u32 rcc_bus_reg(const struct rcc_state *r, enum rcc_bus_kind bus)
+{
+    if (r == 0) {
+        return 0u;
+    }
+    switch (bus) {
+    case RCC_BUS_AHB2:
+        return r->regs[0x4c / 4];
+    case RCC_BUS_APB1:
+        return r->regs[0x58 / 4];
+    case RCC_BUS_APB1_2:
+        return r->regs[0x5c / 4];
+    case RCC_BUS_APB2:
+        return r->regs[0x60 / 4];
+    default:
+        return 0u;
+    }
+}
+
+static const char *rcc_bus_name(enum rcc_bus_kind bus)
+{
+    switch (bus) {
+    case RCC_BUS_AHB2: return "AHB2";
+    case RCC_BUS_APB1: return "APB1";
+    case RCC_BUS_APB1_2: return "APB1_2";
+    case RCC_BUS_APB2: return "APB2";
+    default: return "RCC";
+    }
+}
+
+static mm_bool stm32l552_rcc_clock_list_line(void *opaque, int line, char *out, size_t out_len)
+{
+    enum rcc_bus_kind bus;
+    int line_idx = 0;
+    size_t i;
+    (void)opaque;
+    if (out == 0 || out_len == 0u) {
+        return MM_FALSE;
+    }
+    for (bus = RCC_BUS_AHB2; bus <= RCC_BUS_APB2; ++bus) {
+        mm_u32 reg = rcc_bus_reg(&rcc, bus);
+        char buf[256];
+        size_t pos = 0;
+        mm_bool have = MM_FALSE;
+        if (reg == 0u) {
+            continue;
+        }
+        pos += snprintf(buf + pos, sizeof(buf) - pos, "%s:", rcc_bus_name(bus));
+        for (i = 0; i < sizeof(rcc_clk_names) / sizeof(rcc_clk_names[0]); ++i) {
+            if (rcc_clk_names[i].bus != bus) {
+                continue;
+            }
+            if ((reg & (1u << rcc_clk_names[i].bit)) == 0u) {
+                continue;
+            }
+            if (pos + 2u < sizeof(buf)) {
+                pos += snprintf(buf + pos, sizeof(buf) - pos, " %s", rcc_clk_names[i].name);
+                have = MM_TRUE;
+            }
+        }
+        if (!have) {
+            continue;
+        }
+        if (line_idx == line) {
+            snprintf(out, out_len, "%s", buf);
+            return MM_TRUE;
+        }
+        line_idx++;
+    }
+    return MM_FALSE;
 }
 
 static mm_u32 stm32l552_gpio_bank_read(void *opaque, int bank)

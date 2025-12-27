@@ -122,6 +122,22 @@ mm_bool mm_nrf5340_clock_hf_running(void)
     return clock_state.hfclk_on;
 }
 
+static mm_bool nrf5340_rcc_clock_list_line(void *opaque, int line, char *out, size_t out_len)
+{
+    (void)opaque;
+    if (out == 0 || out_len == 0u) {
+        return MM_FALSE;
+    }
+    if (line != 0) {
+        return MM_FALSE;
+    }
+    if (!clock_state.hfclk_on) {
+        return MM_FALSE;
+    }
+    snprintf(out, out_len, "CLOCK: HFCLK");
+    return MM_TRUE;
+}
+
 static mm_bool clock_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
 {
     struct clock_state *clk = (struct clock_state *)opaque;
@@ -602,5 +618,6 @@ void mm_nrf5340_mmio_reset(void)
     nvmc_state.regs[NVMC_READYNEXT / 4] = 1u;
     nvmc_state.regs[NVMC_CONFIG / 4] = 0u;
 
+    mm_rcc_set_clock_list_reader(nrf5340_rcc_clock_list_line, 0);
     mm_nrf5340_wdt_reset();
 }

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 #include <string.h>
+#include <stdio.h>
 #include "mcxw71c/mcxw71c_mmio.h"
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
@@ -363,6 +364,55 @@ static mm_u32 mcxw71c_gpio_bank_read_seccfgr(void *opaque, int bank)
     return 0;
 }
 
+struct mrcc_clk_name {
+    const char *name;
+    mm_u32 offset;
+};
+
+static const struct mrcc_clk_name mrcc_clk_names[] = {
+    { "LPIT0", MCXW71C_MRCC_LPIT0 },
+    { "LPSPI0", MCXW71C_MRCC_LPSPI0 },
+    { "LPSPI1", MCXW71C_MRCC_LPSPI1 },
+    { "LPUART0", MCXW71C_MRCC_LPUART0 },
+    { "LPUART1", MCXW71C_MRCC_LPUART1 },
+    { "PORTA", MCXW71C_MRCC_PORTA },
+    { "PORTB", MCXW71C_MRCC_PORTB },
+    { "PORTC", MCXW71C_MRCC_PORTC },
+    { "GPIOA", MCXW71C_MRCC_GPIOA },
+    { "GPIOB", MCXW71C_MRCC_GPIOB },
+    { "GPIOC", MCXW71C_MRCC_GPIOC }
+};
+
+static mm_bool mcxw71c_rcc_clock_list_line(void *opaque, int line, char *out, size_t out_len)
+{
+    char buf[256];
+    size_t pos = 0;
+    size_t i;
+    mm_bool have = MM_FALSE;
+    (void)opaque;
+    if (out == 0 || out_len == 0u) {
+        return MM_FALSE;
+    }
+    if (line != 0) {
+        return MM_FALSE;
+    }
+    pos += snprintf(buf + pos, sizeof(buf) - pos, "MRCC:");
+    for (i = 0; i < sizeof(mrcc_clk_names) / sizeof(mrcc_clk_names[0]); ++i) {
+        if (!mm_mcxw71c_mrcc_clock_on(mrcc_clk_names[i].offset)) {
+            continue;
+        }
+        if (pos + 2u < sizeof(buf)) {
+            pos += snprintf(buf + pos, sizeof(buf) - pos, " %s", mrcc_clk_names[i].name);
+            have = MM_TRUE;
+        }
+    }
+    if (!have) {
+        return MM_FALSE;
+    }
+    snprintf(out, out_len, "%s", buf);
+    return MM_TRUE;
+}
+
 void mm_mcxw71c_mmio_reset(void)
 {
     memset(gpio_banks, 0, sizeof(gpio_banks));
@@ -384,6 +434,7 @@ void mm_mcxw71c_mmio_reset(void)
     mm_gpio_bank_set_moder_reader(mcxw71c_gpio_bank_read_moder, 0);
     mm_gpio_bank_set_clock_reader(mcxw71c_gpio_bank_clock, 0);
     mm_gpio_bank_set_seccfgr_reader(mcxw71c_gpio_bank_read_seccfgr, 0);
+    mm_rcc_set_clock_list_reader(mcxw71c_rcc_clock_list_line, 0);
 }
 
 mm_bool mm_mcxw71c_mrcc_clock_on(mm_u32 offset)
