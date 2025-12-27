@@ -1515,6 +1515,10 @@ int main(int argc, char **argv)
     }
 
     g_quit_on_faults = opt_quit_on_faults;
+    if (opt_tui && opt_uart_stdout) {
+        fprintf(stderr, "warning: --uart-stdout disabled while TUI is active\n");
+        opt_uart_stdout = MM_FALSE;
+    }
     mm_uart_io_set_stdout(opt_uart_stdout);
     if (opt_meminfo) {
         mm_scs_set_meminfo(MM_TRUE);

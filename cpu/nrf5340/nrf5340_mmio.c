@@ -138,6 +138,21 @@ static mm_bool nrf5340_rcc_clock_list_line(void *opaque, int line, char *out, si
     return MM_TRUE;
 }
 
+static mm_bool nrf5340_gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= 2) {
+        return MM_FALSE;
+    }
+    if (name_out != 0 && name_len > 0u) {
+        snprintf(name_out, name_len, "P%d", bank);
+    }
+    if (pins_out != 0) {
+        *pins_out = (bank == 0) ? 32 : 16;
+    }
+    return MM_TRUE;
+}
+
 static mm_bool clock_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
 {
     struct clock_state *clk = (struct clock_state *)opaque;
@@ -618,6 +633,7 @@ void mm_nrf5340_mmio_reset(void)
     nvmc_state.regs[NVMC_READYNEXT / 4] = 1u;
     nvmc_state.regs[NVMC_CONFIG / 4] = 0u;
 
+    mm_gpio_set_bank_info_reader(nrf5340_gpio_bank_info, 0);
     mm_rcc_set_clock_list_reader(nrf5340_rcc_clock_list_line, 0);
     mm_nrf5340_wdt_reset();
 }

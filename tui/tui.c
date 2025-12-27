@@ -391,17 +391,36 @@ static void tui_draw_filled(int x0, int y0, int x1, int y1, uintattr_t fg, uinta
     }
 }
 
-static void tui_draw_gpio_line(int x, int y, int max_x, int bank, mm_u32 moder, mm_u32 odr,
+static int tui_draw_gpio_label(int x, int y, int max_x, const char *label,
                                mm_bool clock_on, uintattr_t bg)
 {
-    int pin;
+    char buf[16];
+    int i = 0;
     int cx = x;
-    if (cx >= max_x) return;
-    tui_put_cell(cx++, y, (uint32_t)('A' + bank), tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
-    if (cx < max_x) {
-        tui_put_cell(cx++, y, ' ', tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
+    uintattr_t fg = clock_on ? TUI_FG_DIM : TUI_FG_GREY;
+    if (label == 0 || label[0] == '\0') {
+        snprintf(buf, sizeof(buf), "?");
+    } else {
+        snprintf(buf, sizeof(buf), "%s", label);
     }
-    for (pin = 0; pin < 16 && cx < max_x; ++pin, ++cx) {
+    while (buf[i] != '\0' && cx < max_x) {
+        tui_put_cell(cx++, y, (uint32_t)buf[i], tui_attr(fg), tui_attr(bg));
+        ++i;
+    }
+    if (cx < max_x) {
+        tui_put_cell(cx++, y, ' ', tui_attr(fg), tui_attr(bg));
+    }
+    return cx;
+}
+
+static void tui_draw_gpio_line(int x, int y, int max_x, const char *label, int pins,
+                               mm_u32 moder, mm_u32 odr, mm_bool clock_on, uintattr_t bg)
+{
+    int pin;
+    int limit = (pins > 0 && pins < 32) ? pins : 32;
+    int cx = tui_draw_gpio_label(x, y, max_x, label, clock_on, bg);
+    if (cx >= max_x) return;
+    for (pin = 0; pin < limit && cx < max_x; ++pin, ++cx) {
         mm_u32 mode = (moder >> (pin * 2)) & 0x3u;
         mm_u32 bit = (odr >> pin) & 0x1u;
         uintattr_t fg = TUI_FG_GREY;
@@ -426,17 +445,14 @@ static void tui_draw_gpio_line(int x, int y, int max_x, int bank, mm_u32 moder, 
     }
 }
 
-static void tui_draw_gpio_sec_line(int x, int y, int max_x, int bank, mm_u32 seccfgr,
-                                   mm_bool clock_on, uintattr_t bg)
+static void tui_draw_gpio_sec_line(int x, int y, int max_x, const char *label, int pins,
+                                   mm_u32 seccfgr, mm_bool clock_on, uintattr_t bg)
 {
     int pin;
-    int cx = x;
+    int limit = (pins > 0 && pins < 32) ? pins : 32;
+    int cx = tui_draw_gpio_label(x, y, max_x, label, clock_on, bg);
     if (cx >= max_x) return;
-    tui_put_cell(cx++, y, (uint32_t)('A' + bank), tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
-    if (cx < max_x) {
-        tui_put_cell(cx++, y, ' ', tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
-    }
-    for (pin = 0; pin < 16 && cx < max_x; ++pin, ++cx) {
+    for (pin = 0; pin < limit && cx < max_x; ++pin, ++cx) {
         mm_u32 bit = (seccfgr >> pin) & 0x1u;
         char ch = bit ? 'S' : 'N';
         uintattr_t fg = bit ? TUI_FG_GREEN : TUI_FG_CYAN;
@@ -1072,21 +1088,44 @@ static void tui_draw(struct mm_tui *tui)
                               console_fg, console_bg, "GPIO unavailable");
             } else {
                 int y = log_y;
-                for (row = 0; row < 9 && y < log_y + log_h; ++row, ++y) {
-                    mm_u32 moder = mm_gpio_bank_read_moder(row);
-                    mm_u32 odr = mm_gpio_bank_read(row);
-                    mm_bool clk = mm_gpio_bank_clock_enabled(row);
+                for (row = 0; y < log_y + log_h; ++row) {
+                    char name[16];
+                    int pins = 0;
+                    mm_u32 moder;
+                    mm_u32 odr;
+                    mm_bool clk;
+                    if (!mm_gpio_bank_info(row, name, sizeof(name), &pins)) {
+                        break;
+                    }
+                    if (pins <= 0) {
+                        pins = 16;
+                    }
+                    moder = mm_gpio_bank_read_moder(row);
+                    odr = mm_gpio_bank_read(row);
+                    clk = mm_gpio_bank_clock_enabled(row);
                     tui_draw_gpio_line(split_x + 2, y, inner_x + inner_w - 1,
-                                       row, moder, odr, clk, console_bg);
+                                       name, pins, moder, odr, clk, console_bg);
+                    y++;
                 }
                 if (y < log_y + log_h) {
                     y++;
                 }
-                for (row = 0; row < 9 && y < log_y + log_h; ++row, ++y) {
-                    mm_u32 seccfgr = mm_gpio_bank_read_seccfgr(row);
-                    mm_bool clk = mm_gpio_bank_clock_enabled(row);
+                for (row = 0; y < log_y + log_h; ++row) {
+                    char name[16];
+                    int pins = 0;
+                    mm_u32 seccfgr;
+                    mm_bool clk;
+                    if (!mm_gpio_bank_info(row, name, sizeof(name), &pins)) {
+                        break;
+                    }
+                    if (pins <= 0) {
+                        pins = 16;
+                    }
+                    seccfgr = mm_gpio_bank_read_seccfgr(row);
+                    clk = mm_gpio_bank_clock_enabled(row);
                     tui_draw_gpio_sec_line(split_x + 2, y, inner_x + inner_w - 1,
-                                           row, seccfgr, clk, console_bg);
+                                           name, pins, seccfgr, clk, console_bg);
+                    y++;
                 }
                 if (y < log_y + log_h) {
                     y++;

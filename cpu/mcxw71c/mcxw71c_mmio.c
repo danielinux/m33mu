@@ -364,6 +364,25 @@ static mm_u32 mcxw71c_gpio_bank_read_seccfgr(void *opaque, int bank)
     return 0;
 }
 
+static mm_bool mcxw71c_gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)
+{
+    static const int pin_counts[] = { 9, 6, 8, 6 };
+    (void)opaque;
+    if (bank < 0 || bank >= 4) {
+        return MM_FALSE;
+    }
+    if (name_out != 0 && name_len > 0u) {
+        name_out[0] = (char)('A' + bank);
+        if (name_len > 1u) {
+            name_out[1] = '\0';
+        }
+    }
+    if (pins_out != 0) {
+        *pins_out = pin_counts[bank];
+    }
+    return MM_TRUE;
+}
+
 struct mrcc_clk_name {
     const char *name;
     mm_u32 offset;
@@ -434,6 +453,7 @@ void mm_mcxw71c_mmio_reset(void)
     mm_gpio_bank_set_moder_reader(mcxw71c_gpio_bank_read_moder, 0);
     mm_gpio_bank_set_clock_reader(mcxw71c_gpio_bank_clock, 0);
     mm_gpio_bank_set_seccfgr_reader(mcxw71c_gpio_bank_read_seccfgr, 0);
+    mm_gpio_set_bank_info_reader(mcxw71c_gpio_bank_info, 0);
     mm_rcc_set_clock_list_reader(mcxw71c_rcc_clock_list_line, 0);
 }
 

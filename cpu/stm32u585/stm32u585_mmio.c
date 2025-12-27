@@ -279,6 +279,24 @@ static mm_bool flash_trace_enabled(void)
 
 static mm_bool stm32u585_rcc_clock_list_line(void *opaque, int line, char *out, size_t out_len);
 
+static mm_bool stm32u585_gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= 9) {
+        return MM_FALSE;
+    }
+    if (name_out != 0 && name_len > 0u) {
+        name_out[0] = (char)('A' + bank);
+        if (name_len > 1u) {
+            name_out[1] = '\0';
+        }
+    }
+    if (pins_out != 0) {
+        *pins_out = 16;
+    }
+    return MM_TRUE;
+}
+
 void mm_stm32u585_mmio_reset(void)
 {
     size_t i;
@@ -306,6 +324,7 @@ void mm_stm32u585_mmio_reset(void)
     mm_gpio_bank_set_moder_reader(stm32u585_gpio_bank_read_moder, 0);
     mm_gpio_bank_set_clock_reader(stm32u585_gpio_bank_clock, 0);
     mm_gpio_bank_set_seccfgr_reader(stm32u585_gpio_bank_read_seccfgr, 0);
+    mm_gpio_set_bank_info_reader(stm32u585_gpio_bank_info, 0);
     mm_rcc_set_clock_list_reader(stm32u585_rcc_clock_list_line, 0);
     /* Enable HSI by default and mark ready flags. */
     rcc.regs[0] |= 1u;

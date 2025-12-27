@@ -30,6 +30,8 @@
 #include <errno.h>
 #include "m33mu/target_hal.h"
 
+mm_bool mm_tui_is_active(void);
+
 static mm_bool g_uart_stdout = MM_FALSE;
 
 static int uart_open_pty(char *out, size_t outlen)
@@ -73,7 +75,7 @@ void mm_uart_io_init(struct mm_uart_io *io)
 mm_bool mm_uart_io_open(struct mm_uart_io *io, mm_u32 base)
 {
     if (io == 0) return MM_FALSE;
-    if (g_uart_stdout) {
+    if (g_uart_stdout && !mm_tui_is_active()) {
         io->fd = STDOUT_FILENO;
         io->stdout_only = MM_TRUE;
         snprintf(io->name, sizeof(io->name), "stdout");

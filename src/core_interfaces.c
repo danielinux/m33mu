@@ -248,6 +248,8 @@ static mm_gpio_bank_read_seccfgr_fn g_gpio_bank_seccfgr_reader = 0;
 static void *g_gpio_bank_seccfgr_opaque = 0;
 static mm_rcc_clock_list_fn g_rcc_clock_list_reader = 0;
 static void *g_rcc_clock_list_opaque = 0;
+static mm_gpio_bank_info_fn g_gpio_bank_info_reader = 0;
+static void *g_gpio_bank_info_opaque = 0;
 
 void mm_gpio_bank_set_reader(mm_gpio_bank_read_fn reader, void *opaque)
 {
@@ -277,6 +279,12 @@ void mm_rcc_set_clock_list_reader(mm_rcc_clock_list_fn reader, void *opaque)
 {
     g_rcc_clock_list_reader = reader;
     g_rcc_clock_list_opaque = opaque;
+}
+
+void mm_gpio_set_bank_info_reader(mm_gpio_bank_info_fn reader, void *opaque)
+{
+    g_gpio_bank_info_reader = reader;
+    g_gpio_bank_info_opaque = opaque;
 }
 
 mm_u32 mm_gpio_bank_read(int bank)
@@ -327,6 +335,26 @@ mm_bool mm_rcc_clock_list_line(int line, char *out, size_t out_len)
         return MM_FALSE;
     }
     return g_rcc_clock_list_reader(g_rcc_clock_list_opaque, line, out, out_len);
+}
+
+mm_bool mm_gpio_bank_info(int bank, char *name_out, size_t name_len, int *pins_out)
+{
+    if (g_gpio_bank_info_reader != 0) {
+        return g_gpio_bank_info_reader(g_gpio_bank_info_opaque, bank, name_out, name_len, pins_out);
+    }
+    if (bank < 0 || bank >= 9) {
+        return MM_FALSE;
+    }
+    if (name_out != 0 && name_len > 0u) {
+        name_out[0] = (char)('A' + bank);
+        if (name_len > 1u) {
+            name_out[1] = '\0';
+        }
+    }
+    if (pins_out != 0) {
+        *pins_out = 16;
+    }
+    return MM_TRUE;
 }
 
 void mm_dma_master_init(struct mm_dma_master *dma, mm_dma_request_fn request_fn, void *opaque)
