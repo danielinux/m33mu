@@ -133,9 +133,15 @@ Options:
 - `--tui`: start the interactive terminal UI.
 - `--persist`: write modified flash contents back to the input image files.
 - `--capstone`: enable Capstone-based cross-check logging for decode/execute.
+- `--capstone-verbose`: include operand cross-check details in Capstone logs.
 - `--uart-stdout`: route UART output to stdout instead of a PTY device.
 - `--quit-on-faults`: stop execution after the first fault is raised.
 - `--meminfo`: emit `[MEMINFO]` logs for SAU/MPU layout and register writes.
+- `--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]`: attach a SPI flash image.
+- `--usb` or `--usb:port=<n>`: enable USB/IP backend (default port 3240).
+- `--tap[:tap0]`: enable Ethernet TAP backend (default interface: `tap0`).
+- `--vde[:/var/run/vde.ctl]`: enable Ethernet VDE backend (default socket: `/var/run/vde.ctl`).
+- `--tpm:SPIx:cs=GPIONAME[:file=<path>]`: attach a TPM TIS device (optional NV backing file).
 
 ## Environment variables (optional)
 - `CAPSTONE_PC=<hex>`: limit Capstone cross-check logging to a specific PC (hex).

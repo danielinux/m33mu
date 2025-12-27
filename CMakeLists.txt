@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(m33mu LANGUAGES C)
 
+include(GNUInstallDirs)
+
 # -----------------------------------------------------------------------------
 # 1) Disallow in-source builds
 # -----------------------------------------------------------------------------
@@ -262,6 +264,13 @@ set_target_properties(m33mu PROPERTIES
   C_EXTENSIONS OFF
 )
 target_compile_options(m33mu PRIVATE ${M33MU_COMMON_WARN_FLAGS} ${M33MU_COMMON_OPT_FLAGS})
+
+install(TARGETS m33mu
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(FILES "${CMAKE_SOURCE_DIR}/m33mu.1"
+  DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
+)
 
 # -----------------------------------------------------------------------------
 # Tests (ctest)

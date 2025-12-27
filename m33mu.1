@@ -1,0 +1,110 @@
+.TH M33MU 1 "" "m33mu" "User Commands"
+.SH NAME
+m33mu \- Cortex-M33 emulator
+.SH SYNOPSIS
+.B m33mu
+.RI [ options ]
+.IR image.bin [:offset]
+.RI [ image.bin[:offset] ...]
+.SH DESCRIPTION
+m33mu emulates ARMv8-M Cortex-M targets with TrustZone awareness.
+It can load one or more raw binary images into flash; each image may include a
+byte offset suffix (hex supported).
+.SH OPTIONS
+.TP
+.BR --cpu " " <cpu>
+Select the CPU profile (default: stm32h563).
+.TP
+.BR --gdb
+Start the GDB remote server (RSP) on port 1234.
+.TP
+.BR --port " " <n>
+Set the GDB server port (1-65535).
+.TP
+.BR --gdb-symbols " " <elf>
+Load symbols from the specified ELF (defaults to the first image).
+.TP
+.BR --dump
+Print per-instruction decode and selected TrustZone transitions.
+.TP
+.BR --tui
+Start the interactive terminal UI.
+.TP
+.BR --persist
+Write modified flash contents back to the input image files.
+.TP
+.BR --capstone
+Enable Capstone-based cross-check logging for decode/execute.
+.TP
+.BR --capstone-verbose
+Include operand cross-check details in Capstone logs.
+.TP
+.BR --uart-stdout
+Route UART output to stdout instead of a PTY device.
+.TP
+.BR --quit-on-faults
+Stop execution after the first fault is raised.
+.TP
+.BR --meminfo
+Emit SAU/MPU layout and register write logs.
+.TP
+.BR --spiflash:SPIx:file=PATH:size=N[:mmap=ADDR][:cs=GPIONAME]
+Attach a SPI flash image.
+.TP
+.BR --usb
+Enable USB/IP backend (default port 3240).
+.TP
+.BR --usb:port= N
+Enable USB/IP backend and set port.
+.TP
+.BR --tap[:tap0]
+Enable Ethernet TAP backend (default interface: tap0).
+.TP
+.BR --vde[:/var/run/vde.ctl]
+Enable Ethernet VDE backend (default socket: /var/run/vde.ctl).
+.TP
+.BR --tpm:SPIx:cs=GPIONAME[:file=PATH]
+Attach a TPM TIS device (optional NV backing file).
+.SH ENVIRONMENT
+.TP
+.B CAPSTONE_PC
+Limit Capstone cross-check logging to a specific PC (hex).
+.TP
+.B M33MU_PC_TRACE
+Trace instruction fetch/execute over a PC range (hex start:end).
+.TP
+.B M33MU_PC_TRACE_MEM
+Like M33MU_PC_TRACE, but includes memory addresses.
+.TP
+.B M33MU_STRCMP_TRACE
+Trace strcmp-like loops over a PC range (hex start:end).
+.TP
+.B M33MU_STRCMP_ENTRY
+Override the entry PC for strcmp tracing (hex).
+.TP
+.B M33MU_MEMWATCH
+Watch a memory range (hex addr:size).
+.TP
+.B M33MU_NVIC_TRACE
+Trace NVIC state changes when set to 1.
+.TP
+.B M33MU_FLASH_TRACE
+Trace flash MMIO activity when set to 1.
+.TP
+.B M33MU_PROT_TRACE
+Print SAU/MPU attribution decisions (1-3 for verbosity).
+.TP
+.B M33MU_DUMP_PSP_FRAME
+Dump 8-word stacked frames during EXC_RETURN unstack when set to 1.
+.TP
+.B M33MU_TZ_BOOT_TRACE
+Trace security-state transitions during TZ boot/hand-off when set to 1.
+.SH EXAMPLES
+.TP
+.B m33mu tests/firmware/test-stm32h563/app.bin
+Run a basic STM32H563 firmware test.
+.TP
+.B m33mu --tap tests/firmware/test-stm32h563/app.bin
+Run with Ethernet TAP backend.
+.SH SEE ALSO
+.BR gdb (1)
