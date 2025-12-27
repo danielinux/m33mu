@@ -61,6 +61,12 @@ list(REMOVE_ITEM M33MU_SOURCES "${M33MU_MAIN_SRC}")
 set(M33MU_CAPSTONE_SRC "${CMAKE_SOURCE_DIR}/src/m33mu/capstone.c")
 set(M33MU_CAPSTONE_STUB_SRC "${CMAKE_SOURCE_DIR}/src/m33mu/capstone_stub.c")
 set(M33MU_TPM_TIS_SRC "${CMAKE_SOURCE_DIR}/src/m33mu/tpm_tis.c")
+set(M33MU_TERMBOX2_SRC "${CMAKE_SOURCE_DIR}/tui/termbox2.c")
+set(M33MU_TUI_SRC "${CMAKE_SOURCE_DIR}/tui/tui.c")
+set(M33MU_TUI_STUB_SRC "${CMAKE_SOURCE_DIR}/tui/tui_stub.c")
+list(REMOVE_ITEM M33MU_SOURCES "${M33MU_TERMBOX2_SRC}")
+list(REMOVE_ITEM M33MU_SOURCES "${M33MU_TUI_SRC}")
+list(REMOVE_ITEM M33MU_SOURCES "${M33MU_TUI_STUB_SRC}")
 
 # -----------------------------------------------------------------------------
 # 2) Optional libcapstone detection + define
@@ -145,6 +151,31 @@ else()
 endif()
 
 # -----------------------------------------------------------------------------
+# 4) ncurses detection (TUI)
+# -----------------------------------------------------------------------------
+set(M33MU_HAS_NCURSES FALSE)
+set(M33MU_USE_NCURSESW FALSE)
+
+if(PKG_CONFIG_FOUND)
+  pkg_check_modules(PC_NCURSESW QUIET ncursesw)
+endif()
+
+if(PC_NCURSESW_FOUND)
+  set(M33MU_HAS_NCURSES TRUE)
+  set(M33MU_USE_NCURSESW TRUE)
+else()
+  find_package(Curses)
+  if(CURSES_FOUND)
+    set(M33MU_HAS_NCURSES TRUE)
+  endif()
+endif()
+if(M33MU_HAS_NCURSES)
+  list(APPEND M33MU_SOURCES "${M33MU_TUI_SRC}")
+else()
+  list(APPEND M33MU_SOURCES "${M33MU_TUI_STUB_SRC}")
+endif()
+
+# -----------------------------------------------------------------------------
 # Core library (everything except main)
 # -----------------------------------------------------------------------------
 add_library(m33mu_lib STATIC ${M33MU_SOURCES})
@@ -158,14 +189,6 @@ set_target_properties(m33mu_lib PROPERTIES
 )
 
 target_compile_options(m33mu_lib PRIVATE ${M33MU_COMMON_WARN_FLAGS} ${M33MU_COMMON_OPT_FLAGS})
-
-# File-specific flags (match Makefile special cases)
-set_source_files_properties(
-  "${CMAKE_SOURCE_DIR}/tui/termbox2.c"
-  "${CMAKE_SOURCE_DIR}/tui/tui.c"
-  PROPERTIES
-    COMPILE_FLAGS "-std=c99 -Wno-endif-labels -Wno-unused-function -Wno-comment -DTB_OPT_ATTR_W=32"
-)
 if(M33MU_HAS_CAPSTONE)
   set_source_files_properties(
     "${CMAKE_SOURCE_DIR}/src/m33mu/capstone.c"
@@ -182,6 +205,18 @@ endif()
 if(M33MU_HAS_LIBTPMS)
   target_compile_definitions(m33mu_lib PUBLIC M33MU_HAS_LIBTPMS=1)
   target_link_libraries(m33mu_lib PUBLIC libtpms::tpms)
+endif()
+
+if(M33MU_HAS_NCURSES)
+  target_compile_definitions(m33mu_lib PUBLIC M33MU_HAS_NCURSES=1)
+  if(M33MU_USE_NCURSESW)
+    target_compile_definitions(m33mu_lib PUBLIC M33MU_USE_NCURSESW=1)
+    target_include_directories(m33mu_lib PUBLIC ${PC_NCURSESW_INCLUDE_DIRS})
+    target_link_libraries(m33mu_lib PUBLIC ${PC_NCURSESW_LIBRARIES})
+  else()
+    target_include_directories(m33mu_lib PUBLIC ${CURSES_INCLUDE_DIRS})
+    target_link_libraries(m33mu_lib PUBLIC ${CURSES_LIBRARIES})
+  endif()
 endif()
 
 # -----------------------------------------------------------------------------
@@ -320,13 +355,31 @@ add_custom_target(test-nrf5340
 string(ASCII 27 M33MU_ESC)
 set(M33MU_COLOR_YELLOW "${M33MU_ESC}[33m")
 set(M33MU_COLOR_MAGENTA "${M33MU_ESC}[35m")
+set(M33MU_COLOR_GREEN "${M33MU_ESC}[32m")
+set(M33MU_COLOR_RED "${M33MU_ESC}[31m")
 set(M33MU_COLOR_RESET "${M33MU_ESC}[0m")
 message(STATUS "${M33MU_COLOR_YELLOW}m33mu configuration summary:${M33MU_COLOR_RESET}")
-message(STATUS "${M33MU_COLOR_YELLOW}  capstone: ${M33MU_HAS_CAPSTONE}${M33MU_COLOR_RESET}")
-message(STATUS "${M33MU_COLOR_YELLOW}  TPM/libtpms: ${M33MU_HAS_LIBTPMS}${M33MU_COLOR_RESET}")
+if(M33MU_HAS_CAPSTONE)
+  set(M33MU_STATUS_CAPSTONE "${M33MU_COLOR_GREEN}detected${M33MU_COLOR_RESET}")
+else()
+  set(M33MU_STATUS_CAPSTONE "${M33MU_COLOR_RED}not found${M33MU_COLOR_RESET}")
+endif()
+if(M33MU_HAS_LIBTPMS)
+  set(M33MU_STATUS_TPM "${M33MU_COLOR_GREEN}detected${M33MU_COLOR_RESET}")
+else()
+  set(M33MU_STATUS_TPM "${M33MU_COLOR_RED}not found${M33MU_COLOR_RESET}")
+endif()
+if(M33MU_HAS_NCURSES)
+  set(M33MU_STATUS_NCURSES "${M33MU_COLOR_GREEN}detected${M33MU_COLOR_RESET}")
+else()
+  set(M33MU_STATUS_NCURSES "${M33MU_COLOR_RED}not found${M33MU_COLOR_RESET}")
+endif()
+message(STATUS "${M33MU_COLOR_YELLOW}  capstone: ${M33MU_STATUS_CAPSTONE}${M33MU_COLOR_RESET}")
+message(STATUS "${M33MU_COLOR_YELLOW}  TPM/libtpms: ${M33MU_STATUS_TPM}${M33MU_COLOR_RESET}")
+message(STATUS "${M33MU_COLOR_YELLOW}  ncurses: ${M33MU_STATUS_NCURSES}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_YELLOW}  tests enabled: ${M33MU_BUILD_TESTS}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_MAGENTA}  --------------------------------------------${M33MU_COLOR_RESET}")
-message(STATUS "${M33MU_COLOR_YELLOW}  features: capstone=${M33MU_HAS_CAPSTONE} tpm=${M33MU_HAS_LIBTPMS}${M33MU_COLOR_RESET}")
+message(STATUS "${M33MU_COLOR_YELLOW}  features: capstone=${M33MU_HAS_CAPSTONE} tpm=${M33MU_HAS_LIBTPMS} tui=${M33MU_HAS_NCURSES}${M33MU_COLOR_RESET}")
 
 if(M33MU_CONFIG_WARNINGS)
   foreach(msg IN LISTS M33MU_CONFIG_WARNINGS)

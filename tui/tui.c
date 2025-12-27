@@ -19,14 +19,16 @@
  *
  */
 
-#ifndef TB_OPT_ATTR_W
-#define TB_OPT_ATTR_W 32
+#define _XOPEN_SOURCE 700
+#include <locale.h>
+#include <wchar.h>
+#include <stdint.h>
+#include <time.h>
+#if defined(M33MU_USE_NCURSESW)
+#include <ncursesw/curses.h>
+#else
+#include <curses.h>
 #endif
-#if TB_OPT_ATTR_W < 32
-#error "TUI requires TB_OPT_ATTR_W >= 32 for truecolor"
-#endif
-#include "termbox2.h"
-#include "widgets.h"
 
 #include <fcntl.h>
 #include <termios.h>
@@ -34,11 +36,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <poll.h>
 #include <pthread.h>
 #include "m33mu/cpu.h"
 #include "m33mu/gpio.h"
 #include "tui.h"
+
+typedef uint32_t uintattr_t;
 
 #define TUI_MAX_LINES 1024
 #define TUI_MAX_COLS  512
@@ -52,8 +55,8 @@
 #define TUI_FG_RED   TUI_RGB(0xE5, 0x39, 0x35)
 #define TUI_FG_GREEN TUI_RGB(0x43, 0xA0, 0x47)
 #define TUI_FG_MAGENTA TUI_RGB(0xBA, 0x68, 0xC8)
-#define TUI_FG_BLACK TB_HI_BLACK
-#define TUI_BG_BLACK TB_HI_BLACK
+#define TUI_FG_BLACK TUI_RGB(0x00, 0x00, 0x00)
+#define TUI_BG_BLACK TUI_RGB(0x00, 0x00, 0x00)
 #define TUI_BG_MENU  TUI_RGB(0x6A, 0x0D, 0xAD)
 #define TUI_BG_STATUS TUI_RGB(0xFF, 0xD5, 0x4F)
 #define TUI_BG_STOP  TUI_RGB(0xB8, 0x22, 0x22)
@@ -62,9 +65,182 @@
 
 static struct mm_tui *g_tui = 0;
 
+enum tui_color_slot {
+    TUI_COLOR_WHITE = 0,
+    TUI_COLOR_DIM,
+    TUI_COLOR_GREY,
+    TUI_COLOR_CYAN,
+    TUI_COLOR_RED,
+    TUI_COLOR_GREEN,
+    TUI_COLOR_MAGENTA,
+    TUI_COLOR_BLACK,
+    TUI_COLOR_MENU,
+    TUI_COLOR_STATUS,
+    TUI_COLOR_STOP,
+    TUI_COLOR_RUN,
+    TUI_COLOR_NS,
+    TUI_COLOR_COUNT
+};
+
+static short tui_color_ids[TUI_COLOR_COUNT];
+static short tui_pair_map[TUI_COLOR_COUNT][TUI_COLOR_COUNT];
+static short tui_next_pair = 1;
+static mm_bool tui_colors_ready = MM_FALSE;
+
 static uintattr_t tui_attr(uintattr_t v)
 {
-    return (v & TUI_COLOR_MASK) | (v & TB_HI_BLACK);
+    return (v & TUI_COLOR_MASK);
+}
+
+static short tui_rgb_to_curses(mm_u32 rgb)
+{
+    return (short)((rgb * 1000u) / 255u);
+}
+
+static int tui_color_index(uintattr_t rgb)
+{
+    switch (rgb & TUI_COLOR_MASK) {
+        case TUI_FG_WHITE: return TUI_COLOR_WHITE;
+        case TUI_FG_DIM: return TUI_COLOR_DIM;
+        case TUI_FG_GREY: return TUI_COLOR_GREY;
+        case TUI_FG_CYAN: return TUI_COLOR_CYAN;
+        case TUI_FG_RED: return TUI_COLOR_RED;
+        case TUI_FG_GREEN: return TUI_COLOR_GREEN;
+        case TUI_FG_MAGENTA: return TUI_COLOR_MAGENTA;
+        case TUI_FG_BLACK: return TUI_COLOR_BLACK;
+        case TUI_BG_MENU: return TUI_COLOR_MENU;
+        case TUI_BG_STATUS: return TUI_COLOR_STATUS;
+        case TUI_BG_STOP: return TUI_COLOR_STOP;
+        case TUI_BG_RUN: return TUI_COLOR_RUN;
+        case TUI_BG_NS: return TUI_COLOR_NS;
+        default: return TUI_COLOR_WHITE;
+    }
+}
+
+static void tui_init_colors(void)
+{
+    int i;
+    if (tui_colors_ready) return;
+    tui_colors_ready = MM_TRUE;
+    if (!has_colors()) return;
+    start_color();
+    (void)use_default_colors();
+
+    if (can_change_color() && COLORS >= (int)(TUI_COLOR_COUNT + 1)) {
+        int base = COLORS - (int)TUI_COLOR_COUNT;
+        if (base < 1) base = 1;
+        for (i = 0; i < (int)TUI_COLOR_COUNT; ++i) {
+            tui_color_ids[i] = (short)(base + i);
+        }
+        init_color(tui_color_ids[TUI_COLOR_WHITE],
+                   tui_rgb_to_curses(0xF5),
+                   tui_rgb_to_curses(0xF5),
+                   tui_rgb_to_curses(0xF5));
+        init_color(tui_color_ids[TUI_COLOR_DIM],
+                   tui_rgb_to_curses(0xCF),
+                   tui_rgb_to_curses(0xCF),
+                   tui_rgb_to_curses(0xCF));
+        init_color(tui_color_ids[TUI_COLOR_GREY],
+                   tui_rgb_to_curses(0x88),
+                   tui_rgb_to_curses(0x88),
+                   tui_rgb_to_curses(0x88));
+        init_color(tui_color_ids[TUI_COLOR_CYAN],
+                   tui_rgb_to_curses(0x4D),
+                   tui_rgb_to_curses(0xD0),
+                   tui_rgb_to_curses(0xE1));
+        init_color(tui_color_ids[TUI_COLOR_RED],
+                   tui_rgb_to_curses(0xE5),
+                   tui_rgb_to_curses(0x39),
+                   tui_rgb_to_curses(0x35));
+        init_color(tui_color_ids[TUI_COLOR_GREEN],
+                   tui_rgb_to_curses(0x43),
+                   tui_rgb_to_curses(0xA0),
+                   tui_rgb_to_curses(0x47));
+        init_color(tui_color_ids[TUI_COLOR_MAGENTA],
+                   tui_rgb_to_curses(0xBA),
+                   tui_rgb_to_curses(0x68),
+                   tui_rgb_to_curses(0xC8));
+        init_color(tui_color_ids[TUI_COLOR_BLACK],
+                   tui_rgb_to_curses(0x00),
+                   tui_rgb_to_curses(0x00),
+                   tui_rgb_to_curses(0x00));
+        init_color(tui_color_ids[TUI_COLOR_MENU],
+                   tui_rgb_to_curses(0x6A),
+                   tui_rgb_to_curses(0x0D),
+                   tui_rgb_to_curses(0xAD));
+        init_color(tui_color_ids[TUI_COLOR_STATUS],
+                   tui_rgb_to_curses(0xFF),
+                   tui_rgb_to_curses(0xD5),
+                   tui_rgb_to_curses(0x4F));
+        init_color(tui_color_ids[TUI_COLOR_STOP],
+                   tui_rgb_to_curses(0xB8),
+                   tui_rgb_to_curses(0x22),
+                   tui_rgb_to_curses(0x22));
+        init_color(tui_color_ids[TUI_COLOR_RUN],
+                   tui_rgb_to_curses(0x1F),
+                   tui_rgb_to_curses(0x8A),
+                   tui_rgb_to_curses(0x3B));
+        init_color(tui_color_ids[TUI_COLOR_NS],
+                   tui_rgb_to_curses(0x1E),
+                   tui_rgb_to_curses(0x5A),
+                   tui_rgb_to_curses(0xB5));
+    } else {
+        tui_color_ids[TUI_COLOR_WHITE] = COLOR_WHITE;
+        tui_color_ids[TUI_COLOR_DIM] = COLOR_WHITE;
+        tui_color_ids[TUI_COLOR_GREY] = COLOR_WHITE;
+        tui_color_ids[TUI_COLOR_CYAN] = COLOR_CYAN;
+        tui_color_ids[TUI_COLOR_RED] = COLOR_RED;
+        tui_color_ids[TUI_COLOR_GREEN] = COLOR_GREEN;
+        tui_color_ids[TUI_COLOR_MAGENTA] = COLOR_MAGENTA;
+        tui_color_ids[TUI_COLOR_BLACK] = COLOR_BLACK;
+        tui_color_ids[TUI_COLOR_MENU] = COLOR_MAGENTA;
+        tui_color_ids[TUI_COLOR_STATUS] = COLOR_YELLOW;
+        tui_color_ids[TUI_COLOR_STOP] = COLOR_RED;
+        tui_color_ids[TUI_COLOR_RUN] = COLOR_GREEN;
+        tui_color_ids[TUI_COLOR_NS] = COLOR_BLUE;
+    }
+}
+
+static short tui_color_pair(uintattr_t fg, uintattr_t bg)
+{
+    int fg_idx = tui_color_index(fg);
+    int bg_idx = tui_color_index(bg);
+    short pair = tui_pair_map[fg_idx][bg_idx];
+    if (pair != 0) return pair;
+    if (!has_colors()) return 0;
+    if (tui_next_pair >= COLOR_PAIRS) return 0;
+    pair = tui_next_pair++;
+    init_pair(pair, tui_color_ids[fg_idx], tui_color_ids[bg_idx]);
+    tui_pair_map[fg_idx][bg_idx] = pair;
+    return pair;
+}
+
+static void tui_put_cell(int x, int y, uint32_t ch, uintattr_t fg, uintattr_t bg)
+{
+    short pair = tui_color_pair(fg, bg);
+    attr_t attrs = COLOR_PAIR(pair);
+    chtype out_ch = (chtype)ch;
+#if !defined(M33MU_USE_NCURSESW)
+    if (ch == 0x2550) out_ch = ACS_HLINE;
+    else if (ch == 0x2551) out_ch = ACS_VLINE;
+    else if (ch == 0x2554) out_ch = ACS_ULCORNER;
+    else if (ch == 0x2557) out_ch = ACS_URCORNER;
+    else if (ch == 0x255A) out_ch = ACS_LLCORNER;
+    else if (ch == 0x255D) out_ch = ACS_LRCORNER;
+#endif
+#if defined(M33MU_USE_NCURSESW)
+    if (ch > 0x7Fu) {
+        cchar_t wc;
+        wchar_t wch[2];
+        wch[0] = (wchar_t)ch;
+        wch[1] = L'\0';
+        (void)setcchar(&wc, wch, attrs, 0, NULL);
+        mvadd_wch(y, x, &wc);
+        return;
+    }
+#endif
+    attrset(attrs);
+    mvaddch(y, x, out_ch);
 }
 
 static void tui_push_line(struct mm_tui *tui)
@@ -174,7 +350,7 @@ static void tui_draw_text(int x, int y, int max_x, uintattr_t fg, uintattr_t bg,
     int cx = x;
     int i = 0;
     while (text[i] != '\0' && cx < max_x) {
-        tb_set_cell(cx, y, (uint32_t)text[i], tui_attr(fg), tui_attr(bg));
+        tui_put_cell(cx, y, (uint32_t)text[i], tui_attr(fg), tui_attr(bg));
         ++cx;
         ++i;
     }
@@ -186,7 +362,7 @@ static void tui_draw_filled(int x0, int y0, int x1, int y1, uintattr_t fg, uinta
     int y;
     for (y = y0; y <= y1; ++y) {
         for (x = x0; x <= x1; ++x) {
-            tb_set_cell(x, y, ' ', tui_attr(fg), tui_attr(bg));
+            tui_put_cell(x, y, ' ', tui_attr(fg), tui_attr(bg));
         }
     }
 }
@@ -197,9 +373,9 @@ static void tui_draw_gpio_line(int x, int y, int max_x, int bank, mm_u32 moder, 
     int pin;
     int cx = x;
     if (cx >= max_x) return;
-    tb_set_cell(cx++, y, (uint32_t)('A' + bank), tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
+    tui_put_cell(cx++, y, (uint32_t)('A' + bank), tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
     if (cx < max_x) {
-        tb_set_cell(cx++, y, ' ', tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
+        tui_put_cell(cx++, y, ' ', tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
     }
     for (pin = 0; pin < 16 && cx < max_x; ++pin, ++cx) {
         mm_u32 mode = (moder >> (pin * 2)) & 0x3u;
@@ -222,7 +398,7 @@ static void tui_draw_gpio_line(int x, int y, int max_x, int bank, mm_u32 moder, 
         if (!clock_on) {
             fg = TUI_FG_GREY;
         }
-        tb_set_cell(cx, y, (uint32_t)ch, tui_attr(fg), tui_attr(bg));
+        tui_put_cell(cx, y, (uint32_t)ch, tui_attr(fg), tui_attr(bg));
     }
 }
 
@@ -232,9 +408,9 @@ static void tui_draw_gpio_sec_line(int x, int y, int max_x, int bank, mm_u32 sec
     int pin;
     int cx = x;
     if (cx >= max_x) return;
-    tb_set_cell(cx++, y, (uint32_t)('A' + bank), tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
+    tui_put_cell(cx++, y, (uint32_t)('A' + bank), tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
     if (cx < max_x) {
-        tb_set_cell(cx++, y, ' ', tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
+        tui_put_cell(cx++, y, ' ', tui_attr(clock_on ? TUI_FG_DIM : TUI_FG_GREY), tui_attr(bg));
     }
     for (pin = 0; pin < 16 && cx < max_x; ++pin, ++cx) {
         mm_u32 bit = (seccfgr >> pin) & 0x1u;
@@ -243,7 +419,7 @@ static void tui_draw_gpio_sec_line(int x, int y, int max_x, int bank, mm_u32 sec
         if (!clock_on) {
             fg = TUI_FG_GREY;
         }
-        tb_set_cell(cx, y, (uint32_t)ch, tui_attr(fg), tui_attr(bg));
+        tui_put_cell(cx, y, (uint32_t)ch, tui_attr(fg), tui_attr(bg));
     }
 }
 
@@ -282,7 +458,7 @@ static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod
     if (tui == 0) return;
     (void)mod;
 
-    if (ch == 0x11) {
+    if (key == 27 || ch == 27) {
         tui->want_quit = MM_TRUE;
         tui->actions |= MM_TUI_ACTION_QUIT;
         return;
@@ -292,11 +468,11 @@ static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod
         mm_bool send = MM_FALSE;
         mm_bool backspace = MM_FALSE;
         mm_bool enter = MM_FALSE;
-        if (key == TB_KEY_ENTER || ch == '\n' || ch == '\r') {
+        if (key == KEY_ENTER || ch == '\n' || ch == '\r') {
             b = '\r';
             send = MM_TRUE;
             enter = MM_TRUE;
-        } else if (key == TB_KEY_BACKSPACE || key == TB_KEY_BACKSPACE2 || ch == 0x7Fu || ch == 0x08u) {
+        } else if (key == KEY_BACKSPACE || ch == 0x7Fu || ch == 0x08u) {
             b = 0x7Fu;
             send = MM_TRUE;
             backspace = MM_TRUE;
@@ -316,124 +492,51 @@ static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod
             tui->input_dirty = MM_TRUE;
         }
     }
-    if (key == TB_KEY_ARROW_LEFT) {
+    if (key == KEY_LEFT) {
         tui->window2_mode = (mm_u8)((tui->window2_mode + 3u) % 4u);
         return;
     }
-    if (key == TB_KEY_ARROW_RIGHT) {
+    if (key == KEY_RIGHT) {
         tui->window2_mode = (mm_u8)((tui->window2_mode + 1u) % 4u);
         return;
     }
-    if (key == TB_KEY_F2) {
+    if (key == KEY_F(2)) {
         tui->actions |= tui->target_running ? MM_TUI_ACTION_PAUSE : MM_TUI_ACTION_CONTINUE;
         return;
     }
-    if (key == TB_KEY_F3) {
+    if (key == KEY_F(3)) {
         tui->window1_mode = (tui->window1_mode == MM_TUI_WIN1_LOG) ? MM_TUI_WIN1_CPU : MM_TUI_WIN1_LOG;
         return;
     }
-    if (key == TB_KEY_F4) {
+    if (key == KEY_F(4)) {
         tui->window2_mode = (mm_u8)((tui->window2_mode + 1u) % 4u);
         return;
     }
-    if (key == TB_KEY_F5) {
+    if (key == KEY_F(5)) {
         if (!tui->target_running) {
             tui->actions |= MM_TUI_ACTION_RELOAD;
         }
         return;
     }
-    if (key == TB_KEY_F7) {
+    if (key == KEY_F(7)) {
         if (!tui->target_running) {
             tui->actions |= MM_TUI_ACTION_STEP;
         }
         return;
     }
-    if (key == TB_KEY_F8) {
+    if (key == KEY_F(8)) {
         if (!tui->target_running) {
             tui->actions |= MM_TUI_ACTION_RESET;
         }
         return;
     }
-    if (key == TB_KEY_F6) {
+    if (key == KEY_F(6)) {
         tui->actions |= MM_TUI_ACTION_TOGGLE_CAPSTONE;
         return;
     }
-    if (key == TB_KEY_F9) {
+    if (key == KEY_F(9)) {
         tui->actions |= MM_TUI_ACTION_LAUNCH_GDB;
         return;
-    }
-}
-
-static void tui_consume_raw(struct mm_tui *tui, const unsigned char *buf, size_t len)
-{
-    size_t i;
-    if (tui == 0 || buf == 0 || len == 0) return;
-    for (i = 0; i < len; ++i) {
-        unsigned char b = buf[i];
-        if (tui->esc_len == 0) {
-            if (b == 0x1b) {
-                tui->esc_buf[0] = (char)b;
-                tui->esc_len = 1u;
-                continue;
-            }
-            tui_handle_key(tui, 0, b, 0);
-            continue;
-        }
-        if (tui->esc_len < sizeof(tui->esc_buf)) {
-            tui->esc_buf[tui->esc_len++] = (char)b;
-        } else {
-            tui->esc_len = 0;
-            continue;
-        }
-
-        if (tui->esc_len >= 3 && tui->esc_buf[0] == 0x1b && tui->esc_buf[1] == '[') {
-            char c = tui->esc_buf[2];
-            if (c == 'A') { tui_handle_key(tui, TB_KEY_ARROW_UP, 0, 0); tui->esc_len = 0; continue; }
-            if (c == 'B') { tui_handle_key(tui, TB_KEY_ARROW_DOWN, 0, 0); tui->esc_len = 0; continue; }
-            if (c == 'C') { tui_handle_key(tui, TB_KEY_ARROW_RIGHT, 0, 0); tui->esc_len = 0; continue; }
-            if (c == 'D') { tui_handle_key(tui, TB_KEY_ARROW_LEFT, 0, 0); tui->esc_len = 0; continue; }
-        }
-        if (tui->esc_len >= 3 && tui->esc_buf[0] == 0x1b && tui->esc_buf[1] == 'O') {
-            char c = tui->esc_buf[2];
-            if (c == 'Q') { tui_handle_key(tui, TB_KEY_F2, 0, 0); tui->esc_len = 0; continue; }
-            if (c == 'R') { tui_handle_key(tui, TB_KEY_F3, 0, 0); tui->esc_len = 0; continue; }
-            if (c == 'S') { tui_handle_key(tui, TB_KEY_F4, 0, 0); tui->esc_len = 0; continue; }
-        }
-        if (tui->esc_len >= 5 && tui->esc_buf[0] == 0x1b && tui->esc_buf[1] == '[') {
-            if (tui->esc_buf[2] == '1' && tui->esc_buf[3] == '5' && tui->esc_buf[4] == '~') {
-                tui_handle_key(tui, TB_KEY_F5, 0, 0);
-                tui->esc_len = 0;
-                continue;
-            }
-            if (tui->esc_buf[2] == '1' && tui->esc_buf[3] == '7' && tui->esc_buf[4] == '~') {
-                tui_handle_key(tui, TB_KEY_F6, 0, 0);
-                tui->esc_len = 0;
-                continue;
-            }
-            if (tui->esc_buf[2] == '1' && tui->esc_buf[3] == '8' && tui->esc_buf[4] == '~') {
-                tui_handle_key(tui, TB_KEY_F7, 0, 0);
-                tui->esc_len = 0;
-                continue;
-            }
-            if (tui->esc_buf[2] == '1' && tui->esc_buf[3] == '9' && tui->esc_buf[4] == '~') {
-                tui_handle_key(tui, TB_KEY_F8, 0, 0);
-                tui->esc_len = 0;
-                continue;
-            }
-            if (tui->esc_buf[2] == '2' && tui->esc_buf[3] == '0' && tui->esc_buf[4] == '~') {
-                tui_handle_key(tui, TB_KEY_F9, 0, 0);
-                tui->esc_len = 0;
-                continue;
-            }
-            if (tui->esc_buf[2] == '2' && tui->esc_buf[3] == '1' && tui->esc_buf[4] == '~') {
-                tui_handle_key(tui, TB_KEY_F10, 0, 0);
-                tui->esc_len = 0;
-                continue;
-            }
-        }
-        if (tui->esc_len >= 6) {
-            tui->esc_len = 0;
-        }
     }
 }
 
@@ -468,8 +571,7 @@ static void tui_draw(struct mm_tui *tui)
     uintattr_t control_bg = TUI_BG_RUN;
     uintattr_t control_fg = TUI_FG_WHITE;
 
-    w = tb_width();
-    h = tb_height();
+    getmaxyx(stdscr, h, w);
     if (w <= 0 || h <= 3) return;
     tui->width = w;
     tui->height = h;
@@ -507,27 +609,27 @@ static void tui_draw(struct mm_tui *tui)
         control_bg = TUI_BG_NS;
     }
 
-    tb_clear();
+    erase();
 
     /* Console border (Unicode box drawing) */
     for (i = console_x; i < console_w; ++i) {
-        tb_set_cell(i, console_y, 0x2550, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
-        tb_set_cell(i, console_h - 1, 0x2550, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
+        tui_put_cell(i, console_y, 0x2550, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
+        tui_put_cell(i, console_h - 1, 0x2550, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
     }
     for (i = console_y; i < console_h; ++i) {
-        tb_set_cell(console_x, i, 0x2551, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
-        tb_set_cell(console_w - 1, i, 0x2551, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
+        tui_put_cell(console_x, i, 0x2551, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
+        tui_put_cell(console_w - 1, i, 0x2551, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
     }
-    tb_set_cell(console_x, console_y, 0x2554, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
-    tb_set_cell(console_w - 1, console_y, 0x2557, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
-    tb_set_cell(console_x, console_h - 1, 0x255A, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
-    tb_set_cell(console_w - 1, console_h - 1, 0x255D, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
+    tui_put_cell(console_x, console_y, 0x2554, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
+    tui_put_cell(console_w - 1, console_y, 0x2557, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
+    tui_put_cell(console_x, console_h - 1, 0x255A, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
+    tui_put_cell(console_w - 1, console_h - 1, 0x255D, tui_attr(TUI_FG_DIM), tui_attr(TUI_BG_BLACK));
 
     /* Menu panel */
     for (i = 0; i < console_h; ++i) {
         int x;
         for (x = console_w + 1; x < w; ++x) {
-            tb_set_cell(x, i, ' ', tui_attr(menu_fg), tui_attr(menu_bg));
+            tui_put_cell(x, i, ' ', tui_attr(menu_fg), tui_attr(menu_bg));
         }
     }
     tui_draw_text(console_w + 2, 1, w - 1, menu_fg, menu_bg, "Menu");
@@ -551,7 +653,7 @@ static void tui_draw(struct mm_tui *tui)
         tui_draw_text(console_w + 2, 15, w - 1, menu_fg, menu_bg, "Capstone: n/a (F6)");
     }
     tui_draw_text(console_w + 2, 17, w - 1, menu_fg, menu_bg, "GDB TUI (F9)");
-    tui_draw_text(console_w + 2, 19, w - 1, menu_fg, menu_bg, "Quit (Ctrl+Q)");
+    tui_draw_text(console_w + 2, 19, w - 1, menu_fg, menu_bg, "Quit (Esc)");
 
     /* Control bar */
     {
@@ -563,7 +665,7 @@ static void tui_draw(struct mm_tui *tui)
         const char *mode = ((control & 0x1u) == 0u) ? "Handler" : "Thread";
         const char *run_mode = tui->target_running ? mode : "Stopped";
         for (x = 0; x < w; ++x) {
-            tb_set_cell(x, y, ' ', tui_attr(control_fg), tui_attr(control_bg));
+            tui_put_cell(x, y, ' ', tui_attr(control_fg), tui_attr(control_bg));
         }
         if (tui->target_running) {
             snprintf(info, sizeof(info),
@@ -587,7 +689,7 @@ static void tui_draw(struct mm_tui *tui)
     {
         int x;
         for (x = 0; x < w; ++x) {
-            tb_set_cell(x, h - 1, ' ', tui_attr(status_fg), tui_attr(status_bg));
+            tui_put_cell(x, h - 1, ' ', tui_attr(status_fg), tui_attr(status_bg));
         }
         tui_draw_text(1, h - 1, w - 1, status_fg, status_bg, "m33mu --tui");
     }
@@ -598,7 +700,7 @@ static void tui_draw(struct mm_tui *tui)
         int x;
         for (y = inner_y; y < inner_y + inner_h; ++y) {
             for (x = inner_x; x < inner_x + inner_w; ++x) {
-                tb_set_cell(x, y, ' ', tui_attr(console_fg), tui_attr(console_bg));
+                tui_put_cell(x, y, ' ', tui_attr(console_fg), tui_attr(console_bg));
             }
         }
     }
@@ -680,7 +782,7 @@ static void tui_draw(struct mm_tui *tui)
     if (split) {
         int split_x = inner_x + log_w;
         for (i = inner_y; i < inner_y + inner_h; ++i) {
-            tb_set_cell(split_x, i, 0x2551, TUI_FG_DIM, TUI_BG_BLACK);
+            tui_put_cell(split_x, i, 0x2551, TUI_FG_DIM, TUI_BG_BLACK);
         }
         tui_draw_filled(split_x + 1, inner_y, inner_x + inner_w - 1, inner_y + title_h - 1, title_fg, title_bg);
         tui_draw_text(split_x + 2, inner_y, inner_x + inner_w - 1, title_fg, title_bg, tui_window2_title(tui));
@@ -735,7 +837,7 @@ static void tui_draw(struct mm_tui *tui)
         }
     }
 
-    tb_present();
+    refresh();
 }
 
 mm_bool mm_tui_init(struct mm_tui *tui)
@@ -765,21 +867,6 @@ mm_bool mm_tui_init(struct mm_tui *tui)
     tui->target_running = MM_TRUE;
     tui->gdb_connected = MM_FALSE;
     tui->gdb_port = 0;
-    if (isatty(STDIN_FILENO)) {
-        ttyfd = open("/dev/tty", O_RDONLY);
-        if (ttyfd >= 0) {
-            struct termios tio;
-            if (tcgetattr(ttyfd, &tio) == 0) {
-                tio.c_iflag &= ~(ICRNL | INLCR | IGNCR);
-                tio.c_lflag &= ~(ICANON | ECHO);
-                tio.c_oflag &= ~(OPOST | ONLCR);
-                tio.c_cc[VMIN] = 0;
-                tio.c_cc[VTIME] = 1;
-                (void)tcsetattr(ttyfd, TCSANOW, &tio);
-            }
-            tui->input_fd = ttyfd;
-        }
-    }
     tui->active = MM_FALSE;
     return MM_TRUE;
 }
@@ -827,7 +914,6 @@ mm_bool mm_tui_redirect_stdio(struct mm_tui *tui)
 
 void mm_tui_poll(struct mm_tui *tui)
 {
-    struct tb_event ev;
     mm_bool dirty = MM_FALSE;
     int timeout_ms;
     int ev_res;
@@ -838,21 +924,33 @@ void mm_tui_poll(struct mm_tui *tui)
         tui->input_dirty = MM_FALSE;
         dirty = MM_TRUE;
     }
+    {
+        int new_w;
+        int new_h;
+        getmaxyx(stdscr, new_h, new_w);
+        if (new_w != tui->width || new_h != tui->height) {
+            dirty = MM_TRUE;
+        }
+    }
     if (!dirty && tui->target_running) {
         timeout_ms = 0;
     } else {
         timeout_ms = 20;
     }
-    ev_res = tb_peek_event(&ev, timeout_ms);
-    while (ev_res > 0) {
-        if (ev.type == TB_EVENT_KEY) {
-            tui_handle_key(tui, ev.key, ev.ch, ev.mod);
+    timeout(timeout_ms);
+    ev_res = getch();
+    while (ev_res != ERR) {
+        if (ev_res == KEY_RESIZE) {
             dirty = MM_TRUE;
-        } else if (ev.type == TB_EVENT_RESIZE) {
+        } else if (ev_res >= KEY_MIN) {
+            tui_handle_key(tui, ev_res, 0, 0);
+            dirty = MM_TRUE;
+        } else {
+            tui_handle_key(tui, 0, (uint32_t)ev_res, 0);
             dirty = MM_TRUE;
         }
-        timeout_ms = 0;
-        ev_res = tb_peek_event(&ev, timeout_ms);
+        timeout(0);
+        ev_res = getch();
     }
     if (dirty) {
         tui_draw(tui);
@@ -962,45 +1060,52 @@ void mm_tui_close_devices(struct mm_tui *tui)
 static void *tui_thread_main(void *arg)
 {
     struct mm_tui *tui = (struct mm_tui *)arg;
+    SCREEN *screen = NULL;
+    FILE *tty = NULL;
     if (tui == 0) return 0;
-    if (tb_init() != 0) {
-        fprintf(stderr, "[TUI] tb_init failed errno=%d\n", tb_last_errno());
+    setlocale(LC_ALL, "");
+    tty = fopen("/dev/tty", "r+");
+    if (tty != NULL) {
+        screen = newterm(NULL, tty, tty);
+        if (screen != NULL) {
+            set_term(screen);
+        }
+    }
+    if (screen == NULL && initscr() == NULL) {
+        fprintf(stderr, "[TUI] initscr failed\n");
         tui->actions |= MM_TUI_ACTION_QUIT;
         tui->want_quit = MM_TRUE;
+        if (tty != NULL) {
+            fclose(tty);
+        }
         return 0;
     }
-    tb_set_input_mode(TB_INPUT_ESC);
-    tb_set_output_mode(TB_OUTPUT_TRUECOLOR);
-    tb_set_clear_attrs(tui_attr(TUI_FG_WHITE), tui_attr(TUI_BG_BLACK));
-    tb_invalidate();
-    tb_clear();
-    tb_present();
+    cbreak();
+    noecho();
+    keypad(stdscr, TRUE);
+    curs_set(0);
+    tui_init_colors();
+    erase();
+    refresh();
     tui->active = MM_TRUE;
     while (!tui->thread_stop) {
-        struct pollfd pfd;
-        int pres;
-
         mm_tui_poll(tui);
-        if (tui->input_fd >= 0) {
-            pfd.fd = tui->input_fd;
-            pfd.events = POLLIN;
-            pfd.revents = 0;
-            pres = poll(&pfd, 1, 500);
-            if (pres > 0 && (pfd.revents & POLLIN) != 0) {
-                unsigned char buf[64];
-                ssize_t n = read(tui->input_fd, buf, sizeof(buf));
-                if (n > 0) {
-                    tui_consume_raw(tui, buf, (size_t)n);
-                    tui->input_dirty = MM_TRUE;
-                }
-            }
-        } else {
-            usleep(500000);
+        {
+            struct timespec ts;
+            ts.tv_sec = 0;
+            ts.tv_nsec = 20000000L;
+            nanosleep(&ts, NULL);
         }
         tui->input_dirty = MM_TRUE;
     }
     if (tui->active) {
-        tb_shutdown();
+        endwin();
+        if (screen != NULL) {
+            delscreen(screen);
+        }
+        if (tty != NULL) {
+            fclose(tty);
+        }
         tui->active = MM_FALSE;
     }
     return 0;

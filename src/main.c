@@ -676,11 +676,13 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu, struct mm_memmap *map, mm_
 
     info = mm_exc_return_decode(exc_ret);
     if (!info.valid) {
-        printf("[EXC_UNSTACK] invalid exc_return=0x%08lx\n", (unsigned long)exc_ret);
+        if (stack_trace_enabled()) {
+            printf("[EXC_UNSTACK] invalid exc_return=0x%08lx\n", (unsigned long)exc_ret);
+        }
         return MM_FALSE;
     }
 
-    if (stack_trace_enabled()) {
+    if (stack_trace_enabled() && info.target_sec == MM_SECURE) {
         printf("[EXC_UNSTACK] exc_ret=0x%08lx target_sec=%d to_thread=%d use_psp=%d mode=%d cur_sec=%d msp_s=0x%08lx msp_ns=0x%08lx psp_s=0x%08lx psp_ns=0x%08lx ctrl_s=0x%08lx ctrl_ns=0x%08lx\n",
                (unsigned long)exc_ret,
                (int)info.target_sec,
@@ -717,7 +719,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu, struct mm_memmap *map, mm_
             sp = (info.target_sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s;
         }
     }
-    if (stack_trace_enabled()) {
+    if (stack_trace_enabled() && info.target_sec == MM_SECURE) {
         printf("[EXC_UNSTACK] chosen sp=0x%08lx exc_depth=%u\n",
                (unsigned long)sp,
                (unsigned)cpu->exc_depth);
@@ -747,7 +749,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu, struct mm_memmap *map, mm_
                 pc_suspect = MM_TRUE;
             }
         }
-        if (pc_suspect) {
+        if (pc_suspect && stack_trace_enabled() && info.target_sec == MM_SECURE) {
             printf("[EXC_UNSTACK] sec=%d sp=0x%08lx r0=%08lx r1=%08lx r2=%08lx r3=%08lx r12=%08lx lr=%08lx pc=%08lx xpsr=%08lx\n",
                    (int)info.target_sec,
                    (unsigned long)sp,
@@ -795,7 +797,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu, struct mm_memmap *map, mm_
 
     cpu->sec_state = info.target_sec;
     cpu->mode = info.to_thread ? MM_THREAD : MM_HANDLER;
-    if (stack_trace_enabled()) {
+    if (stack_trace_enabled() && info.target_sec == MM_SECURE) {
         printf("[EXC_UNSTACK] new pc=0x%08lx sp=0x%08lx r13=0x%08lx mode=%d sec=%d\n",
                (unsigned long)cpu->r[15],
                (unsigned long)((info.use_psp)
@@ -1394,7 +1396,12 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[i], "--dump") == 0) {
             opt_dump = MM_TRUE;
         } else if (strcmp(argv[i], "--tui") == 0) {
+#ifdef M33MU_HAS_NCURSES
             opt_tui = MM_TRUE;
+#else
+            fprintf(stderr, "TUI support is not available (ncurses not found at build time)\n");
+            return 1;
+#endif
         } else if (strcmp(argv[i], "--gdb-symbols") == 0 && i + 1 < argc) {
             gdb_symbols = argv[i + 1];
             i++;
@@ -1481,7 +1488,11 @@ int main(int argc, char **argv)
     }
 
     if (image_count == 0) {
-        fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] [--tui] [--persist] "
+        fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] "
+#ifdef M33MU_HAS_NCURSES
+                        "[--tui] "
+#endif
+                        "[--persist] "
 #ifdef M33MU_USE_LIBCAPSTONE
                         "[--capstone] [--capstone-verbose] "
 #endif

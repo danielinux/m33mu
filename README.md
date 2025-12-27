@@ -13,10 +13,10 @@ Current status: Beta
 (c) Daniele Lacamera 2025.
 
 Released under AGPLv3. See `LICENSE` file.
-For the TUI, m33mu uses 'termbox2' library (MIT License) - see `tui/termbox2.h`.
 
 
 ## Requirements
+- ncurses (optional, for `--tui`)
 - Libcapstone (for optional self-debugging)
 - Libtpms (for optional TPM 2.0 emulator)
 
