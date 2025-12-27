@@ -929,3 +929,17 @@ void mm_usbdev_stop(void)
     g_usbip.tx_off = 0;
     memset(g_usbip.pending, 0, sizeof(g_usbip.pending));
 }
+
+void mm_usbdev_get_status(struct mm_usbdev_status *out)
+{
+    if (out == 0) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    out->running = g_usbip.running;
+    out->connected = (g_usbip.client_fd >= 0) ? MM_TRUE : MM_FALSE;
+    out->imported = g_usbip.imported;
+    out->port = g_usbip.port;
+    out->devid = g_usbip.devid;
+    snprintf(out->busid, sizeof(out->busid), "%s", g_usbip.busid);
+}

@@ -39,6 +39,11 @@
 #include <pthread.h>
 #include "m33mu/cpu.h"
 #include "m33mu/gpio.h"
+#include "m33mu/spiflash.h"
+#include "m33mu/tpm_tis.h"
+#include "m33mu/usbdev.h"
+#include "m33mu/gpio.h"
+#include "m33mu/memmap.h"
 #include "tui.h"
 
 typedef uint32_t uintattr_t;
@@ -213,6 +218,25 @@ static short tui_color_pair(uintattr_t fg, uintattr_t bg)
     init_pair(pair, tui_color_ids[fg_idx], tui_color_ids[bg_idx]);
     tui_pair_map[fg_idx][bg_idx] = pair;
     return pair;
+}
+
+static void tui_format_size(char *buf, size_t buf_len, mm_u32 bytes)
+{
+    const char *unit = "B";
+    double size = (double)bytes;
+    if (buf == 0 || buf_len == 0) return;
+    if (bytes >= (1024u * 1024u)) {
+        unit = "MB";
+        size = size / (1024.0 * 1024.0);
+    } else if (bytes >= 1024u) {
+        unit = "KB";
+        size = size / 1024.0;
+    }
+    if (size >= 10.0 || unit[0] == 'B') {
+        snprintf(buf, buf_len, "%.0f%s", size, unit);
+    } else {
+        snprintf(buf, buf_len, "%.1f%s", size, unit);
+    }
 }
 
 static void tui_put_cell(int x, int y, uint32_t ch, uintattr_t fg, uintattr_t bg)
@@ -434,8 +458,7 @@ static const char *tui_window1_title(const struct mm_tui *tui)
 static const char *tui_window2_title(const struct mm_tui *tui)
 {
     switch (tui->window2_mode) {
-        case MM_TUI_WIN2_SPI: return "SPI";
-        case MM_TUI_WIN2_I2C: return "I2C";
+        case MM_TUI_WIN2_PERIPH: return "PERIPHERALS";
         case MM_TUI_WIN2_GPIO: return "GPIO";
         default:
             if (tui->serial_label[0] != '\0') {
@@ -493,11 +516,11 @@ static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod
         }
     }
     if (key == KEY_LEFT) {
-        tui->window2_mode = (mm_u8)((tui->window2_mode + 3u) % 4u);
+        tui->window2_mode = (mm_u8)((tui->window2_mode + 2u) % 3u);
         return;
     }
     if (key == KEY_RIGHT) {
-        tui->window2_mode = (mm_u8)((tui->window2_mode + 1u) % 4u);
+        tui->window2_mode = (mm_u8)((tui->window2_mode + 1u) % 3u);
         return;
     }
     if (key == KEY_F(2)) {
@@ -509,7 +532,7 @@ static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod
         return;
     }
     if (key == KEY_F(4)) {
-        tui->window2_mode = (mm_u8)((tui->window2_mode + 1u) % 4u);
+        tui->window2_mode = (mm_u8)((tui->window2_mode + 1u) % 3u);
         return;
     }
     if (key == KEY_F(5)) {
@@ -641,16 +664,16 @@ static void tui_draw(struct mm_tui *tui)
         uintattr_t reload_fg = tui->target_running ? TUI_FG_DIM : menu_fg;
         tui_draw_text(console_w + 2, 9, w - 1, reload_fg, menu_bg, "Reload images (F5)");
     }
-    {
-        uintattr_t step_fg = tui->target_running ? TUI_FG_DIM : menu_fg;
-        tui_draw_text(console_w + 2, 11, w - 1, step_fg, menu_bg, "Step (F7)");
-        tui_draw_text(console_w + 2, 13, w - 1, step_fg, menu_bg, "CPU Reset (F8)");
-    }
     if (tui->capstone_supported) {
         const char *cap = tui->capstone_enabled ? "Capstone: on (F6)" : "Capstone: off (F6)";
         tui_draw_text(console_w + 2, 15, w - 1, menu_fg, menu_bg, cap);
     } else {
         tui_draw_text(console_w + 2, 15, w - 1, menu_fg, menu_bg, "Capstone: n/a (F6)");
+    }
+    {
+        uintattr_t step_fg = tui->target_running ? TUI_FG_DIM : menu_fg;
+        tui_draw_text(console_w + 2, 11, w - 1, step_fg, menu_bg, "Step (F7)");
+        tui_draw_text(console_w + 2, 13, w - 1, step_fg, menu_bg, "CPU Reset (F8)");
     }
     tui_draw_text(console_w + 2, 17, w - 1, menu_fg, menu_bg, "GDB TUI (F9)");
     tui_draw_text(console_w + 2, 19, w - 1, menu_fg, menu_bg, "Quit (Esc)");
@@ -727,7 +750,78 @@ static void tui_draw(struct mm_tui *tui)
     } else {
         int line = 0;
         int col = (log_w >= 30) ? (log_w / 2) : log_w;
-        char buf[64];
+        char buf[128];
+        char size_buf[32];
+        char range_buf[64];
+        if (line < log_h) {
+            const char *name = (tui->cpu_name[0] != '\0') ? tui->cpu_name : "unknown";
+            tui_format_size(size_buf, sizeof(size_buf), tui->flash_total_size);
+            snprintf(buf, sizeof(buf), "CPU: %s  Flash: %s", name, size_buf);
+            tui_format_size(size_buf, sizeof(size_buf), tui->ram_total_size);
+            if ((int)strlen(buf) + (int)strlen(size_buf) + 8 < log_w) {
+                snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "  RAM: %s", size_buf);
+            }
+            tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+            line++;
+        }
+        if (line < log_h) {
+            line++;
+        }
+        if (line < log_h) {
+            if (tui->flash_size_s > 0u) {
+                snprintf(range_buf, sizeof(range_buf), "FLASH S 0x%08lx-0x%08lx",
+                         (unsigned long)tui->flash_base_s,
+                         (unsigned long)(tui->flash_base_s + tui->flash_size_s - 1u));
+                tui_format_size(size_buf, sizeof(size_buf), tui->flash_size_s);
+                snprintf(buf, sizeof(buf), "%s (%s)", range_buf, size_buf);
+                tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+                line++;
+            }
+        }
+        if (line < log_h) {
+            if (tui->flash_size_ns > 0u) {
+                snprintf(range_buf, sizeof(range_buf), "FLASH NS 0x%08lx-0x%08lx",
+                         (unsigned long)tui->flash_base_ns,
+                         (unsigned long)(tui->flash_base_ns + tui->flash_size_ns - 1u));
+                tui_format_size(size_buf, sizeof(size_buf), tui->flash_size_ns);
+                snprintf(buf, sizeof(buf), "%s (%s)", range_buf, size_buf);
+                tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+                line++;
+            }
+        }
+        if (line < log_h) {
+            if (tui->ram_size_s > 0u) {
+                snprintf(range_buf, sizeof(range_buf), "RAM S   0x%08lx-0x%08lx",
+                         (unsigned long)tui->ram_base_s,
+                         (unsigned long)(tui->ram_base_s + tui->ram_size_s - 1u));
+                tui_format_size(size_buf, sizeof(size_buf), tui->ram_size_s);
+                snprintf(buf, sizeof(buf), "%s (%s)", range_buf, size_buf);
+                tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+                line++;
+            }
+        }
+        if (line < log_h) {
+            if (tui->ram_size_ns > 0u) {
+                snprintf(range_buf, sizeof(range_buf), "RAM NS  0x%08lx-0x%08lx",
+                         (unsigned long)tui->ram_base_ns,
+                         (unsigned long)(tui->ram_base_ns + tui->ram_size_ns - 1u));
+                tui_format_size(size_buf, sizeof(size_buf), tui->ram_size_ns);
+                snprintf(buf, sizeof(buf), "%s (%s)", range_buf, size_buf);
+                tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+                line++;
+            }
+        }
+        if (line < log_h) {
+            line++;
+        }
+        if (line < log_h) {
+            tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, "CPU Registers:");
+            line++;
+        }
+        if (line < log_h) {
+            tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, "=============");
+            line++;
+        }
         for (i = 0; i < 8 && line < log_h; ++i, ++line) {
             snprintf(buf, sizeof(buf), "r%-2d 0x%08lx", i, (unsigned long)tui->regs[i]);
             tui_draw_text(inner_x, log_y + line, inner_x + col - 1, console_fg, console_bg, buf);
@@ -754,6 +848,18 @@ static void tui_draw(struct mm_tui *tui)
             line++;
         }
         if (line < log_h) {
+            snprintf(buf, sizeof(buf), "msplim_s 0x%08lx  psplim_s 0x%08lx",
+                     (unsigned long)tui->msplim_s, (unsigned long)tui->psplim_s);
+            tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+            line++;
+        }
+        if (line < log_h) {
+            snprintf(buf, sizeof(buf), "msplim_ns 0x%08lx  psplim_ns 0x%08lx",
+                     (unsigned long)tui->msplim_ns, (unsigned long)tui->psplim_ns);
+            tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+            line++;
+        }
+        if (line < log_h) {
             snprintf(buf, sizeof(buf), "control_s 0x%08lx  control_ns 0x%08lx",
                      (unsigned long)tui->control_s, (unsigned long)tui->control_ns);
             tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
@@ -775,6 +881,47 @@ static void tui_draw(struct mm_tui *tui)
             snprintf(buf, sizeof(buf), "faultmask_s 0x%08lx  faultmask_ns 0x%08lx",
                      (unsigned long)tui->faultmask_s, (unsigned long)tui->faultmask_ns);
             tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+            line++;
+        }
+        if (line < log_h) {
+            line++;
+        }
+        if (line < log_h) {
+            mm_u32 cur_used = 0;
+            mm_u32 max_used = 0;
+            if (tui->msp_top_s_valid) {
+                if (tui->msp_top_s >= tui->msp_s) {
+                    cur_used = tui->msp_top_s - tui->msp_s;
+                }
+                if (tui->msp_top_s >= tui->msp_min_s) {
+                    max_used = tui->msp_top_s - tui->msp_min_s;
+                }
+                snprintf(buf, sizeof(buf), "Secure stack: current %lu max %lu",
+                         (unsigned long)cur_used, (unsigned long)max_used);
+                tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+            } else {
+                tui_draw_text(inner_x, log_y + line, inner_x + log_w, TUI_FG_DIM, console_bg,
+                              "Secure stack: Unused");
+            }
+            line++;
+        }
+        if (line < log_h) {
+            if (tui->msp_top_ns_valid) {
+                mm_u32 cur_used = 0;
+                mm_u32 max_used = 0;
+                if (tui->msp_top_ns >= tui->msp_ns) {
+                    cur_used = tui->msp_top_ns - tui->msp_ns;
+                }
+                if (tui->msp_top_ns >= tui->msp_min_ns) {
+                    max_used = tui->msp_top_ns - tui->msp_min_ns;
+                }
+                snprintf(buf, sizeof(buf), "Non-Secure stack: current %lu max %lu",
+                         (unsigned long)cur_used, (unsigned long)max_used);
+                tui_draw_text(inner_x, log_y + line, inner_x + log_w, console_fg, console_bg, buf);
+            } else {
+                tui_draw_text(inner_x, log_y + line, inner_x + log_w, TUI_FG_DIM, console_bg,
+                              "Non-Secure stack: Unused");
+            }
             line++;
         }
     }
@@ -806,6 +953,118 @@ static void tui_draw(struct mm_tui *tui)
                 tui_draw_text(split_x + 1, log_y + log_h - 1, inner_x + inner_w - 1,
                               console_fg, console_bg, tui->serial_cur_line);
             }
+        } else if (tui->window2_mode == MM_TUI_WIN2_PERIPH) {
+            int y = log_y;
+            char buf[256];
+            char size_buf[32];
+            size_t i;
+            size_t count;
+            struct mm_spiflash_info flash_info;
+            struct mm_tpm_tis_info tpm_info;
+            struct mm_usbdev_status usb_status;
+
+            count = mm_spiflash_count();
+            if (count == 0u) {
+                tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                              TUI_FG_DIM, console_bg, "SPI flash: None");
+                y++;
+            } else {
+                for (i = 0; i < count && y < log_y + log_h; ++i) {
+                    char cs_buf[16];
+                    char mmap_buf[32];
+                    if (!mm_spiflash_get_info(i, &flash_info)) {
+                        continue;
+                    }
+                    tui_format_size(size_buf, sizeof(size_buf), flash_info.size);
+                    snprintf(buf, sizeof(buf), "SPI flash SPI%d size=%s file=%.120s",
+                             flash_info.bus, size_buf, flash_info.path);
+                    tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                                  console_fg, console_bg, buf);
+                    y++;
+                    if (y >= log_y + log_h) {
+                        break;
+                    }
+                    if (flash_info.cs_valid) {
+                        snprintf(cs_buf, sizeof(cs_buf), "P%c%d",
+                                 (char)('A' + flash_info.cs_bank), flash_info.cs_pin);
+                    } else {
+                        snprintf(cs_buf, sizeof(cs_buf), "none");
+                    }
+                    if (flash_info.mmap) {
+                        snprintf(mmap_buf, sizeof(mmap_buf), "0x%08lx",
+                                 (unsigned long)flash_info.mmap_base);
+                    } else {
+                        snprintf(mmap_buf, sizeof(mmap_buf), "none");
+                    }
+                    snprintf(buf, sizeof(buf), "  mmap=%s  SPI settings: default  CS=%s",
+                             mmap_buf, cs_buf);
+                    tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                                  console_fg, console_bg, buf);
+                    y++;
+                }
+            }
+
+            if (y < log_y + log_h) {
+                y++;
+            }
+            count = mm_tpm_tis_count();
+            if (count == 0u) {
+                tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                              TUI_FG_DIM, console_bg, "TPM: None");
+                y++;
+            } else {
+                for (i = 0; i < count && y < log_y + log_h; ++i) {
+                    if (!mm_tpm_tis_get_info(i, &tpm_info)) {
+                        continue;
+                    }
+                    snprintf(buf, sizeof(buf), "TPM SPI%d size=n/a nv=%.120s",
+                             tpm_info.bus,
+                             tpm_info.has_nv_path ? tpm_info.nv_path : "memory");
+                    tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                                  console_fg, console_bg, buf);
+                    y++;
+                    if (y >= log_y + log_h) {
+                        break;
+                    }
+                    if (tpm_info.cs_valid) {
+                        snprintf(buf, sizeof(buf), "  SPI settings: default  CS=P%c%d",
+                                 (char)('A' + tpm_info.cs_bank),
+                                 tpm_info.cs_pin);
+                    } else {
+                        snprintf(buf, sizeof(buf), "  SPI settings: default  CS=none");
+                    }
+                    tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                                  console_fg, console_bg, buf);
+                    y++;
+                }
+            }
+
+            if (y < log_y + log_h) {
+                y++;
+            }
+            mm_usbdev_get_status(&usb_status);
+            if (!usb_status.running) {
+                tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                              TUI_FG_DIM, console_bg, "USB: Not running");
+                y++;
+            } else {
+                snprintf(buf, sizeof(buf), "USB: running=%s connected=%s imported=%s",
+                         usb_status.running ? "yes" : "no",
+                         usb_status.connected ? "yes" : "no",
+                         usb_status.imported ? "yes" : "no");
+                tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                              console_fg, console_bg, buf);
+                y++;
+                if (y < log_y + log_h) {
+                    snprintf(buf, sizeof(buf), "  USBIP port=%d busid=%s devid=0x%08lx",
+                             usb_status.port,
+                             usb_status.busid,
+                             (unsigned long)usb_status.devid);
+                    tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                                  console_fg, console_bg, buf);
+                    y++;
+                }
+            }
         } else if (tui->window2_mode == MM_TUI_WIN2_GPIO) {
             int row;
             if (!mm_gpio_bank_reader_present()) {
@@ -828,6 +1087,28 @@ static void tui_draw(struct mm_tui *tui)
                     mm_bool clk = mm_gpio_bank_clock_enabled(row);
                     tui_draw_gpio_sec_line(split_x + 2, y, inner_x + inner_w - 1,
                                            row, seccfgr, clk, console_bg);
+                }
+                if (y < log_y + log_h) {
+                    y++;
+                }
+                if (y < log_y + log_h) {
+                    y++;
+                }
+                if (mm_rcc_clock_list_present()) {
+                    int line_idx = 0;
+                    char linebuf[256];
+                    tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                                  TUI_FG_DIM, console_bg, "RCC clocks:");
+                    y ++;
+                    while (y < log_y + log_h && mm_rcc_clock_list_line(line_idx, linebuf, sizeof(linebuf))) {
+                        tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                                      console_fg, console_bg, linebuf);
+                        y++;
+                        line_idx++;
+                    }
+                } else if (y < log_y + log_h) {
+                    tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                                  TUI_FG_DIM, console_bg, "RCC clocks: unavailable");
                 }
             }
         } else {
@@ -1007,6 +1288,18 @@ void mm_tui_set_image0(struct mm_tui *tui, const char *path)
     snprintf(tui->image0_path, sizeof(tui->image0_path), "%s", path);
 }
 
+void mm_tui_set_cpu_name(struct mm_tui *tui, const char *name)
+{
+    if (tui == 0) return;
+    if (name == 0 || name[0] == '\0') {
+        return;
+    }
+    if (tui->cpu_name[0] != '\0') {
+        return;
+    }
+    snprintf(tui->cpu_name, sizeof(tui->cpu_name), "%s", name);
+}
+
 void mm_tui_set_core_state(struct mm_tui *tui,
                            mm_u32 pc,
                            mm_u32 sp,
@@ -1034,6 +1327,16 @@ void mm_tui_set_registers(struct mm_tui *tui, const struct mm_cpu *cpu)
     tui->psp_s = cpu->psp_s;
     tui->msp_ns = cpu->msp_ns;
     tui->psp_ns = cpu->psp_ns;
+    tui->msp_top_s = cpu->msp_top_s;
+    tui->msp_min_s = cpu->msp_min_s;
+    tui->msp_top_ns = cpu->msp_top_ns;
+    tui->msp_min_ns = cpu->msp_min_ns;
+    tui->msp_top_s_valid = cpu->msp_top_s_valid;
+    tui->msp_top_ns_valid = cpu->msp_top_ns_valid;
+    tui->msplim_s = cpu->msplim_s;
+    tui->psplim_s = cpu->psplim_s;
+    tui->msplim_ns = cpu->msplim_ns;
+    tui->psplim_ns = cpu->psplim_ns;
     tui->control_s = cpu->control_s;
     tui->control_ns = cpu->control_ns;
     tui->primask_s = cpu->primask_s;
@@ -1042,6 +1345,22 @@ void mm_tui_set_registers(struct mm_tui *tui, const struct mm_cpu *cpu)
     tui->basepri_ns = cpu->basepri_ns;
     tui->faultmask_s = cpu->faultmask_s;
     tui->faultmask_ns = cpu->faultmask_ns;
+}
+
+void mm_tui_set_memory_map(struct mm_tui *tui, const struct mm_memmap *map)
+{
+    if (tui == 0 || map == 0) return;
+    tui->flash_base_s = map->flash_base_s;
+    tui->flash_size_s = map->flash_size_s;
+    tui->flash_base_ns = map->flash_base_ns;
+    tui->flash_size_ns = map->flash_size_ns;
+    tui->ram_base_s = map->ram_base_s;
+    tui->ram_size_s = map->ram_size_s;
+    tui->ram_base_ns = map->ram_base_ns;
+    tui->ram_size_ns = map->ram_size_ns;
+    tui->flash_total_size = map->flash_size_s + map->flash_size_ns;
+    tui->ram_total_size = (map->ram_total_size != 0u) ? map->ram_total_size :
+                          (map->ram_size_s + map->ram_size_ns);
 }
 
 void mm_tui_close_devices(struct mm_tui *tui)

@@ -36,6 +36,16 @@ static void tz_sync_r13_from_active_sp(struct mm_cpu *cpu)
     mm_cpu_set_active_sp(cpu, sp);
 }
 
+static void tz_note_ns_msp_top(struct mm_cpu *cpu)
+{
+    if (cpu == 0) {
+        return;
+    }
+    if (cpu->sec_state == MM_NONSECURE) {
+        mm_cpu_note_msp_top(cpu, MM_NONSECURE);
+    }
+}
+
 void mm_tz_exec_sg(struct mm_cpu *cpu)
 {
     if (cpu == 0) {
@@ -55,6 +65,7 @@ void mm_tz_exec_bxns(struct mm_cpu *cpu, mm_u32 target)
     }
     /* BXNS is defined for Secure->Non-secure transition. */
     cpu->sec_state = MM_NONSECURE;
+    tz_note_ns_msp_top(cpu);
     tz_sync_r13_from_active_sp(cpu);
     cpu->r[15] = target | 1u;
 }
@@ -75,6 +86,7 @@ void mm_tz_exec_blxns(struct mm_cpu *cpu, mm_u32 target, mm_u32 return_addr)
     }
     cpu->r[14] = MM_TZ_RET_LR_SENTINEL;
     cpu->sec_state = MM_NONSECURE;
+    tz_note_ns_msp_top(cpu);
     tz_sync_r13_from_active_sp(cpu);
     cpu->r[15] = target | 1u;
 }

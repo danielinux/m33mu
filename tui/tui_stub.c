@@ -88,6 +88,12 @@ void mm_tui_set_image0(struct mm_tui *tui, const char *path)
     (void)path;
 }
 
+void mm_tui_set_cpu_name(struct mm_tui *tui, const char *name)
+{
+    (void)tui;
+    (void)name;
+}
+
 void mm_tui_set_core_state(struct mm_tui *tui,
                            mm_u32 pc,
                            mm_u32 sp,
@@ -107,6 +113,12 @@ void mm_tui_set_registers(struct mm_tui *tui, const struct mm_cpu *cpu)
 {
     (void)tui;
     (void)cpu;
+}
+
+void mm_tui_set_memory_map(struct mm_tui *tui, const struct mm_memmap *map)
+{
+    (void)tui;
+    (void)map;
 }
 
 void mm_tui_close_devices(struct mm_tui *tui)

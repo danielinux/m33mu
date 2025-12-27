@@ -782,3 +782,29 @@ void mm_tpm_tis_shutdown_all(void)
 #endif
     g_tpm_count = 0;
 }
+
+size_t mm_tpm_tis_count(void)
+{
+    return g_tpm_count;
+}
+
+mm_bool mm_tpm_tis_get_info(size_t index, struct mm_tpm_tis_info *out)
+{
+    const struct mm_tpm_tis *tpm;
+    if (out == 0 || index >= g_tpm_count) {
+        return MM_FALSE;
+    }
+    tpm = &g_tpm[index];
+    memset(out, 0, sizeof(*out));
+    out->bus = tpm->bus;
+    out->cs_valid = tpm->cs_valid;
+    out->cs_bank = tpm->cs_bank;
+    out->cs_pin = tpm->cs_pin;
+#if defined(M33MU_HAS_LIBTPMS) || defined(USE_LIBTPMS)
+    if (tpm->nv.use_file) {
+        out->has_nv_path = MM_TRUE;
+        snprintf(out->nv_path, sizeof(out->nv_path), "%s", tpm->nv.base);
+    }
+#endif
+    return MM_TRUE;
+}

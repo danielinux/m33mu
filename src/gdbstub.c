@@ -34,7 +34,7 @@
 #include <stdio.h>
 
 #define GDB_BUF_SIZE 1024
-#define GDB_REG_COUNT 21
+#define GDB_REG_COUNT 25
 
 static int hex_to_nibble(int c)
 {
@@ -350,6 +350,10 @@ static size_t gdb_encode_registers(struct mm_cpu *cpu, char *out, size_t out_cap
     regs[18] = cpu->psp_s;
     regs[19] = 0; /* PRIMASK placeholder */
     regs[20] = cpu->control_s;
+    regs[21] = cpu->msplim_s;
+    regs[22] = cpu->psplim_s;
+    regs[23] = cpu->msplim_ns;
+    regs[24] = cpu->psplim_ns;
 
     pos = 0;
     for (i = 0; i < GDB_REG_COUNT; ++i) {
@@ -665,6 +669,10 @@ static const char target_xml[] =
 "<reg name=\"psp\" bitsize=\"32\"/>"
 "<reg name=\"primask\" bitsize=\"32\"/>"
 "<reg name=\"control\" bitsize=\"32\"/>"
+"<reg name=\"msplim\" bitsize=\"32\"/>"
+"<reg name=\"psplim\" bitsize=\"32\"/>"
+"<reg name=\"msplim_ns\" bitsize=\"32\"/>"
+"<reg name=\"psplim_ns\" bitsize=\"32\"/>"
 "</feature>"
 "</target>";
 
@@ -918,6 +926,18 @@ void mm_gdb_stub_handle(struct mm_gdb_stub *stub, struct mm_cpu *cpu, struct mm_
                 break;
             case 20:
                 val = cpu->control_s;
+                break;
+            case 21:
+                val = cpu->msplim_s;
+                break;
+            case 22:
+                val = cpu->psplim_s;
+                break;
+            case 23:
+                val = cpu->msplim_ns;
+                break;
+            case 24:
+                val = cpu->psplim_ns;
                 break;
             default:
                 val = 0;

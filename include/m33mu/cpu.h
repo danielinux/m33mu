@@ -57,6 +57,14 @@ struct mm_cpu {
     mm_u32 msp_ns;
     mm_u32 psp_ns;
 
+    /* MSP stack usage tracking */
+    mm_u32 msp_top_s;
+    mm_u32 msp_min_s;
+    mm_u32 msp_top_ns;
+    mm_u32 msp_min_ns;
+    mm_bool msp_top_s_valid;
+    mm_bool msp_top_ns_valid;
+
     /* Banked stack limits */
     mm_u32 msplim_s;
     mm_u32 psplim_s;
@@ -120,6 +128,8 @@ mm_u32 mm_cpu_get_msp(const struct mm_cpu *cpu, enum mm_sec_state sec);
 void mm_cpu_set_msp(struct mm_cpu *cpu, enum mm_sec_state sec, mm_u32 value);
 mm_u32 mm_cpu_get_psp(const struct mm_cpu *cpu, enum mm_sec_state sec);
 void mm_cpu_set_psp(struct mm_cpu *cpu, enum mm_sec_state sec, mm_u32 value);
+
+void mm_cpu_note_msp_top(struct mm_cpu *cpu, enum mm_sec_state sec);
 
 mm_u32 mm_cpu_get_control(const struct mm_cpu *cpu, enum mm_sec_state sec);
 void mm_cpu_set_control(struct mm_cpu *cpu, enum mm_sec_state sec, mm_u32 value);

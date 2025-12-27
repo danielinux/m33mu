@@ -30,6 +30,7 @@
 #include <stdlib.h>
 
 static int g_stack_trace = -1;
+static int g_splim_trace = -1;
 
 static mm_bool stack_trace_enabled(void)
 {
@@ -40,8 +41,49 @@ static mm_bool stack_trace_enabled(void)
     return g_stack_trace ? MM_TRUE : MM_FALSE;
 }
 
+static mm_bool splim_trace_enabled(void)
+{
+    if (g_splim_trace < 0) {
+        const char *v = getenv("M33MU_SPLIM_TRACE");
+        g_splim_trace = (v && v[0] != '\0') ? 1 : 0;
+    }
+    return g_splim_trace ? MM_TRUE : MM_FALSE;
+}
+
 #define CCR_DIV_0_TRP (1u << 4)
 #define UFSR_DIVBYZERO (1u << 25)
+#define UFSR_STKOF (1u << 20)
+
+static mm_bool exec_set_active_sp(struct mm_cpu *cpu,
+                                  struct mm_memmap *map,
+                                  struct mm_scs *scs,
+                                  const struct mm_fetch_result *fetch,
+                                  mm_u32 value,
+                                  mm_bool (*raise_usage_fault)(struct mm_cpu *, struct mm_memmap *,
+                                                              struct mm_scs *, mm_u32, mm_u32, mm_u32),
+                                  mm_bool *done)
+{
+    mm_u32 splim;
+    if (cpu == 0) {
+        return MM_FALSE;
+    }
+    splim = mm_cpu_get_active_splim(cpu);
+    if (splim != 0u && value < splim) {
+        if (raise_usage_fault != 0 && fetch != 0) {
+            if (!raise_usage_fault(cpu, map, scs, fetch->pc_fetch, cpu->xpsr, UFSR_STKOF)) {
+                if (done != 0) {
+                    *done = MM_TRUE;
+                }
+            }
+        }
+        if (done != 0) {
+            *done = MM_TRUE;
+        }
+        return MM_FALSE;
+    }
+    mm_cpu_set_active_sp(cpu, value);
+    return MM_TRUE;
+}
 
 static void it_mask_to_pattern(mm_u8 cond, mm_u8 mask, mm_u8 *pattern_out, mm_u8 *remaining_out)
 {
@@ -167,6 +209,11 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
 #define it_remaining (*ctx->it_remaining)
 #define it_cond (*ctx->it_cond)
 #define done (*ctx->done)
+#define EXEC_SET_SP(value_expr) do { \
+    if (!exec_set_active_sp(&cpu, &map, &scs, &f, (value_expr), raise_usage_fault, &done)) { \
+        return MM_EXEC_CONTINUE; \
+    } \
+} while (0)
 
                     pc_before_exec = cpu.r[15];
                     switch (d.kind) {
@@ -255,7 +302,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                cpu.mode = cpu.tz_ret_mode[cpu.tz_depth];
                                                cpu.r[15] = cpu.tz_ret_pc[cpu.tz_depth] | 1u;
                                                cpu.r[14] = cpu.tz_ret_pc[cpu.tz_depth] | 1u;
-                                               mm_cpu_set_active_sp(&cpu, mm_cpu_get_active_sp(&cpu));
+                                               EXEC_SET_SP(mm_cpu_get_active_sp(&cpu));
                                            } else {
                                                cpu.r[15] = target | 1u;
                                            }
@@ -314,7 +361,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                cpu.r[d.rd] = cpu.r[d.rn] + d.imm;
                                            }
                                            if (d.rd == 13u) {
-                                               mm_cpu_set_active_sp(&cpu, cpu.r[13]);
+                                               EXEC_SET_SP(cpu.r[13]);
                                            }
                                        }
                                        break;
@@ -335,7 +382,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                            } break;
                         case MM_OP_ADD_SP_IMM:
                                        if (d.rd == 13u) {
-                                           mm_cpu_set_active_sp(&cpu, mm_cpu_get_active_sp(&cpu) + d.imm);
+                                           EXEC_SET_SP(mm_cpu_get_active_sp(&cpu) + d.imm);
                                        } else {
                                            cpu.r[d.rd] = cpu.r[13] + d.imm;
                                        }
@@ -1095,8 +1142,12 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                             switch (sysm) {
                                                 case 0x08: val = mm_cpu_get_active_sp(&cpu); break; /* MSP */
                                                 case 0x09: val = (cpu.sec_state == MM_NONSECURE) ? cpu.psp_ns : cpu.psp_s; break; /* PSP */
+                                                case 0x0a: val = (cpu.sec_state == MM_NONSECURE) ? cpu.msplim_ns : cpu.msplim_s; break; /* MSPLIM */
+                                                case 0x0b: val = (cpu.sec_state == MM_NONSECURE) ? cpu.psplim_ns : cpu.psplim_s; break; /* PSPLIM */
                                                 case 0x88: val = cpu.msp_ns; break;
                                                 case 0x89: val = cpu.psp_ns; break;
+                                                case 0x8a: val = cpu.msplim_ns; break;
+                                                case 0x8b: val = cpu.psplim_ns; break;
                                                 case 0x94: val = cpu.control_ns; break;
                                                 case 0x14: val = cpu.control_s; break;
                                                 default: val = 0; break;
@@ -1115,11 +1166,47 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                     case 0x09: /* PSP */
                                                         mm_cpu_set_psp(&cpu, cpu.sec_state, val);
                                                         break;
+                                                    case 0x0a: /* MSPLIM */
+                                                        if (cpu.sec_state == MM_NONSECURE) {
+                                                            cpu.msplim_ns = val;
+                                                        } else {
+                                                            cpu.msplim_s = val;
+                                                        }
+                                                        if (splim_trace_enabled()) {
+                                                            printf("[SPLIM] MSPLIM %s=0x%08lx\n",
+                                                                   (cpu.sec_state == MM_NONSECURE) ? "NS" : "S",
+                                                                   (unsigned long)val);
+                                                        }
+                                                        break;
+                                                    case 0x0b: /* PSPLIM */
+                                                        if (cpu.sec_state == MM_NONSECURE) {
+                                                            cpu.psplim_ns = val;
+                                                        } else {
+                                                            cpu.psplim_s = val;
+                                                        }
+                                                        if (splim_trace_enabled()) {
+                                                            printf("[SPLIM] PSPLIM %s=0x%08lx\n",
+                                                                   (cpu.sec_state == MM_NONSECURE) ? "NS" : "S",
+                                                                   (unsigned long)val);
+                                                        }
+                                                        break;
                                                     case 0x88: /* MSP_NS */
                                                         mm_cpu_set_msp(&cpu, MM_NONSECURE, val);
                                                         break;
                                                     case 0x89: /* PSP_NS */
                                                         mm_cpu_set_psp(&cpu, MM_NONSECURE, val);
+                                                        break;
+                                                    case 0x8a: /* MSPLIM_NS */
+                                                        cpu.msplim_ns = val;
+                                                        if (splim_trace_enabled()) {
+                                                            printf("[SPLIM] MSPLIM NS=0x%08lx\n", (unsigned long)val);
+                                                        }
+                                                        break;
+                                                    case 0x8b: /* PSPLIM_NS */
+                                                        cpu.psplim_ns = val;
+                                                        if (splim_trace_enabled()) {
+                                                            printf("[SPLIM] PSPLIM NS=0x%08lx\n", (unsigned long)val);
+                                                        }
                                                         break;
                                                     case 0x14: /* CONTROL_S */
                                                         mm_cpu_set_control(&cpu, MM_SECURE, val);
@@ -1217,14 +1304,14 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                 cpu.r[d.rd] = cpu.r[d.rn] - d.imm;
                                             }
                                             if (d.rd == 13u) {
-                                                mm_cpu_set_active_sp(&cpu, cpu.r[13]);
+                                                EXEC_SET_SP(cpu.r[13]);
                                             }
                                         }
                                         break;
                         case MM_OP_SUB_IMM_NF:
                                         cpu.r[d.rd] = cpu.r[d.rn] - d.imm;
                                         if (d.rd == 13u) {
-                                            mm_cpu_set_active_sp(&cpu, cpu.r[13]);
+                                            EXEC_SET_SP(cpu.r[13]);
                                         }
                                         break;
                         case MM_OP_SUB_REG:
@@ -1282,7 +1369,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                            } break;
                         case MM_OP_SUB_SP_IMM:
                                         if (d.rd == 13u) {
-                                            mm_cpu_set_active_sp(&cpu, mm_cpu_get_active_sp(&cpu) - d.imm);
+                                            EXEC_SET_SP(mm_cpu_get_active_sp(&cpu) - d.imm);
                                         } else {
                                             cpu.r[d.rd] = cpu.r[13] - d.imm;
                                         }
@@ -1293,7 +1380,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                 done = MM_TRUE;
                                             }
                                         } else if (d.rd == 13u) {
-                                            mm_cpu_set_active_sp(&cpu, cpu.r[d.rm]);
+                                            EXEC_SET_SP(cpu.r[d.rm]);
                                         } else {
                                             cpu.r[d.rd] = cpu.r[d.rm];
                                         }
@@ -1477,7 +1564,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                          cpu.r[d.rd] = val;
                                                      }
                                                      if (d.rn == 13u) {
-                                                         mm_cpu_set_active_sp(&cpu, new_rn);
+                                                         EXEC_SET_SP(new_rn);
                                                      } else {
                                                          cpu.r[d.rn] = new_rn;
                                                      }
@@ -1497,7 +1584,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                          cpu.r[d.rd] = val;
                                                      }
                                                      if (d.rn == 13u) {
-                                                         mm_cpu_set_active_sp(&cpu, addr);
+                                                         EXEC_SET_SP(addr);
                                                      } else {
                                                          cpu.r[d.rn] = addr;
                                                      }
@@ -1511,7 +1598,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                       }
                                                       cpu.r[d.rd] = val & 0xffu;
                                                       if (d.rn == 13u) {
-                                                          mm_cpu_set_active_sp(&cpu, addr + d.imm);
+                                                          EXEC_SET_SP(addr + d.imm);
                                                       } else {
                                                           cpu.r[d.rn] = addr + d.imm;
                                                       }
@@ -1523,7 +1610,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                           return MM_EXEC_CONTINUE;
                                                       }
                                                       if (d.rn == 13u) {
-                                                          mm_cpu_set_active_sp(&cpu, addr + d.imm);
+                                                          EXEC_SET_SP(addr + d.imm);
                                                       } else {
                                                           cpu.r[d.rn] = addr + d.imm;
                                                       }
@@ -1537,7 +1624,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                      }
                                                      cpu.r[d.rd] = val & 0xffu;
                                                      if (d.rn == 13u) {
-                                                         mm_cpu_set_active_sp(&cpu, addr);
+                                                         EXEC_SET_SP(addr);
                                                      } else {
                                                          cpu.r[d.rn] = addr;
                                                      }
@@ -1549,7 +1636,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                          return MM_EXEC_CONTINUE;
                                                      }
                                                      if (d.rn == 13u) {
-                                                         mm_cpu_set_active_sp(&cpu, addr);
+                                                         EXEC_SET_SP(addr);
                                                      } else {
                                                          cpu.r[d.rn] = addr;
                                                      }
@@ -1561,7 +1648,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                          return MM_EXEC_CONTINUE;
                                                      }
                                                      if (d.rn == 13u) {
-                                                         mm_cpu_set_active_sp(&cpu, addr + d.imm);
+                                                         EXEC_SET_SP(addr + d.imm);
                                                      } else {
                                                          cpu.r[d.rn] = addr + d.imm;
                                                      }
@@ -1573,7 +1660,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                          return MM_EXEC_CONTINUE;
                                                      }
                                                      if (d.rn == 13u) {
-                                                         mm_cpu_set_active_sp(&cpu, addr);
+                                                         EXEC_SET_SP(addr);
                                                      } else {
                                                          cpu.r[d.rn] = addr;
                                                      }
@@ -1774,7 +1861,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                             if (w) {
                                                 mm_u32 new_rn = u ? (base + imm) : (base - imm);
                                                 if (d.rn == 13u) {
-                                                    mm_cpu_set_active_sp(&cpu, new_rn);
+                                                    EXEC_SET_SP(new_rn);
                                                 } else {
                                                     cpu.r[d.rn] = new_rn;
                                                 }
@@ -1871,7 +1958,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                     cpu.r[d.rn] = base + 4u * count;
                                                 }
                                                 if (d.rn == 13u) {
-                                                    mm_cpu_set_active_sp(&cpu, cpu.r[13]);
+                                                    EXEC_SET_SP(cpu.r[13]);
                                                 }
                                             }
                                         } break;
@@ -1932,7 +2019,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                  }
                                              }
                                              if (!done) {
-                                                 mm_cpu_set_active_sp(&cpu, sp - (mm_u32)count * 4u);
+                                                 EXEC_SET_SP(sp - (mm_u32)count * 4u);
                                              }
                                          } break;
                         case MM_OP_POP: {
@@ -1969,7 +2056,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                 }
                                             }
                                             if (!exc_return_taken) {
-                                                mm_cpu_set_active_sp(&cpu, sp);
+                                                EXEC_SET_SP(sp);
                                             }
                                         } break;
                         default:

@@ -642,6 +642,30 @@ void mm_spiflash_shutdown_all(void)
     g_spiflash_count = 0;
 }
 
+size_t mm_spiflash_count(void)
+{
+    return g_spiflash_count;
+}
+
+mm_bool mm_spiflash_get_info(size_t index, struct mm_spiflash_info *out)
+{
+    const struct mm_spiflash *flash;
+    if (out == 0 || index >= g_spiflash_count) {
+        return MM_FALSE;
+    }
+    flash = &g_spiflash[index];
+    memset(out, 0, sizeof(*out));
+    out->bus = flash->bus;
+    out->size = flash->size;
+    out->mmap = flash->mmap;
+    out->mmap_base = flash->mmap_base;
+    out->cs_valid = flash->cs_valid;
+    out->cs_bank = flash->cs_bank;
+    out->cs_pin = flash->cs_pin;
+    snprintf(out->path, sizeof(out->path), "%s", flash->path);
+    return MM_TRUE;
+}
+
 void mm_spiflash_register_mmap_regions(struct mmio_bus *bus)
 {
     size_t i;

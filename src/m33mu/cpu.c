@@ -29,6 +29,46 @@ static mm_bool control_sp_sel(const struct mm_cpu *cpu)
     return (control & CONTROL_SPSEL_MASK) != 0u;
 }
 
+static void cpu_init_msp_top(struct mm_cpu *cpu, enum mm_sec_state sec, mm_u32 value)
+{
+    if (sec == MM_NONSECURE) {
+        if (!cpu->msp_top_ns_valid && value != 0u) {
+            cpu->msp_top_ns = value;
+            cpu->msp_min_ns = value;
+            cpu->msp_top_ns_valid = MM_TRUE;
+        }
+        return;
+    }
+    if (!cpu->msp_top_s_valid && value != 0u) {
+        cpu->msp_top_s = value;
+        cpu->msp_min_s = value;
+        cpu->msp_top_s_valid = MM_TRUE;
+    }
+}
+
+static void cpu_update_msp_min(struct mm_cpu *cpu, enum mm_sec_state sec, mm_u32 value)
+{
+    if (sec == MM_NONSECURE) {
+        if (cpu->msp_top_ns_valid && value < cpu->msp_min_ns) {
+            cpu->msp_min_ns = value;
+        }
+        return;
+    }
+    if (cpu->msp_top_s_valid && value < cpu->msp_min_s) {
+        cpu->msp_min_s = value;
+    }
+}
+
+void mm_cpu_note_msp_top(struct mm_cpu *cpu, enum mm_sec_state sec)
+{
+    mm_u32 value;
+    if (cpu == 0) {
+        return;
+    }
+    value = (sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s;
+    cpu_init_msp_top(cpu, sec, value);
+}
+
 mm_u32 mm_cpu_get_active_sp(const struct mm_cpu *cpu)
 {
     mm_bool use_psp;
@@ -61,8 +101,13 @@ void mm_cpu_set_active_sp(struct mm_cpu *cpu, mm_u32 value)
         if (cpu->sec_state == MM_NONSECURE) cpu->psp_ns = value;
         else cpu->psp_s = value;
     } else {
-        if (cpu->sec_state == MM_NONSECURE) cpu->msp_ns = value;
-        else cpu->msp_s = value;
+        if (cpu->sec_state == MM_NONSECURE) {
+            cpu->msp_ns = value;
+        } else {
+            cpu->msp_s = value;
+        }
+        cpu_init_msp_top(cpu, cpu->sec_state, value);
+        cpu_update_msp_min(cpu, cpu->sec_state, value);
     }
     /* Mirror active SP into general-purpose R13 so push/pop style instructions
      * operate on the currently selected stack pointer.
@@ -102,6 +147,10 @@ void mm_cpu_set_msp(struct mm_cpu *cpu, enum mm_sec_state sec, mm_u32 value)
     }
     if (sec == MM_NONSECURE) cpu->msp_ns = value;
     else cpu->msp_s = value;
+    if (sec == MM_SECURE) {
+        cpu_init_msp_top(cpu, sec, value);
+    }
+    cpu_update_msp_min(cpu, sec, value);
 }
 
 mm_u32 mm_cpu_get_psp(const struct mm_cpu *cpu, enum mm_sec_state sec)

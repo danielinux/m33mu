@@ -25,6 +25,8 @@
 #include "m33mu/types.h"
 #include "m33mu/cpu.h"
 
+struct mm_memmap;
+
 struct mm_tui {
     volatile mm_bool active;
     volatile mm_bool want_quit;
@@ -41,6 +43,7 @@ struct mm_tui {
     volatile mm_u8 core_mode;
     volatile mm_bool capstone_supported;
     volatile mm_bool capstone_enabled;
+    char cpu_name[64];
     char image0_path[256];
     int input_fd;
     char esc_buf[16];
@@ -64,6 +67,16 @@ struct mm_tui {
     mm_u32 psp_s;
     mm_u32 msp_ns;
     mm_u32 psp_ns;
+    mm_u32 msp_top_s;
+    mm_u32 msp_min_s;
+    mm_u32 msp_top_ns;
+    mm_u32 msp_min_ns;
+    mm_bool msp_top_s_valid;
+    mm_bool msp_top_ns_valid;
+    mm_u32 msplim_s;
+    mm_u32 psplim_s;
+    mm_u32 msplim_ns;
+    mm_u32 psplim_ns;
     mm_u32 control_s;
     mm_u32 control_ns;
     mm_u32 primask_s;
@@ -72,6 +85,16 @@ struct mm_tui {
     mm_u32 basepri_ns;
     mm_u32 faultmask_s;
     mm_u32 faultmask_ns;
+    mm_u32 flash_base_s;
+    mm_u32 flash_size_s;
+    mm_u32 flash_base_ns;
+    mm_u32 flash_size_ns;
+    mm_u32 ram_base_s;
+    mm_u32 ram_size_s;
+    mm_u32 ram_base_ns;
+    mm_u32 ram_size_ns;
+    mm_u32 flash_total_size;
+    mm_u32 ram_total_size;
     int serial_fd;
     char serial_label[32];
     char serial_lines[1024][512];
@@ -102,9 +125,8 @@ enum mm_tui_window1_mode {
 
 enum mm_tui_window2_mode {
     MM_TUI_WIN2_UART = 0,
-    MM_TUI_WIN2_SPI = 1,
-    MM_TUI_WIN2_I2C = 2,
-    MM_TUI_WIN2_GPIO = 3
+    MM_TUI_WIN2_PERIPH = 1,
+    MM_TUI_WIN2_GPIO = 2
 };
 
 mm_bool mm_tui_init(struct mm_tui *tui);
@@ -118,6 +140,7 @@ void mm_tui_set_target_running(struct mm_tui *tui, mm_bool running);
 void mm_tui_set_gdb_status(struct mm_tui *tui, mm_bool connected, int port);
 void mm_tui_set_capstone(struct mm_tui *tui, mm_bool supported, mm_bool enabled);
 void mm_tui_set_image0(struct mm_tui *tui, const char *path);
+void mm_tui_set_cpu_name(struct mm_tui *tui, const char *name);
 void mm_tui_set_core_state(struct mm_tui *tui,
                            mm_u32 pc,
                            mm_u32 sp,
@@ -125,6 +148,7 @@ void mm_tui_set_core_state(struct mm_tui *tui,
                            mm_u8 mode,
                            mm_u64 steps);
 void mm_tui_set_registers(struct mm_tui *tui, const struct mm_cpu *cpu);
+void mm_tui_set_memory_map(struct mm_tui *tui, const struct mm_memmap *map);
 void mm_tui_close_devices(struct mm_tui *tui);
 mm_bool mm_tui_start_thread(struct mm_tui *tui);
 void mm_tui_stop_thread(struct mm_tui *tui);

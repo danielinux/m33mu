@@ -21,12 +21,25 @@ struct mm_spiflash_cfg {
     char path[256];
 };
 
+struct mm_spiflash_info {
+    int bus;
+    mm_u32 size;
+    mm_bool mmap;
+    mm_u32 mmap_base;
+    mm_bool cs_valid;
+    int cs_bank;
+    int cs_pin;
+    char path[256];
+};
+
 mm_bool mm_spiflash_parse_spec(const char *spec, struct mm_spiflash_cfg *out);
 mm_bool mm_spiflash_register_cfg(const struct mm_spiflash_cfg *cfg);
 void mm_spiflash_reset_all(void);
 void mm_spiflash_shutdown_all(void);
 void mm_spiflash_register_mmap_regions(struct mmio_bus *bus);
 void mm_spiflash_register_prot_regions(struct mm_prot_ctx *prot);
+size_t mm_spiflash_count(void);
+mm_bool mm_spiflash_get_info(size_t index, struct mm_spiflash_info *out);
 
 struct mm_spiflash;
 struct mm_spiflash *mm_spiflash_get_for_bus(int bus);

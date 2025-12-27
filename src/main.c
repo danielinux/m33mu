@@ -59,6 +59,7 @@
 #define CCR_DIV_0_TRP (1u << 4)
 #define UFSR_UNDEFINSTR (1u << 16)
 #define UFSR_DIVBYZERO (1u << 25)
+#define UFSR_STKOF (1u << 20)
 
 #define MM_CPU_HZ 64000000ull
 #define NS_PER_SEC 1000000000ull
@@ -350,6 +351,12 @@ static mm_bool handle_tui(struct mm_tui *tui,
                               (mm_u8)cpu->mode,
                               *steps_latched);
         mm_tui_set_registers(tui, cpu);
+    }
+    if (cpu_name != 0) {
+        mm_tui_set_cpu_name(tui, cpu_name);
+    }
+    if (map != 0) {
+        mm_tui_set_memory_map(tui, map);
     }
     actions = mm_tui_take_actions(tui);
     if ((actions & MM_TUI_ACTION_QUIT) != 0u) {
