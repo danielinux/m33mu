@@ -1775,7 +1775,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                      cpu.r[d.rn] = base + d.imm;
                                                  } break;
                         case MM_OP_LDRH_REG: {
-                                                 mm_u32 addr = cpu.r[d.rn] + cpu.r[d.rm];
+                                                 mm_u32 addr = cpu.r[d.rn] + (cpu.r[d.rm] << (d.imm & 0x3u));
                                                  mm_u32 val = 0;
                                                  if (!mm_memmap_read(&map, cpu.sec_state, addr, 2u, &val)) {
                                                      if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;

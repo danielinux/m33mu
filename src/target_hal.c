@@ -281,3 +281,27 @@ void mm_target_spi_poll(const struct mm_target_cfg *cfg)
     }
     cfg->spi_poll();
 }
+
+void mm_target_eth_init(const struct mm_target_cfg *cfg, struct mmio_bus *bus, struct mm_nvic *nvic)
+{
+    if (cfg == 0 || cfg->eth_init == 0) {
+        return;
+    }
+    cfg->eth_init(bus, nvic);
+}
+
+void mm_target_eth_reset(const struct mm_target_cfg *cfg)
+{
+    if (cfg == 0 || cfg->eth_reset == 0) {
+        return;
+    }
+    cfg->eth_reset();
+}
+
+void mm_target_eth_poll(const struct mm_target_cfg *cfg)
+{
+    if (cfg == 0 || cfg->eth_poll == 0) {
+        return;
+    }
+    cfg->eth_poll();
+}

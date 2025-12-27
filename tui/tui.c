@@ -43,7 +43,9 @@
 #include "m33mu/tpm_tis.h"
 #include "m33mu/usbdev.h"
 #include "m33mu/gpio.h"
+#include "m33mu/eth_backend.h"
 #include "m33mu/memmap.h"
+#include "stm32h563/stm32h563_eth.h"
 #include "tui.h"
 
 typedef uint32_t uintattr_t;
@@ -973,11 +975,16 @@ static void tui_draw(struct mm_tui *tui)
             int y = log_y;
             char buf[256];
             char size_buf[32];
+            char mac_buf[32];
             size_t i;
             size_t count;
             struct mm_spiflash_info flash_info;
             struct mm_tpm_tis_info tpm_info;
             struct mm_usbdev_status usb_status;
+            enum mm_eth_backend_type eth_backend;
+            mm_u8 eth_mac[6];
+            mm_bool eth_mac_ok;
+            mm_bool eth_link;
 
             count = mm_spiflash_count();
             if (count == 0u) {
@@ -1080,6 +1087,37 @@ static void tui_draw(struct mm_tui *tui)
                                   console_fg, console_bg, buf);
                     y++;
                 }
+            }
+
+            if (y < log_y + log_h) {
+                y++;
+            }
+            eth_backend = mm_eth_backend_type_get();
+            eth_link = mm_eth_backend_is_up();
+            eth_mac_ok = mm_stm32h563_eth_get_mac(eth_mac);
+            if (eth_mac_ok) {
+                snprintf(mac_buf, sizeof(mac_buf), "%02x:%02x:%02x:%02x:%02x:%02x",
+                         eth_mac[0], eth_mac[1], eth_mac[2], eth_mac[3], eth_mac[4], eth_mac[5]);
+            } else {
+                snprintf(mac_buf, sizeof(mac_buf), "n/a");
+            }
+            if (eth_backend == MM_ETH_BACKEND_NONE) {
+                tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                              TUI_FG_DIM, console_bg, "ETH: Disabled");
+                y++;
+            } else {
+                const char *spec = mm_eth_backend_spec();
+                const char *backend_name = (eth_backend == MM_ETH_BACKEND_TAP) ? "tap" : "vde";
+                const char *spec_label = (eth_backend == MM_ETH_BACKEND_TAP) ? "iface" : "sock";
+                snprintf(buf, sizeof(buf), "ETH: backend=%s %s=%s link=%s mac=%s",
+                         backend_name,
+                         spec_label,
+                         (spec != 0 && spec[0] != '\0') ? spec : "n/a",
+                         eth_link ? "up" : "down",
+                         mac_buf);
+                tui_draw_text(split_x + 2, y, inner_x + inner_w - 1,
+                              console_fg, console_bg, buf);
+                y++;
             }
         } else if (tui->window2_mode == MM_TUI_WIN2_GPIO) {
             int row;

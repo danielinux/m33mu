@@ -64,6 +64,10 @@ void mm_target_spi_init(const struct mm_target_cfg *cfg, struct mmio_bus *bus, s
 void mm_target_spi_reset(const struct mm_target_cfg *cfg);
 void mm_target_spi_poll(const struct mm_target_cfg *cfg);
 
+void mm_target_eth_init(const struct mm_target_cfg *cfg, struct mmio_bus *bus, struct mm_nvic *nvic);
+void mm_target_eth_reset(const struct mm_target_cfg *cfg);
+void mm_target_eth_poll(const struct mm_target_cfg *cfg);
+
 mm_bool mm_tui_is_active(void);
 void mm_tui_attach_uart(const char *label, const char *path);
 

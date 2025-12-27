@@ -25,6 +25,7 @@
 #include "stm32h563/stm32h563_timers.h"
 #include "stm32h563/stm32h563_usart.h"
 #include "stm32h563/stm32h563_spi.h"
+#include "stm32h563/stm32h563_eth.h"
 #include "stm32h563/cpu_config.h"
 #include "stm32u585/stm32u585_mmio.h"
 #include "stm32u585/stm32u585_timers.h"
@@ -78,6 +79,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H563_SPI_INIT,
             STM32H563_SPI_RESET,
             STM32H563_SPI_POLL,
+            STM32H563_ETH_INIT,
+            STM32H563_ETH_RESET,
+            STM32H563_ETH_POLL,
             STM32H563_TIMER_INIT,
             STM32H563_TIMER_RESET,
             STM32H563_TIMER_TICK
@@ -109,6 +113,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32U585_SPI_INIT,
             STM32U585_SPI_RESET,
             STM32U585_SPI_POLL,
+            0,
+            0,
+            0,
             STM32U585_TIMER_INIT,
             STM32U585_TIMER_RESET,
             STM32U585_TIMER_TICK
@@ -140,6 +147,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32L552_SPI_INIT,
             STM32L552_SPI_RESET,
             STM32L552_SPI_POLL,
+            0,
+            0,
+            0,
             STM32L552_TIMER_INIT,
             STM32L552_TIMER_RESET,
             STM32L552_TIMER_TICK
@@ -171,6 +181,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             MCXW71C_SPI_INIT,
             MCXW71C_SPI_RESET,
             MCXW71C_SPI_POLL,
+            0,
+            0,
+            0,
             MCXW71C_TIMER_INIT,
             MCXW71C_TIMER_RESET,
             MCXW71C_TIMER_TICK
@@ -202,6 +215,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             NRF5340_SPI_INIT,
             NRF5340_SPI_RESET,
             NRF5340_SPI_POLL,
+            0,
+            0,
+            0,
             NRF5340_TIMER_INIT,
             NRF5340_TIMER_RESET,
             NRF5340_TIMER_TICK

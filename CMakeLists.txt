@@ -151,7 +151,34 @@ else()
 endif()
 
 # -----------------------------------------------------------------------------
-# 4) ncurses detection (TUI)
+# 4) Optional vde-2 detection
+# -----------------------------------------------------------------------------
+set(M33MU_HAS_VDE FALSE)
+
+if(PKG_CONFIG_FOUND)
+  pkg_check_modules(PC_VDE QUIET vdeplug)
+endif()
+
+find_path(VDE_INCLUDE_DIR
+  NAMES libvdeplug.h vdeplug.h
+  HINTS ${PC_VDE_INCLUDE_DIRS}
+)
+find_library(VDE_LIBRARY
+  NAMES vdeplug
+  HINTS ${PC_VDE_LIBRARY_DIRS}
+)
+
+if(VDE_INCLUDE_DIR AND VDE_LIBRARY)
+  set(M33MU_HAS_VDE TRUE)
+  add_library(vdeplug::vdeplug UNKNOWN IMPORTED)
+  set_target_properties(vdeplug::vdeplug PROPERTIES
+    IMPORTED_LOCATION "${VDE_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${VDE_INCLUDE_DIR}"
+  )
+endif()
+
+# -----------------------------------------------------------------------------
+# 5) ncurses detection (TUI)
 # -----------------------------------------------------------------------------
 set(M33MU_HAS_NCURSES FALSE)
 set(M33MU_USE_NCURSESW FALSE)
@@ -205,6 +232,11 @@ endif()
 if(M33MU_HAS_LIBTPMS)
   target_compile_definitions(m33mu_lib PUBLIC M33MU_HAS_LIBTPMS=1)
   target_link_libraries(m33mu_lib PUBLIC libtpms::tpms)
+endif()
+
+if(M33MU_HAS_VDE)
+  target_compile_definitions(m33mu_lib PUBLIC M33MU_HAS_VDE=1)
+  target_link_libraries(m33mu_lib PUBLIC vdeplug::vdeplug)
 endif()
 
 if(M33MU_HAS_NCURSES)
@@ -385,6 +417,11 @@ if(M33MU_HAS_LIBTPMS)
 else()
   set(M33MU_STATUS_TPM "${M33MU_COLOR_RED}not found${M33MU_COLOR_RESET}")
 endif()
+if(M33MU_HAS_VDE)
+  set(M33MU_STATUS_VDE "${M33MU_COLOR_GREEN}detected${M33MU_COLOR_RESET}")
+else()
+  set(M33MU_STATUS_VDE "${M33MU_COLOR_RED}not found${M33MU_COLOR_RESET}")
+endif()
 if(M33MU_HAS_NCURSES)
   set(M33MU_STATUS_NCURSES "${M33MU_COLOR_GREEN}detected${M33MU_COLOR_RESET}")
 else()
@@ -392,10 +429,11 @@ else()
 endif()
 message(STATUS "${M33MU_COLOR_YELLOW}  capstone: ${M33MU_STATUS_CAPSTONE}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_YELLOW}  TPM/libtpms: ${M33MU_STATUS_TPM}${M33MU_COLOR_RESET}")
+message(STATUS "${M33MU_COLOR_YELLOW}  vde-2: ${M33MU_STATUS_VDE}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_YELLOW}  ncurses: ${M33MU_STATUS_NCURSES}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_YELLOW}  tests enabled: ${M33MU_BUILD_TESTS}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_MAGENTA}  --------------------------------------------${M33MU_COLOR_RESET}")
-message(STATUS "${M33MU_COLOR_YELLOW}  features: capstone=${M33MU_HAS_CAPSTONE} tpm=${M33MU_HAS_LIBTPMS} tui=${M33MU_HAS_NCURSES}${M33MU_COLOR_RESET}")
+message(STATUS "${M33MU_COLOR_YELLOW}  features: capstone=${M33MU_HAS_CAPSTONE} tpm=${M33MU_HAS_LIBTPMS} vde=${M33MU_HAS_VDE} tui=${M33MU_HAS_NCURSES}${M33MU_COLOR_RESET}")
 
 if(M33MU_CONFIG_WARNINGS)
   foreach(msg IN LISTS M33MU_CONFIG_WARNINGS)

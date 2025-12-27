@@ -48,6 +48,7 @@
 #include "m33mu/target_hal.h"
 #include "m33mu/spiflash.h"
 #include "m33mu/usbdev.h"
+#include "m33mu/eth_backend.h"
 #ifdef M33MU_HAS_LIBTPMS
 #include "m33mu/tpm_tis.h"
 #endif
@@ -1344,6 +1345,8 @@ int main(int argc, char **argv)
     mm_bool opt_strcmp_trace = MM_FALSE;
     mm_bool opt_usb = MM_FALSE;
     int usb_port = 3240;
+    enum mm_eth_backend_type eth_backend = MM_ETH_BACKEND_NONE;
+    const char *eth_spec = 0;
     struct mm_spiflash_cfg spiflash_cfgs[8];
     int spiflash_count = 0;
 #ifdef M33MU_HAS_LIBTPMS
@@ -1463,6 +1466,40 @@ int main(int argc, char **argv)
                 fprintf(stderr, "invalid usb spec: %s\n", argv[i]);
                 return 1;
             }
+#ifdef M33MU_HAS_VDE
+        } else if (strcmp(argv[i], "--vde") == 0) {
+            if (eth_backend != MM_ETH_BACKEND_NONE) {
+                fprintf(stderr, "only one ethernet backend can be selected\n");
+                return 1;
+            }
+            eth_backend = MM_ETH_BACKEND_VDE;
+            eth_spec = "/var/run/vde.ctl";
+        } else if (strncmp(argv[i], "--vde:", 6) == 0) {
+            if (eth_backend != MM_ETH_BACKEND_NONE) {
+                fprintf(stderr, "only one ethernet backend can be selected\n");
+                return 1;
+            }
+            eth_backend = MM_ETH_BACKEND_VDE;
+            eth_spec = argv[i] + 6;
+#else
+        } else if (strcmp(argv[i], "--vde") == 0 || strncmp(argv[i], "--vde:", 6) == 0) {
+            fprintf(stderr, "VDE backend requested but vde-2 not available at build time\n");
+            return 1;
+#endif
+        } else if (strcmp(argv[i], "--tap") == 0) {
+            if (eth_backend != MM_ETH_BACKEND_NONE) {
+                fprintf(stderr, "only one ethernet backend can be selected\n");
+                return 1;
+            }
+            eth_backend = MM_ETH_BACKEND_TAP;
+            eth_spec = "tap0";
+        } else if (strncmp(argv[i], "--tap:", 6) == 0) {
+            if (eth_backend != MM_ETH_BACKEND_NONE) {
+                fprintf(stderr, "only one ethernet backend can be selected\n");
+                return 1;
+            }
+            eth_backend = MM_ETH_BACKEND_TAP;
+            eth_spec = argv[i] + 6;
 #ifdef M33MU_HAS_LIBTPMS
         } else if (strncmp(argv[i], "--tpm:", 6) == 0) {
             if (tpm_count >= (int)(sizeof(tpm_cfgs) / sizeof(tpm_cfgs[0]))) {
@@ -1506,6 +1543,7 @@ int main(int argc, char **argv)
                         "[--uart-stdout] [--quit-on-faults] [--meminfo] [--gdb-symbols <elf>] "
                         "[--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] "
                         "[--usb[:port=<n>]] "
+                        "[--tap[:name]] [--vde[:/path/to/vde.ctl]] "
 #ifdef M33MU_HAS_LIBTPMS
                         "[--tpm:SPIx:cs=GPIONAME[:file=<path>]] "
 #endif
@@ -1709,6 +1747,8 @@ int main(int argc, char **argv)
             mm_target_usart_init(&cfg, &map.mmio, &nvic);
             mm_target_spi_reset(&cfg);
             mm_target_spi_init(&cfg, &map.mmio, &nvic);
+            mm_target_eth_reset(&cfg);
+            mm_target_eth_init(&cfg, &map.mmio, &nvic);
             mm_timer_init(&cfg, &map.mmio, &nvic);
 
             mm_scs_init(&scs, 0x410fc241u);
@@ -1773,6 +1813,18 @@ int main(int argc, char **argv)
             }
 
             if (first_start) {
+                if (eth_backend != MM_ETH_BACKEND_NONE) {
+                    if (!mm_eth_backend_config(eth_backend, eth_spec)) {
+                        fprintf(stderr, "invalid ethernet backend spec\n");
+                        rc = 1;
+                        goto cleanup;
+                    }
+                    if (!mm_eth_backend_start()) {
+                        fprintf(stderr, "failed to start ethernet backend\n");
+                        rc = 1;
+                        goto cleanup;
+                    }
+                }
                 if (opt_usb) {
                     if (!mm_usbdev_start(usb_port)) {
                         fprintf(stderr, "failed to start USB/IP server\n");
@@ -1882,6 +1934,7 @@ int main(int argc, char **argv)
                     host_sync_if_needed(vcycles, &vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                     mm_target_usart_poll(&cfg);
                     mm_target_spi_poll(&cfg);
+                    mm_target_eth_poll(&cfg);
                     mm_usbdev_poll();
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
@@ -1962,6 +2015,7 @@ int main(int argc, char **argv)
                             nanosleep(&req, 0);
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
+                            mm_target_eth_poll(&cfg);
                             mm_usbdev_poll();
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
@@ -1987,6 +2041,7 @@ int main(int argc, char **argv)
                             host_sync_if_needed(vcycles, &vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
+                            mm_target_eth_poll(&cfg);
                             mm_usbdev_poll();
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
@@ -2309,6 +2364,7 @@ handle_pending:
                 if (cycles_since_poll >= poll_granularity) {
                     mm_target_usart_poll(&cfg);
                     mm_target_spi_poll(&cfg);
+                    mm_target_eth_poll(&cfg);
                     mm_usbdev_poll();
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
@@ -2364,6 +2420,7 @@ cleanup:
     mm_tpm_tis_shutdown_all();
 #endif
     mm_usbdev_stop();
+    mm_eth_backend_stop();
     if (opt_capstone) {
         capstone_shutdown();
     }

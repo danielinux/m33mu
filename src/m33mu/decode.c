@@ -535,18 +535,14 @@ MM_INLINE mm_bool decode_16_loadstore(mm_u16 hw1, struct mm_decoded *d)
     }
 
     /* STRH/LDRH (register offset) */
-    if ((hw1 & 0xfe00u) == 0x8800u) {
+    if ((hw1 & 0xfe00u) == 0x5200u || (hw1 & 0xfe00u) == 0x5a00u) {
         mm_u8 rm = (mm_u8)((hw1 >> 6) & 0x7u);
         mm_u8 rn = (mm_u8)((hw1 >> 3) & 0x7u);
         mm_u8 rt = (mm_u8)(hw1 & 0x7u);
         d->rn = rn;
         d->rm = rm;
         d->rd = rt;
-        if ((hw1 & 0x0200u) != 0u) {
-            d->kind = MM_OP_LDRH_REG;
-        } else {
-            d->kind = MM_OP_STRH_REG;
-        }
+        d->kind = ((hw1 & 0xfe00u) == 0x5a00u) ? MM_OP_LDRH_REG : MM_OP_STRH_REG;
         d->undefined = MM_FALSE;
         return MM_TRUE;
     }
@@ -1872,6 +1868,17 @@ static struct mm_decoded decode_32(mm_u32 insn)
     if ((insn & 0xfff00fc0u) == 0xf8200000u) {
         mm_u8 imm2 = (mm_u8)((insn >> 4) & 0x3u);
         d.kind = MM_OP_STRH_REG;
+        d.rn = (mm_u8)((insn >> 16) & 0x0fu);
+        d.rd = (mm_u8)((insn >> 12) & 0x0fu);
+        d.rm = (mm_u8)(insn & 0x0fu);
+        d.imm = imm2; /* LSL #imm2 */
+        d.undefined = MM_FALSE;
+        return d;
+    }
+    /* LDRH (register) Thumb-2: 1111 1000 0011 Rn | Rt 0000 00ii Rm */
+    if ((insn & 0xfff00fc0u) == 0xf8300000u) {
+        mm_u8 imm2 = (mm_u8)((insn >> 4) & 0x3u);
+        d.kind = MM_OP_LDRH_REG;
         d.rn = (mm_u8)((insn >> 16) & 0x0fu);
         d.rd = (mm_u8)((insn >> 12) & 0x0fu);
         d.rm = (mm_u8)(insn & 0x0fu);

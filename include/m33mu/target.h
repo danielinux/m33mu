@@ -70,6 +70,10 @@ struct mm_target_cfg {
     void (*spi_reset)(void);
     void (*spi_poll)(void);
 
+    void (*eth_init)(struct mmio_bus *bus, struct mm_nvic *nvic);
+    void (*eth_reset)(void);
+    void (*eth_poll)(void);
+
     void (*timer_init)(struct mmio_bus *bus, struct mm_nvic *nvic);
     void (*timer_reset)(void);
     void (*timer_tick)(mm_u64 cycles);

@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include "stm32h563/stm32h563_mmio.h"
 #include "stm32h563/stm32h563_usb.h"
+#include "stm32h563/stm32h563_eth.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
 #include "m33mu/gpio.h"
@@ -310,6 +311,7 @@ void mm_stm32h563_mmio_reset(void)
         memset(&gpio[i], 0, sizeof(gpio[i]));
     }
     mm_stm32h563_usb_reset();
+    mm_stm32h563_eth_reset();
     mm_gpio_bank_set_reader(stm32h563_gpio_bank_read, 0);
     mm_gpio_bank_set_moder_reader(stm32h563_gpio_bank_read_moder, 0);
     mm_gpio_bank_set_clock_reader(stm32h563_gpio_bank_clock, 0);
@@ -374,11 +376,12 @@ static mm_bool gpio_clock_enabled(const struct rcc_state *rcc, int index)
 }
 
 enum rcc_bus_kind {
-    RCC_BUS_AHB2 = 0,
-    RCC_BUS_APB1L = 1,
-    RCC_BUS_APB1H = 2,
-    RCC_BUS_APB2 = 3,
-    RCC_BUS_APB3 = 4
+    RCC_BUS_AHB1 = 0,
+    RCC_BUS_AHB2 = 1,
+    RCC_BUS_APB1L = 2,
+    RCC_BUS_APB1H = 3,
+    RCC_BUS_APB2 = 4,
+    RCC_BUS_APB3 = 5
 };
 
 struct rcc_clk_name {
@@ -388,6 +391,9 @@ struct rcc_clk_name {
 };
 
 static const struct rcc_clk_name rcc_clk_names[] = {
+    { "ETH", RCC_BUS_AHB1, 19u },
+    { "ETHTX", RCC_BUS_AHB1, 20u },
+    { "ETHRX", RCC_BUS_AHB1, 21u },
     { "GPIOA", RCC_BUS_AHB2, 0u },
     { "GPIOB", RCC_BUS_AHB2, 1u },
     { "GPIOC", RCC_BUS_AHB2, 2u },
@@ -420,6 +426,8 @@ static mm_u32 rcc_bus_reg(const struct rcc_state *r, enum rcc_bus_kind bus)
         return 0u;
     }
     switch (bus) {
+    case RCC_BUS_AHB1:
+        return r->regs[0x88 / 4];
     case RCC_BUS_AHB2:
         return r->regs[0x8c / 4];
     case RCC_BUS_APB1L:
@@ -438,6 +446,7 @@ static mm_u32 rcc_bus_reg(const struct rcc_state *r, enum rcc_bus_kind bus)
 static const char *rcc_bus_name(enum rcc_bus_kind bus)
 {
     switch (bus) {
+    case RCC_BUS_AHB1: return "AHB1";
     case RCC_BUS_AHB2: return "AHB2";
     case RCC_BUS_APB1L: return "APB1L";
     case RCC_BUS_APB1H: return "APB1H";
@@ -456,7 +465,7 @@ static mm_bool stm32h563_rcc_clock_list_line(void *opaque, int line, char *out, 
     if (out == 0 || out_len == 0u) {
         return MM_FALSE;
     }
-    for (bus = RCC_BUS_AHB2; bus <= RCC_BUS_APB3; ++bus) {
+    for (bus = RCC_BUS_AHB1; bus <= RCC_BUS_APB3; ++bus) {
         mm_u32 reg = rcc_bus_reg(&rcc, bus);
         char buf[256];
         size_t pos = 0;
@@ -1679,6 +1688,7 @@ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
     }
 
     if (!mm_stm32h563_usb_register_mmio(bus)) return MM_FALSE;
+    if (!mm_stm32h563_eth_register_mmio(bus)) return MM_FALSE;
     return MM_TRUE;
 }
 
