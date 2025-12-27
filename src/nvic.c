@@ -88,6 +88,9 @@ void mm_nvic_set_pending(struct mm_nvic *nvic, mm_u32 irq, mm_bool pending)
 
 void mm_nvic_set_itns(struct mm_nvic *nvic, mm_u32 irq, mm_bool target_nonsecure)
 {
+    if (irq == 74u) {
+        printf("[NVIC_ITNS_SET] irq=74 target=%s\n", target_nonsecure ? "NS" : "S");
+    }
     bitop(nvic->itns_mask, irq, target_nonsecure);
 }
 
@@ -154,23 +157,6 @@ int mm_nvic_select_routed(const struct mm_nvic *nvic, const struct mm_cpu *cpu, 
         }
     }
     if (best_irq == 0xffffffffu) {
-        if (nvic_trace_level() >= 1) {
-            mm_u32 e0 = nvic->enable_mask[0];
-            mm_u32 p0 = nvic->pending_mask[0];
-            mm_u32 t0 = nvic->itns_mask[0];
-            mm_u32 e1 = ((MM_MAX_IRQ + 31u) / 32u) > 1u ? nvic->enable_mask[1] : 0u;
-            mm_u32 p1 = ((MM_MAX_IRQ + 31u) / 32u) > 1u ? nvic->pending_mask[1] : 0u;
-            mm_u32 t1 = ((MM_MAX_IRQ + 31u) / 32u) > 1u ? nvic->itns_mask[1] : 0u;
-            printf("[NVIC_SELECT] none primask_s=%lu primask_ns=%lu e0=0x%08lx p0=0x%08lx itns0=0x%08lx e1=0x%08lx p1=0x%08lx itns1=0x%08lx\n",
-                   (unsigned long)(cpu ? cpu->primask_s : 0u),
-                   (unsigned long)(cpu ? cpu->primask_ns : 0u),
-                   (unsigned long)e0,
-                   (unsigned long)p0,
-                   (unsigned long)t0,
-                   (unsigned long)e1,
-                   (unsigned long)p1,
-                   (unsigned long)t1);
-        }
         return -1;
     }
     if (target_sec_out) {

@@ -26,7 +26,7 @@
 #include "m33mu/cpu.h"
 #include "m33mu/mmio.h"
 
-#define MM_MAX_IRQ 64
+#define MM_MAX_IRQ 128
 
 struct mm_nvic {
     mm_u32 enable_mask[(MM_MAX_IRQ + 31) / 32];

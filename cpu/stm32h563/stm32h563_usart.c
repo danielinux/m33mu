@@ -23,6 +23,7 @@
 #include <string.h>
 #include "stm32h563/stm32h563_usart.h"
 #include "stm32h563/stm32h563_mmio.h"
+#include "stm32h563/stm32h563_usb.h"
 #include "m33mu/target_hal.h"
 
 /* Minimal register offsets */
@@ -246,6 +247,7 @@ void mm_stm32h563_usart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
     mm_u32 *tz1 = tz != 0 ? tz + (0x10u / 4u) : 0; /* SECCFGR1 offset */
     g_nvic = nvic;
     mm_stm32h563_rng_set_nvic(nvic);
+    mm_stm32h563_usb_set_nvic(nvic);
     if (usart_count == 0) {
         usart_count = sizeof(bases) / sizeof(bases[0]);
     }

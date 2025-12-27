@@ -1213,8 +1213,10 @@ static struct mm_decoded decode_32(mm_u32 insn)
         return d;
     }
 
-    /* LSL/LSR/ASR (register) Thumb-2, T2: 1111 1010 000{0,1,2} Rm | 1111 Rd 0000 Rs */
-    if ((insn & 0xfff0f0f0u) == 0xfa00f000u) {
+    /* LSL/LSR/ASR (register) Thumb-2, T2: 1111 1010 000{0,1,2} Rm | 1111 Rd 0000 Rs
+     * S bit is bit[20] (ignored in mask to allow flag-setting variants).
+     */
+    if ((insn & 0xffe0f0f0u) == 0xfa00f000u) {
         d.kind = MM_OP_LSL_REG;
         d.rn = (mm_u8)((insn >> 16) & 0x0fu); /* Rm (value) */
         d.rd = (mm_u8)((insn >> 8) & 0x0fu);
@@ -1222,7 +1224,7 @@ static struct mm_decoded decode_32(mm_u32 insn)
         d.undefined = MM_FALSE;
         return d;
     }
-    if ((insn & 0xfff0f0f0u) == 0xfa20f000u) {
+    if ((insn & 0xffe0f0f0u) == 0xfa20f000u) {
         d.kind = MM_OP_LSR_REG;
         d.rn = (mm_u8)((insn >> 16) & 0x0fu); /* Rm (value) */
         d.rd = (mm_u8)((insn >> 8) & 0x0fu);
@@ -1230,7 +1232,7 @@ static struct mm_decoded decode_32(mm_u32 insn)
         d.undefined = MM_FALSE;
         return d;
     }
-    if ((insn & 0xfff0f0f0u) == 0xfa40f000u) {
+    if ((insn & 0xffe0f0f0u) == 0xfa40f000u) {
         d.kind = MM_OP_ASR_REG;
         d.rn = (mm_u8)((insn >> 16) & 0x0fu); /* Rm (value) */
         d.rd = (mm_u8)((insn >> 8) & 0x0fu);
@@ -1240,7 +1242,7 @@ static struct mm_decoded decode_32(mm_u32 insn)
     }
 
     /* ROR (register) Thumb-2, T2: 1111 1010 0110 Rm | 1111 Rd 0000 Rs */
-    if ((insn & 0xfff0f0f0u) == 0xfa60f000u) {
+    if ((insn & 0xffe0f0f0u) == 0xfa60f000u) {
         d.kind = MM_OP_ROR_REG_NF;
         d.rn = (mm_u8)((insn >> 16) & 0x0fu); /* Rm (value) */
         d.rd = (mm_u8)((insn >> 8) & 0x0fu);

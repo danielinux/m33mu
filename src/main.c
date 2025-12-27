@@ -47,6 +47,7 @@
 #include "m33mu/timer.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/spiflash.h"
+#include "m33mu/usbdev.h"
 #ifdef M33MU_HAS_LIBTPMS
 #include "m33mu/tpm_tis.h"
 #endif
@@ -440,6 +441,7 @@ static mm_bool handle_tui(struct mm_tui *tui,
 }
 
 static mm_bool parse_u32(const char *s, mm_u32 *out);
+static mm_bool parse_usb_spec(const char *spec, int *port_out);
 static void host_sync_if_needed(mm_u64 vcycles,
                                 mm_u64 *vcycles_last_sync,
                                 mm_u64 host0_ns,
@@ -531,6 +533,23 @@ static mm_bool parse_u32(const char *s, mm_u32 *out)
     return MM_TRUE;
 }
 
+static mm_bool parse_usb_spec(const char *spec, int *port_out)
+{
+    mm_u32 port;
+    if (spec == 0 || port_out == 0) return MM_FALSE;
+    if (strncmp(spec, "port=", 5) != 0) {
+        return MM_FALSE;
+    }
+    if (!parse_u32(spec + 5, &port)) {
+        return MM_FALSE;
+    }
+    if (port == 0u || port > 65535u) {
+        return MM_FALSE;
+    }
+    *port_out = (int)port;
+    return MM_TRUE;
+}
+
 static volatile mm_bool g_system_reset_pending = MM_FALSE;
 
 void mm_system_request_reset(void)
@@ -606,6 +625,16 @@ static mm_bool parse_image_spec(const char *spec, char **path_out, mm_u32 *offse
 
 static mm_bool g_quit_on_faults = MM_FALSE;
 static mm_bool g_fault_pending = MM_FALSE;
+static int g_stack_trace = -1;
+
+static mm_bool stack_trace_enabled(void)
+{
+    if (g_stack_trace < 0) {
+        const char *v = getenv("M33MU_STACK_TRACE");
+        g_stack_trace = (v && v[0] != '\0') ? 1 : 0;
+    }
+    return g_stack_trace ? MM_TRUE : MM_FALSE;
+}
 
 static mm_u32 exc_return_encode(enum mm_sec_state sec, mm_bool use_psp, mm_bool to_thread)
 {
@@ -647,7 +676,24 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu, struct mm_memmap *map, mm_
 
     info = mm_exc_return_decode(exc_ret);
     if (!info.valid) {
+        printf("[EXC_UNSTACK] invalid exc_return=0x%08lx\n", (unsigned long)exc_ret);
         return MM_FALSE;
+    }
+
+    if (stack_trace_enabled()) {
+        printf("[EXC_UNSTACK] exc_ret=0x%08lx target_sec=%d to_thread=%d use_psp=%d mode=%d cur_sec=%d msp_s=0x%08lx msp_ns=0x%08lx psp_s=0x%08lx psp_ns=0x%08lx ctrl_s=0x%08lx ctrl_ns=0x%08lx\n",
+               (unsigned long)exc_ret,
+               (int)info.target_sec,
+               (int)info.to_thread,
+               (int)info.use_psp,
+               (int)cpu->mode,
+               (int)cpu->sec_state,
+               (unsigned long)cpu->msp_s,
+               (unsigned long)cpu->msp_ns,
+               (unsigned long)cpu->psp_s,
+               (unsigned long)cpu->psp_ns,
+               (unsigned long)cpu->control_s,
+               (unsigned long)cpu->control_ns);
     }
 
     /* Prefer the recorded SP from exception entry to avoid guessing. */
@@ -671,6 +717,11 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu, struct mm_memmap *map, mm_
             sp = (info.target_sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s;
         }
     }
+    if (stack_trace_enabled()) {
+        printf("[EXC_UNSTACK] chosen sp=0x%08lx exc_depth=%u\n",
+               (unsigned long)sp,
+               (unsigned)cpu->exc_depth);
+    }
 
     msp_s_val = cpu->msp_s;
     msp_ns_val = cpu->msp_ns;
@@ -684,6 +735,30 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu, struct mm_memmap *map, mm_
     for (i = 0; i < 8; ++i) {
         if (!mm_memmap_read(map, info.target_sec, sp + (mm_u32)(i * 4), 4u, &frame[i])) {
             return MM_FALSE;
+        }
+    }
+    {
+        mm_u32 pc_raw = frame[6];
+        mm_bool pc_suspect = MM_FALSE;
+        if (pc_raw == 0u || pc_raw == 0xffffffffu || pc_raw >= 0xF0000000u) {
+            pc_suspect = MM_TRUE;
+        } else if (map->flash.buffer != 0) {
+            if (pc_raw < map->flash.base || pc_raw >= (map->flash.base + map->flash.length)) {
+                pc_suspect = MM_TRUE;
+            }
+        }
+        if (pc_suspect) {
+            printf("[EXC_UNSTACK] sec=%d sp=0x%08lx r0=%08lx r1=%08lx r2=%08lx r3=%08lx r12=%08lx lr=%08lx pc=%08lx xpsr=%08lx\n",
+                   (int)info.target_sec,
+                   (unsigned long)sp,
+                   (unsigned long)frame[0],
+                   (unsigned long)frame[1],
+                   (unsigned long)frame[2],
+                   (unsigned long)frame[3],
+                   (unsigned long)frame[4],
+                   (unsigned long)frame[5],
+                   (unsigned long)frame[6],
+                   (unsigned long)frame[7]);
         }
     }
 
@@ -720,6 +795,16 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu, struct mm_memmap *map, mm_
 
     cpu->sec_state = info.target_sec;
     cpu->mode = info.to_thread ? MM_THREAD : MM_HANDLER;
+    if (stack_trace_enabled()) {
+        printf("[EXC_UNSTACK] new pc=0x%08lx sp=0x%08lx r13=0x%08lx mode=%d sec=%d\n",
+               (unsigned long)cpu->r[15],
+               (unsigned long)((info.use_psp)
+                   ? ((info.target_sec == MM_NONSECURE) ? cpu->psp_ns : cpu->psp_s)
+                   : ((info.target_sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s)),
+               (unsigned long)cpu->r[13],
+               (int)cpu->mode,
+               (int)cpu->sec_state);
+    }
     return MM_TRUE;
 }
 
@@ -1111,6 +1196,13 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
     if (exc_num >= 16u) {
         vtor = (handler_sec == MM_NONSECURE) ? scs->vtor_ns : scs->vtor_s;
         (void)mm_vector_read(map, handler_sec, vtor, exc_num, &handler);
+        if (exc_num == (16u + 74u)) {
+            printf("[IRQ_ENTER] irq=74 sec=%d vtor=0x%08lx handler=0x%08lx pc=0x%08lx\n",
+                   (int)handler_sec,
+                   (unsigned long)vtor,
+                   (unsigned long)handler,
+                   (unsigned long)cpu->r[15]);
+        }
     } else {
         (void)mm_exception_read_handler(map, scs, handler_sec, (enum mm_vector_index)exc_num, &handler);
     }
@@ -1148,6 +1240,24 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
 
     sp = use_psp_entry ? ((sec == MM_NONSECURE) ? cpu->psp_ns : cpu->psp_s)
                        : ((sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s);
+    if (stack_trace_enabled()) {
+        printf("[EXC_ENTER] exc=%lu pre_mode=%d sec=%d handler_sec=%d use_psp=%d sp=0x%08lx ret_pc=0x%08lx xpsr=0x%08lx handler=0x%08lx msp_s=0x%08lx msp_ns=0x%08lx psp_s=0x%08lx psp_ns=0x%08lx ctrl_s=0x%08lx ctrl_ns=0x%08lx\n",
+               (unsigned long)exc_num,
+               (int)pre_mode,
+               (int)sec,
+               (int)handler_sec,
+               (int)use_psp_entry,
+               (unsigned long)sp,
+               (unsigned long)return_pc,
+               (unsigned long)xpsr_in,
+               (unsigned long)handler,
+               (unsigned long)cpu->msp_s,
+               (unsigned long)cpu->msp_ns,
+               (unsigned long)cpu->psp_s,
+               (unsigned long)cpu->psp_ns,
+               (unsigned long)cpu->control_s,
+               (unsigned long)cpu->control_ns);
+    }
     for (i = 7; i >= 0; --i) {
         sp -= 4u;
         if (!mm_memmap_write(map, sec, sp, 4u, frame[i])) {
@@ -1223,6 +1333,8 @@ int main(int argc, char **argv)
     mm_bool opt_pc_trace = MM_FALSE;
     mm_bool opt_pc_trace_mem = MM_FALSE;
     mm_bool opt_strcmp_trace = MM_FALSE;
+    mm_bool opt_usb = MM_FALSE;
+    int usb_port = 3240;
     struct mm_spiflash_cfg spiflash_cfgs[8];
     int spiflash_count = 0;
 #ifdef M33MU_HAS_LIBTPMS
@@ -1329,6 +1441,14 @@ int main(int argc, char **argv)
                 return 1;
             }
             spiflash_count++;
+        } else if (strcmp(argv[i], "--usb") == 0) {
+            opt_usb = MM_TRUE;
+        } else if (strncmp(argv[i], "--usb:", 6) == 0) {
+            opt_usb = MM_TRUE;
+            if (!parse_usb_spec(argv[i] + 6, &usb_port)) {
+                fprintf(stderr, "invalid usb spec: %s\n", argv[i]);
+                return 1;
+            }
 #ifdef M33MU_HAS_LIBTPMS
         } else if (strncmp(argv[i], "--tpm:", 6) == 0) {
             if (tpm_count >= (int)(sizeof(tpm_cfgs) / sizeof(tpm_cfgs[0]))) {
@@ -1367,6 +1487,7 @@ int main(int argc, char **argv)
 #endif
                         "[--uart-stdout] [--quit-on-faults] [--meminfo] [--gdb-symbols <elf>] "
                         "[--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] "
+                        "[--usb[:port=<n>]] "
 #ifdef M33MU_HAS_LIBTPMS
                         "[--tpm:SPIx:cs=GPIONAME[:file=<path>]] "
 #endif
@@ -1630,6 +1751,13 @@ int main(int argc, char **argv)
             }
 
             if (first_start) {
+                if (opt_usb) {
+                    if (!mm_usbdev_start(usb_port)) {
+                        fprintf(stderr, "failed to start USB/IP server\n");
+                        rc = 1;
+                        goto cleanup;
+                    }
+                }
                 printf("Initial SP=0x%08lx PC=0x%08lx\n", (unsigned long)mm_cpu_get_active_sp(&cpu), (unsigned long)cpu.r[15]);
                 printf("VTOR_S=0x%08lx VTOR_NS=0x%08lx\n", (unsigned long)cpu.vtor_s, (unsigned long)cpu.vtor_ns);
                 first_start = MM_FALSE;
@@ -1732,6 +1860,7 @@ int main(int argc, char **argv)
                     host_sync_if_needed(vcycles, &vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                     mm_target_usart_poll(&cfg);
                     mm_target_spi_poll(&cfg);
+                    mm_usbdev_poll();
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
                     if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, gdb_symbols, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
@@ -1811,6 +1940,7 @@ int main(int argc, char **argv)
                             nanosleep(&req, 0);
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
+                            mm_usbdev_poll();
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
                             if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, gdb_symbols, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
@@ -1835,6 +1965,7 @@ int main(int argc, char **argv)
                             host_sync_if_needed(vcycles, &vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
+                            mm_usbdev_poll();
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
                             if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, gdb_symbols, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
@@ -1864,12 +1995,16 @@ handle_pending:
                 if (scs.pend_st) {
                     if (!enter_exception(&cpu, &map, &scs, MM_VECT_SYSTICK, cpu.r[15] & ~1u, cpu.xpsr)) {
                         done = MM_TRUE;
+                    } else {
+                        itstate_sync_from_xpsr(cpu.xpsr, &it_pattern, &it_remaining, &it_cond);
                     }
                     continue;
                 }
                 if (scs.pend_sv) {
                     if (!enter_exception(&cpu, &map, &scs, MM_VECT_PENDSV, cpu.r[15] & ~1u, cpu.xpsr)) {
                         done = MM_TRUE;
+                    } else {
+                        itstate_sync_from_xpsr(cpu.xpsr, &it_pattern, &it_remaining, &it_cond);
                     }
                     continue;
                 }
@@ -1884,6 +2019,8 @@ handle_pending:
                         mm_nvic_set_pending(&nvic, (mm_u32)pend_irq, MM_FALSE);
                         if (!enter_exception_ex(&cpu, &map, &scs, exc_num, cpu.r[15] & ~1u, cpu.xpsr, irq_sec)) {
                             done = MM_TRUE;
+                        } else {
+                            itstate_sync_from_xpsr(cpu.xpsr, &it_pattern, &it_remaining, &it_cond);
                         }
                         continue;
                     }
@@ -2150,6 +2287,7 @@ handle_pending:
                 if (cycles_since_poll >= poll_granularity) {
                     mm_target_usart_poll(&cfg);
                     mm_target_spi_poll(&cfg);
+                    mm_usbdev_poll();
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
                     if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, gdb_symbols, &cpu, &map, cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
@@ -2203,6 +2341,7 @@ cleanup:
 #ifdef M33MU_HAS_LIBTPMS
     mm_tpm_tis_shutdown_all();
 #endif
+    mm_usbdev_stop();
     if (opt_capstone) {
         capstone_shutdown();
     }

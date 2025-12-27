@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "stm32h563/stm32h563_mmio.h"
+#include "stm32h563/stm32h563_usb.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
 #include "m33mu/gpio.h"
@@ -288,6 +289,7 @@ void mm_stm32h563_mmio_reset(void)
     for (i = 0; i < sizeof(gpio) / sizeof(gpio[0]); ++i) {
         memset(&gpio[i], 0, sizeof(gpio[i]));
     }
+    mm_stm32h563_usb_reset();
     mm_gpio_bank_set_reader(stm32h563_gpio_bank_read, 0);
     mm_gpio_bank_set_moder_reader(stm32h563_gpio_bank_read_moder, 0);
     mm_gpio_bank_set_clock_reader(stm32h563_gpio_bank_clock, 0);
@@ -1538,6 +1540,7 @@ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
         }
     }
 
+    if (!mm_stm32h563_usb_register_mmio(bus)) return MM_FALSE;
     return MM_TRUE;
 }
 

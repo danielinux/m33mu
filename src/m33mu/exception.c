@@ -49,4 +49,3 @@ mm_bool mm_exception_read_handler(const struct mm_memmap *map,
 
     return MM_FALSE;
 }
-

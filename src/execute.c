@@ -29,6 +29,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static int g_stack_trace = -1;
+
+static mm_bool stack_trace_enabled(void)
+{
+    if (g_stack_trace < 0) {
+        const char *v = getenv("M33MU_STACK_TRACE");
+        g_stack_trace = (v && v[0] != '\0') ? 1 : 0;
+    }
+    return g_stack_trace ? MM_TRUE : MM_FALSE;
+}
 
 #define CCR_DIV_0_TRP (1u << 4)
 #define UFSR_DIVBYZERO (1u << 25)
@@ -127,6 +137,7 @@ void itstate_sync_from_xpsr(mm_u32 xpsr, mm_u8 *pattern_out, mm_u8 *remaining_ou
 enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
 {
     mm_u8 itstate_val = 0;
+    mm_u32 pc_before_exec = 0;
     mm_bool (*handle_pc_write)(struct mm_cpu *, struct mm_memmap *, mm_u32, mm_u8 *, mm_u8 *, mm_u8 *);
     mm_bool (*raise_mem_fault)(struct mm_cpu *, struct mm_memmap *, struct mm_scs *, mm_u32, mm_u32, mm_u32, mm_bool);
     mm_bool (*raise_usage_fault)(struct mm_cpu *, struct mm_memmap *, struct mm_scs *, mm_u32, mm_u32, mm_u32);
@@ -157,6 +168,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
 #define it_cond (*ctx->it_cond)
 #define done (*ctx->done)
 
+                    pc_before_exec = cpu.r[15];
                     switch (d.kind) {
                         case MM_OP_IT:
                             it_cond = (mm_u8)((d.imm >> 4) & 0x0fu);
@@ -216,14 +228,25 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                  /* Fall-through already handled by PC increment in fetch/decode. */
                                              }
                                          } break;
-                        case MM_OP_BX: {
+                                       case MM_OP_BX: {
                                            mm_u32 target = cpu.r[d.rm];
                                            if (d.rm == 14u && (target & 0xffffff00u) == 0xffffff00u) {
                                                if (!exc_return_unstack(&cpu, &map, target)) {
+                                                   printf("[BX] exc_return_unstack failed target=0x%08lx pc=0x%08lx lr=0x%08lx\n",
+                                                          (unsigned long)target,
+                                                          (unsigned long)cpu.r[15],
+                                                          (unsigned long)cpu.r[14]);
                                                    done = MM_TRUE;
                                                } else {
                                                    itstate_sync_from_xpsr(cpu.xpsr, &it_pattern, &it_remaining, &it_cond);
                                                }
+                                           } else if ((target & 0xF0000000u) == 0xF0000000u) {
+                                               printf("[BX] suspicious target=0x%08lx pc=0x%08lx lr=0x%08lx rm=%u\n",
+                                                      (unsigned long)target,
+                                                      (unsigned long)cpu.r[15],
+                                                      (unsigned long)cpu.r[14],
+                                                      (unsigned)d.rm);
+                                               cpu.r[15] = target | 1u;
                                            } else if (d.rm == 14u && cpu.sec_state == MM_NONSECURE &&
                                                    cpu.tz_depth > 0 && target == 0xDEAD0001u) {
                                                /* Return from Secure->Non-secure BLXNS callback. */
@@ -364,7 +387,12 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                 mm_u32 sh = cpu.r[d.rm] & 0xffu;
                                                 mm_bool carry_in = (cpu.xpsr & (1u << 29)) != 0u;
                                                 struct mm_shift_result r = mm_lsl(val, (mm_u8)sh, carry_in);
-                                                mm_bool setflags = (d.len == 2u) ? ((it_remaining == 0u) ? MM_TRUE : MM_FALSE) : MM_FALSE;
+                                                mm_bool setflags = MM_FALSE;
+                                                if (d.len == 2u) {
+                                                    setflags = (it_remaining == 0u) ? MM_TRUE : MM_FALSE;
+                                                } else if (d.len == 4u && ((d.raw >> 20) & 1u) != 0u) {
+                                                    setflags = (it_remaining <= 1u) ? MM_TRUE : MM_FALSE;
+                                                }
                                                 cpu.r[d.rd] = r.value;
                                                 if (setflags) {
                                                     cpu.xpsr &= ~(0xF0000000u);
@@ -403,7 +431,12 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                 mm_u32 sh = cpu.r[d.rm] & 0xffu;
                                                 mm_bool carry_in = (cpu.xpsr & (1u << 29)) != 0u;
                                                 struct mm_shift_result r = mm_lsr(val, (mm_u8)sh, carry_in);
-                                                mm_bool setflags = (d.len == 2u) ? ((it_remaining == 0u) ? MM_TRUE : MM_FALSE) : MM_FALSE;
+                                                mm_bool setflags = MM_FALSE;
+                                                if (d.len == 2u) {
+                                                    setflags = (it_remaining == 0u) ? MM_TRUE : MM_FALSE;
+                                                } else if (d.len == 4u && ((d.raw >> 20) & 1u) != 0u) {
+                                                    setflags = (it_remaining <= 1u) ? MM_TRUE : MM_FALSE;
+                                                }
                                                 cpu.r[d.rd] = r.value;
                                                 if (setflags) {
                                                     cpu.xpsr &= ~(0xF0000000u);
@@ -1738,6 +1771,19 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                             mm_u32 start;
                                             mm_u32 addr;
                                             mm_u32 base = cpu.r[d.rn];
+                                            mm_bool exc_return_taken = MM_FALSE;
+
+                                            if (stack_trace_enabled() && d.rn == 13u) {
+                                                printf("[STACK_LDMSTM] kind=%s opc=%lu w=%lu mask=0x%04lx base=0x%08lx mode=%d sec=%d sp_active=0x%08lx\n",
+                                                       (d.kind == MM_OP_LDM) ? "LDM" : "STM",
+                                                       (unsigned long)opc,
+                                                       (unsigned long)wbit,
+                                                       (unsigned long)mask,
+                                                       (unsigned long)base,
+                                                       (int)cpu.mode,
+                                                       (int)cpu.sec_state,
+                                                       (unsigned long)mm_cpu_get_active_sp(&cpu));
+                                            }
 
                                             for (reg = 0; reg < 16u; ++reg) {
                                                 if (mask & (1u << reg)) {
@@ -1754,6 +1800,11 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                 start = base;
                                             }
 
+                                            if (stack_trace_enabled() && d.rn == 13u) {
+                                                printf("[STACK_LDMSTM] start=0x%08lx count=%lu\n",
+                                                       (unsigned long)start,
+                                                       (unsigned long)count);
+                                            }
 
                                             addr = start;
                                             for (reg = 0; reg < 16u; ++reg) {
@@ -1773,16 +1824,22 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                         break;
                                                     }
                                                     if (reg == 15u) {
-                                                        cpu.r[15] = val | 1u;
+                                                        if (!handle_pc_write(&cpu, &map, val, &it_pattern, &it_remaining, &it_cond)) {
+                                                            done = MM_TRUE;
+                                                        }
+                                                        exc_return_taken = (val & 0xffffff00u) == 0xffffff00u;
                                                     } else {
                                                         cpu.r[reg] = val;
                                                     }
                                                 }
                                                 addr += 4u;
+                                                if (exc_return_taken) {
+                                                    break;
+                                                }
                                             }
 
 
-                                            if (wbit && !done) {
+                                            if (wbit && !done && !exc_return_taken) {
                                                 mm_bool base_in_list = (mask & (1u << d.rn)) != 0u;
                                                 if (d.kind == MM_OP_LDM && base_in_list) {
                                                     /* LDM with base in list: no writeback; base is loaded from memory. */
@@ -1905,6 +1962,15 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                             return MM_EXEC_CONTINUE;
                                         }
                                         return MM_EXEC_CONTINUE;
+                    }
+
+                    if ((cpu.r[15] & 0xF0000000u) == 0xF0000000u) {
+                        printf("[PC_HIGH] pc=0x%08lx prev_pc=0x%08lx fetch=0x%08lx lr=0x%08lx kind=%u\n",
+                               (unsigned long)cpu.r[15],
+                               (unsigned long)pc_before_exec,
+                               (unsigned long)f.pc_fetch,
+                               (unsigned long)cpu.r[14],
+                               (unsigned)d.kind);
                     }
 
 #undef cpu
