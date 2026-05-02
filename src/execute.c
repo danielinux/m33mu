@@ -1660,19 +1660,24 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                    setflags = (it_remaining == 0u) ? MM_TRUE : MM_FALSE;
                                                }
                                            }
-                                           if (setflags) {
-                                               mm_u32 res;
-                                               mm_bool cflag;
-                                               mm_bool vflag;
-                                               mm_add_with_carry(cpu.r[d.rn], cpu.r[d.rm], MM_FALSE, &res, &cflag, &vflag);
-                                               cpu.r[d.rd] = res;
-                                               cpu.xpsr &= ~(0xF0000000u);
-                                               if (res == 0u) cpu.xpsr |= (1u << 30);
-                                               if (res & 0x80000000u) cpu.xpsr |= (1u << 31);
-                                               if (cflag) cpu.xpsr |= (1u << 29);
-                                               if (vflag) cpu.xpsr |= (1u << 28);
-                                           } else {
-                                               cpu.r[d.rd] = cpu.r[d.rn] + cpu.r[d.rm];
+                                           {
+                                               mm_u32 lhs = (d.rn == 15u) ? mm_pc_operand(&f) : cpu.r[d.rn];
+                                               mm_u32 rhs = (d.rm == 15u) ? mm_pc_operand(&f) : cpu.r[d.rm];
+
+                                               if (setflags) {
+                                                   mm_u32 res;
+                                                   mm_bool cflag;
+                                                   mm_bool vflag;
+                                                   mm_add_with_carry(lhs, rhs, MM_FALSE, &res, &cflag, &vflag);
+                                                   cpu.r[d.rd] = res;
+                                                   cpu.xpsr &= ~(0xF0000000u);
+                                                   if (res == 0u) cpu.xpsr |= (1u << 30);
+                                                   if (res & 0x80000000u) cpu.xpsr |= (1u << 31);
+                                                   if (cflag) cpu.xpsr |= (1u << 29);
+                                                   if (vflag) cpu.xpsr |= (1u << 28);
+                                               } else {
+                                                   cpu.r[d.rd] = lhs + rhs;
+                                               }
                                            }
                                        }
                                        break;
