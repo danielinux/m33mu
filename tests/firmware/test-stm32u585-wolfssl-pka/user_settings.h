@@ -52,7 +52,10 @@ static inline int stm32u5_rng_generate_block(unsigned char *buf, unsigned int sz
 /* -----------------------------------------------------------------------
  * Basic wolfSSL settings
  * --------------------------------------------------------------------- */
-#define WOLFSSL_USER_SETTINGS
+#ifndef WOLFSSL_USER_SETTINGS
+    /* Should already be defined in CMake flags */
+    #define WOLFSSL_USER_SETTINGS
+#endif
 #define SINGLE_THREADED
 #define NO_FILESYSTEM
 #define NO_WRITEV
