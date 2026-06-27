@@ -4662,11 +4662,11 @@ int main(int argc, char **argv)
 #endif
     struct mm_ta100_cfg ta100_cfgs[4];
     int ta100_count = 0;
-    struct mm_se050_cfg se050_cfgs[4];
-    int se050_count = 0;
     struct mm_iotsafe_uart_cfg iotsafe_uart_cfgs[4];
     int iotsafe_uart_count = 0;
 #ifdef M33MU_HAS_RUST_PLUGINS
+    struct mm_se050_cfg se050_cfgs[4];
+    int se050_count = 0;
     struct mm_atecc608_cfg atecc608_cfgs[4];
     int atecc608_count = 0;
     struct mm_stsafe_cfg stsafe_cfgs[4];
@@ -5073,16 +5073,6 @@ int main(int argc, char **argv)
                 return 1;
             }
             ta100_count++;
-        } else if (strncmp(argv[i], "--se050:", 8) == 0) {
-            if (se050_count >= (int)(sizeof(se050_cfgs) / sizeof(se050_cfgs[0]))) {
-                fprintf(stderr, "too many se050 configs\n");
-                return 1;
-            }
-            if (!mm_se050_parse_spec(argv[i] + 8, &se050_cfgs[se050_count])) {
-                fprintf(stderr, "invalid se050 spec: %s\n", argv[i]);
-                return 1;
-            }
-            se050_count++;
         } else if (strncmp(argv[i], "--iotsafe-uart:", 15) == 0) {
             if (iotsafe_uart_count >= (int)(sizeof(iotsafe_uart_cfgs) /
                                             sizeof(iotsafe_uart_cfgs[0]))) {
@@ -5096,6 +5086,16 @@ int main(int argc, char **argv)
             }
             iotsafe_uart_count++;
 #ifdef M33MU_HAS_RUST_PLUGINS
+        } else if (strncmp(argv[i], "--se050:", 8) == 0) {
+            if (se050_count >= (int)(sizeof(se050_cfgs) / sizeof(se050_cfgs[0]))) {
+                fprintf(stderr, "too many se050 configs\n");
+                return 1;
+            }
+            if (!mm_se050_parse_spec(argv[i] + 8, &se050_cfgs[se050_count])) {
+                fprintf(stderr, "invalid se050 spec: %s\n", argv[i]);
+                return 1;
+            }
+            se050_count++;
         } else if (strncmp(argv[i], "--atecc608:", 11) == 0) {
             if (atecc608_count >= (int)(sizeof(atecc608_cfgs) / sizeof(atecc608_cfgs[0]))) {
                 fprintf(stderr, "too many atecc608 configs\n");
@@ -5297,12 +5297,6 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    for (i = 0; i < se050_count; ++i) {
-        if (!mm_se050_register_cfg(&se050_cfgs[i])) {
-            fprintf(stderr, "failed to register se050\n");
-            return 1;
-        }
-    }
     for (i = 0; i < iotsafe_uart_count; ++i) {
         if (!mm_iotsafe_uart_register_cfg(&iotsafe_uart_cfgs[i])) {
             fprintf(stderr, "failed to register iotsafe-uart\n");
@@ -5310,6 +5304,12 @@ int main(int argc, char **argv)
         }
     }
 #ifdef M33MU_HAS_RUST_PLUGINS
+    for (i = 0; i < se050_count; ++i) {
+        if (!mm_se050_register_cfg(&se050_cfgs[i])) {
+            fprintf(stderr, "failed to register se050\n");
+            return 1;
+        }
+    }
     for (i = 0; i < atecc608_count; ++i) {
         if (!mm_atecc608_register_cfg(&atecc608_cfgs[i])) {
             fprintf(stderr, "failed to register atecc608\n");
@@ -5597,9 +5597,9 @@ int main(int argc, char **argv)
             mm_tpm_tis_reset_all();
 #endif
             mm_ta100_reset_all();
-            mm_se050_reset_all();
             mm_iotsafe_uart_reset_all();
 #ifdef M33MU_HAS_RUST_PLUGINS
+            mm_se050_reset_all();
             mm_atecc608_reset_all();
             mm_stsafe_reset_all();
             mm_tropic01_reset_all();
@@ -7015,9 +7015,9 @@ cleanup:
     mm_tpm_tis_shutdown_all();
 #endif
     mm_ta100_shutdown_all();
-    mm_se050_shutdown_all();
     mm_iotsafe_uart_shutdown_all();
 #ifdef M33MU_HAS_RUST_PLUGINS
+    mm_se050_shutdown_all();
     mm_atecc608_shutdown_all();
     mm_stsafe_shutdown_all();
     mm_tropic01_shutdown_all();
