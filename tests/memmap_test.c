@@ -60,33 +60,54 @@ static int test_banked_flash_same_backing(void)
     return 0;
 }
 
-static int test_secure_read_ns_flash_alias_raz(void)
+static mm_bool test_sector_secure_first8(void *opaque, mm_u32 byte_offset)
+{
+    (void)opaque;
+    /* Sectors of 8 bytes: the first sector is attributed secure. */
+    return (byte_offset < 8u) ? MM_TRUE : MM_FALSE;
+}
+
+static int test_ns_alias_read_secure_sector_raz(void)
 {
     struct mm_memmap map;
     struct mmio_region regions[4];
     struct mm_target_cfg cfg;
     mm_u8 flash[16];
     mm_u32 val = 0xFFFFFFFFu;
+    mm_u8 val8 = 0xFFu;
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.flash_base_s = 0x0C000000u;
     cfg.flash_size_s = sizeof(flash);
     cfg.flash_base_ns = 0x08000000u;
     cfg.flash_size_ns = sizeof(flash);
-    cfg.flags = MM_TARGET_FLAG_FLASH_NS_ALIAS_RAZ_S;
 
     memset(flash, 0xFF, sizeof(flash));
     flash[0] = 0x12;
     flash[1] = 0x34;
+    flash[8] = 0x56;
+    flash[9] = 0x78;
 
     mm_memmap_init(&map, regions, 4);
     if (!mm_memmap_configure_flash(&map, &cfg, flash, MM_TRUE)) return 1;
+    mm_memmap_set_flash_sector_secure(&map, test_sector_secure_first8, 0);
+
+    /* Secure alias: always readable. */
     if (!mm_memmap_read(&map, MM_SECURE, 0x0C000000u, 2u, &val)) return 1;
     if ((val & 0xFFFFu) != 0x3412u) return 1;
+    /* NS alias of a secure sector: RAZ, whatever the CPU state (the alias
+     * carries a non-secure transaction). */
     if (!mm_memmap_read(&map, MM_NONSECURE, 0x08000000u, 2u, &val)) return 1;
-    if ((val & 0xFFFFu) != 0x3412u) return 1;
+    if (val != 0u) return 1;
     if (!mm_memmap_read(&map, MM_SECURE, 0x08000000u, 2u, &val)) return 1;
     if (val != 0u) return 1;
+    if (!mm_memmap_read8(&map, MM_NONSECURE, 0x08000001u, &val8)) return 1;
+    if (val8 != 0u) return 1;
+    /* NS alias of a non-secure sector: readable, whatever the CPU state. */
+    if (!mm_memmap_read(&map, MM_NONSECURE, 0x08000008u, 2u, &val)) return 1;
+    if ((val & 0xFFFFu) != 0x7856u) return 1;
+    if (!mm_memmap_read(&map, MM_SECURE, 0x08000008u, 2u, &val)) return 1;
+    if ((val & 0xFFFFu) != 0x7856u) return 1;
     return 0;
 }
 
@@ -171,7 +192,7 @@ int main(void)
 {
     struct { const char *name; int (*fn)(void); } tests[] = {
         { "banked_flash", test_banked_flash_same_backing },
-        { "secure_read_ns_flash_alias_raz", test_secure_read_ns_flash_alias_raz },
+        { "ns_alias_read_secure_sector_raz", test_ns_alias_read_secure_sector_raz },
         { "ram_write_read", test_ram_write_read },
         { "secure_nonsecure_sram_aliases_share_backing", test_secure_nonsecure_sram_aliases_share_backing },
         { "interceptor_blocks", test_interceptor_blocks_write },

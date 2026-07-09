@@ -91,7 +91,5 @@ struct mm_target_cfg {
 #define MM_TARGET_FLAG_DUALBANK (1u << 2)
 /* Set for LPC55S69: enables CP=1 MCR/MRC dispatch to CASPER peripheral. */
 #define MM_TARGET_FLAG_CASPER_CP (1u << 3)
-/* Secure data reads from the Non-secure flash alias return zero. */
-#define MM_TARGET_FLAG_FLASH_NS_ALIAS_RAZ_S (1u << 4)
 
 #endif /* M33MU_TARGET_H */

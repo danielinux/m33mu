@@ -255,7 +255,6 @@ void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t r
     map->code_cache = 0;
     map->flash_base_s = map->flash_base_ns = 0;
     map->flash_size_s = map->flash_size_ns = 0;
-    map->flash_ns_alias_raz_s = MM_FALSE;
     map->ram_base_s = map->ram_base_ns = 0;
     map->ram_size_s = map->ram_size_ns = 0;
     g_current_map = map;
@@ -276,6 +275,13 @@ void mm_memmap_set_flash_writer(struct mm_memmap *map, mm_flash_write_cb fn, voi
 {
     map->flash_write = fn;
     map->flash_write_opaque = opaque;
+}
+
+void mm_memmap_set_flash_sector_secure(struct mm_memmap *map, mm_flash_sector_secure_cb fn, void *opaque)
+{
+    if (map == 0) return;
+    map->flash_sector_secure = fn;
+    map->flash_sector_secure_opaque = opaque;
 }
 
 void mm_memmap_set_flash_ecc_check(struct mm_memmap *map, mm_flash_ecc_check_cb fn, void *opaque)
@@ -302,8 +308,6 @@ mm_bool mm_memmap_configure_flash(struct mm_memmap *map, const struct mm_target_
     map->flash_base_ns = cfg->flash_base_ns;
     map->flash_size_s = cfg->flash_size_s;
     map->flash_size_ns = cfg->flash_size_ns;
-    map->flash_ns_alias_raz_s =
-        ((cfg->flags & MM_TARGET_FLAG_FLASH_NS_ALIAS_RAZ_S) != 0u) ? MM_TRUE : MM_FALSE;
     if (secure_view) {
         map->flash.length = cfg->flash_size_s;
         map->flash.base = cfg->flash_base_s;
@@ -390,7 +394,11 @@ mm_bool mm_memmap_read(const struct mm_memmap *map, enum mm_sec_state sec, mm_u3
         }
         if (addr >= base && (addr - base) + size <= size_limit) {
             offset = addr - base;
-            if (sec == MM_SECURE && map->flash_ns_alias_raz_s) {
+            /* The NS alias issues a non-secure bus transaction whatever the
+             * CPU security state: the flash TZ filter reads it as zero when
+             * the target sector is attributed secure (RM0481). */
+            if (map->flash_sector_secure != 0 &&
+                    map->flash_sector_secure(map->flash_sector_secure_opaque, offset)) {
                 *value_out = 0u;
                 return MM_TRUE;
             }
@@ -636,7 +644,9 @@ mm_bool mm_memmap_read8(const struct mm_memmap *map, enum mm_sec_state sec, mm_u
         }
         if (addr >= base && (addr - base) < size_limit) {
             mm_u32 flash_off = addr - base;
-            if (sec == MM_SECURE && map->flash_ns_alias_raz_s) {
+            /* See mm_memmap_read: NS-alias reads of secure sectors are RAZ. */
+            if (map->flash_sector_secure != 0 &&
+                    map->flash_sector_secure(map->flash_sector_secure_opaque, flash_off)) {
                 *value_out = 0u;
                 return MM_TRUE;
             }

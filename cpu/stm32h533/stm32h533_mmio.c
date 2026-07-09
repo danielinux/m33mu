@@ -340,6 +340,23 @@ extern void mm_system_request_reset(void);
 #define FLASH_CR_BKSEL     (1u << 31)
 #define FLASH_OPTSR_SWAP_BANK (1u << 31)
 
+/* TrustZone flash security attribution (RM0481).
+ * SECWMx: per-bank secure watermark; sectors [STRT, END] are secure.
+ * SECBBxRy: per-bank block-based attribution; each bit marks one sector
+ * secure, on top of the watermark (used by wolfBoot's temporary claim
+ * of non-secure areas during flash operations). Bank indices are
+ * physical, whatever the SWAP_BANK setting. */
+#define FLASH_SECBB1R      0x0A0u /* 4 registers, 0xA0..0xAC */
+#define FLASH_SECBB2R      0x1A0u /* 4 registers, 0x1A0..0x1AC */
+#define FLASH_SECBB_NREGS  4u
+#define FLASH_SECWM1R_CUR  0x0E0u
+#define FLASH_SECWM1R_PRG  0x0E4u
+#define FLASH_SECWM2R_CUR  0x1E0u
+#define FLASH_SECWM2R_PRG  0x1E4u
+#define FLASH_SECWM_STRT_MASK  0x7Fu
+#define FLASH_SECWM_END_SHIFT  16
+#define FLASH_SECWM_EMPTY  0x0000007Fu /* STRT=0x7F, END=0: no secure sector */
+
 #define BSEC_UID0_OFFSET 0x014u
 #define BSEC_UID1_OFFSET 0x018u
 #define BSEC_UID2_OFFSET 0x01Cu
@@ -452,6 +469,8 @@ static struct exti_state exti;
 static struct iwdg_state iwdg;
 static struct wwdg_state wwdg;
 static struct flash_state flash_ctl;
+static void flash_init_secwm_defaults(struct flash_state *f);
+static mm_bool flash_sector_attr_secure(struct flash_state *f, mm_u32 offset);
 static struct mm_otp otp_state;
 static struct stm32_gpio_state gpio[8]; /* A..H */
 static struct stm32_gpio_ctx gpio_ctx_data[16]; /* NS + S for each bank */
@@ -649,6 +668,7 @@ void mm_stm32h533_mmio_reset(void)
     memset(&flash_ctl, 0, sizeof(flash_ctl));
     flash_ctl.dualbank_enabled = dualbank;
     flash_ctl.swap_active = (optsr_swap != 0u) ? MM_TRUE : MM_FALSE;
+    flash_init_secwm_defaults(&flash_ctl);
     mpcbb_init_defaults();
     /* Initialize GPDMA with shared implementation */
     gpdma1.instance = 0;
@@ -1040,6 +1060,67 @@ static mm_u32 flash_sector_size(void)
         : (flash_ctl.flash_size / FLASH_SECTOR_COUNT);
 }
 
+static void flash_init_secwm_defaults(struct flash_state *f)
+{
+    /* Out of reset the emulated device is not provisioned: no secure
+     * watermark. Firmware (or a provisioning step) may program the
+     * watermark via the _PRG registers. */
+    f->regs[FLASH_SECWM1R_CUR / 4u] = FLASH_SECWM_EMPTY;
+    f->regs[FLASH_SECWM1R_PRG / 4u] = FLASH_SECWM_EMPTY;
+    f->regs[FLASH_SECWM2R_CUR / 4u] = FLASH_SECWM_EMPTY;
+    f->regs[FLASH_SECWM2R_PRG / 4u] = FLASH_SECWM_EMPTY;
+}
+
+static mm_bool flash_sector_attr_secure(struct flash_state *f, mm_u32 offset)
+{
+    mm_u32 sector_size = flash_sector_size();
+    mm_u32 bank_size;
+    mm_u32 sector;
+    mm_bool phys_hi;
+    mm_u32 secwm;
+    mm_u32 strt;
+    mm_u32 end;
+    mm_u32 bb_base;
+
+    if (f == 0 || f->flash_size == 0u || sector_size == 0u ||
+            FLASH_BANK_COUNT < 2u) {
+        return MM_FALSE;
+    }
+    bank_size = f->flash_size / FLASH_BANK_COUNT;
+    if (bank_size == 0u || offset >= f->flash_size) {
+        return MM_FALSE;
+    }
+    /* The backing array holds the logical (post-swap) view; SECWM/SECBB
+     * refer to physical banks. */
+    phys_hi = (offset >= bank_size) ? MM_TRUE : MM_FALSE;
+    if (f->swap_active) {
+        phys_hi = phys_hi ? MM_FALSE : MM_TRUE;
+    }
+    sector = (offset % bank_size) / sector_size;
+
+    secwm = f->regs[(phys_hi ? FLASH_SECWM2R_CUR : FLASH_SECWM1R_CUR) / 4u];
+    strt = secwm & FLASH_SECWM_STRT_MASK;
+    end = (secwm >> FLASH_SECWM_END_SHIFT) & FLASH_SECWM_STRT_MASK;
+    if (sector >= strt && sector <= end) {
+        return MM_TRUE;
+    }
+
+    bb_base = phys_hi ? FLASH_SECBB2R : FLASH_SECBB1R;
+    if ((sector / 32u) < FLASH_SECBB_NREGS) {
+        mm_u32 reg = f->regs[(bb_base + 4u * (sector / 32u)) / 4u];
+        if ((reg >> (sector % 32u)) & 1u) {
+            return MM_TRUE;
+        }
+    }
+    return MM_FALSE;
+}
+
+static mm_bool flash_sector_secure_cb(void *opaque, mm_u32 byte_offset)
+{
+    struct flash_state *f = (struct flash_state *)opaque;
+    return flash_sector_attr_secure(f, byte_offset);
+}
+
 static void flash_set_busy(mm_u32 reg_offset, mm_bool busy)
 {
     mm_u32 idx = reg_offset / 4u;
@@ -1195,6 +1276,11 @@ static mm_bool flash_write_cb(void *opaque, enum mm_sec_state sec, mm_u32 addr, 
                (unsigned long)addr,
                (unsigned long)size_bytes,
                (unsigned long)value);
+    }
+    if (base == flash_ctl.base_ns &&
+            flash_sector_attr_secure(&flash_ctl, offset)) {
+        /* NS-alias write to a secure sector: write ignored (RM0481). */
+        return MM_TRUE;
     }
     if (!flash_is_unlocked(cr_off)) {
         return MM_TRUE;
@@ -1581,6 +1667,21 @@ static mm_bool flash_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u3
         if (cur == 0xFFFFFFFFu) {
             (void)mm_otp_set_flags(&otp_state, MM_OTP_FLAG_FINAL_LOCK);
         }
+        return MM_TRUE;
+    }
+
+    if (offset == FLASH_SECWM1R_CUR || offset == FLASH_SECWM2R_CUR) {
+        /* _CUR registers are loaded from option bytes, not writable. */
+        return MM_TRUE;
+    }
+
+    if (offset == FLASH_SECWM1R_PRG || offset == FLASH_SECWM2R_PRG) {
+        /* The model applies option-byte programming immediately, in line
+         * with the OPTSR_PRG handling. */
+        mm_u32 cur_off = (offset == FLASH_SECWM1R_PRG) ? FLASH_SECWM1R_CUR
+                                                       : FLASH_SECWM2R_CUR;
+        f->regs[offset / 4u] = value;
+        f->regs[cur_off / 4u] = value;
         return MM_TRUE;
     }
 
@@ -1983,6 +2084,7 @@ mm_bool mm_stm32h533_register_mmio(struct mmio_bus *bus)
         flash_ctl.swap_active = swap_active;
         flash_ctl.dualbank_enabled = dualbank;
     }
+    flash_init_secwm_defaults(&flash_ctl);
     mpcbb_init_defaults();
     /* Reset GPIO and GPDMA using shared implementation */
     {
@@ -2406,6 +2508,7 @@ void mm_stm32h533_flash_bind(struct mm_memmap *map,
     flash_ctl.dualbank_enabled = (flags & MM_TARGET_FLAG_DUALBANK) != 0u;
     flash_sync_option_regs(&flash_ctl);
     mm_memmap_set_flash_writer(map, flash_write_cb, &flash_ctl);
+    mm_memmap_set_flash_sector_secure(map, flash_sector_secure_cb, &flash_ctl);
 }
 
 void mm_stm32h533_otp_init(const char *target_name)

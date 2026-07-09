@@ -55,6 +55,13 @@ typedef mm_bool (*mm_flash_write_cb)(void *opaque,
  */
 typedef mm_bool (*mm_flash_ecc_check_cb)(void *opaque, mm_u32 byte_offset);
 
+/* Returns MM_TRUE if the flash sector containing byte_offset is currently
+ * attributed SECURE (watermark and/or block-based attribution). Used to
+ * filter accesses through the non-secure flash alias: the alias carries a
+ * non-secure bus transaction whatever the CPU security state, and the
+ * flash TZ filter reads it as zero when the target sector is secure. */
+typedef mm_bool (*mm_flash_sector_secure_cb)(void *opaque, mm_u32 byte_offset);
+
 struct mm_memmap {
     struct mm_mem flash;
     struct mm_mem ram;
@@ -67,7 +74,6 @@ struct mm_memmap {
     mm_u32 flash_size_s;
     mm_u32 flash_base_ns;
     mm_u32 flash_size_ns;
-    mm_bool flash_ns_alias_raz_s;
     mm_u32 ram_base_s;
     mm_u32 ram_size_s;
     mm_u32 ram_base_ns;
@@ -80,6 +86,8 @@ struct mm_memmap {
     void *flash_write_opaque;
     mm_flash_ecc_check_cb flash_ecc_check;
     void *flash_ecc_check_opaque;
+    mm_flash_sector_secure_cb flash_sector_secure;
+    void *flash_sector_secure_opaque;
 };
 
 void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t region_capacity);
@@ -87,6 +95,7 @@ struct mm_memmap *mm_memmap_current(void);
 void mm_memmap_set_interceptor(struct mm_memmap *map, mm_access_interceptor fn, void *opaque);
 void mm_memmap_set_flash_writer(struct mm_memmap *map, mm_flash_write_cb fn, void *opaque);
 void mm_memmap_set_flash_ecc_check(struct mm_memmap *map, mm_flash_ecc_check_cb fn, void *opaque);
+void mm_memmap_set_flash_sector_secure(struct mm_memmap *map, mm_flash_sector_secure_cb fn, void *opaque);
 void mm_memmap_set_code_cache(struct mm_memmap *map, struct mm_code_cache *cc);
 mm_bool mm_memmap_configure_flash(struct mm_memmap *map, const struct mm_target_cfg *cfg, const mm_u8 *backing, mm_bool secure_view);
 mm_bool mm_memmap_configure_ram(struct mm_memmap *map, const struct mm_target_cfg *cfg, mm_u8 *backing, mm_bool secure_view);
