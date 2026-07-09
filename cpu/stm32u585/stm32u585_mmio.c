@@ -2040,7 +2040,15 @@ mm_bool mm_stm32u585_register_mmio(struct mmio_bus *bus)
     memset(&exti, 0, sizeof(exti));
     memset(&iwdg, 0, sizeof(iwdg));
     memset(&wwdg, 0, sizeof(wwdg));
-    memset(&flash_ctl, 0, sizeof(flash_ctl));
+    {
+        /* SWAP_BANK is a non-volatile option bit: it must survive MMIO
+         * re-registration on system reset, like in the reset handler. */
+        mm_bool swap_active = flash_ctl.swap_active;
+        mm_bool dualbank = flash_ctl.dualbank_enabled;
+        memset(&flash_ctl, 0, sizeof(flash_ctl));
+        flash_ctl.swap_active = swap_active;
+        flash_ctl.dualbank_enabled = dualbank;
+    }
     mpcbb_init_defaults();
     /* Initialize GPDMA with shared implementation */
     gpdma1.instance = 0;
