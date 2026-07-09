@@ -26,17 +26,32 @@
 
 static struct stm32_usart_state g_usart;
 
+static mm_bool rcc_bit_on(struct stm32_usart_inst *u, mm_u32 word_off, mm_u32 bit)
+{
+    /* The RCC clock-enable bits are shared hardware state: the secure and
+     * non-secure register views both act on the same clock, so the enable
+     * written through either alias must be honored whatever the security
+     * state of the peripheral access. */
+    if (u->rcc_regs == 0 && u->rcc_regs_s == 0) {
+        return MM_TRUE;
+    }
+    if (u->rcc_regs != 0 && ((u->rcc_regs[word_off / 4u] >> bit) & 1u) != 0u) {
+        return MM_TRUE;
+    }
+    if (u->rcc_regs_s != 0 && ((u->rcc_regs_s[word_off / 4u] >> bit) & 1u) != 0u) {
+        return MM_TRUE;
+    }
+    return MM_FALSE;
+}
+
 static mm_bool clock_apb2_usart1(struct stm32_usart_inst *u)
 {
-    mm_u32 *regs = (mmio_active_sec() == MM_SECURE && u->rcc_regs_s != 0) ? u->rcc_regs_s : u->rcc_regs;
-    if (regs == 0) return MM_TRUE;
-    return ((regs[0xa4 / 4] >> 14) & 1u) != 0u;
+    return rcc_bit_on(u, 0xa4u, 14u);
 }
 
 static mm_bool clock_apb1lenr_generic(struct stm32_usart_inst *u)
 {
     mm_u32 bit = 0;
-    mm_u32 *regs;
     switch (u->index) {
     case 1: bit = 17; break;
     case 2: bit = 18; break;
@@ -47,30 +62,23 @@ static mm_bool clock_apb1lenr_generic(struct stm32_usart_inst *u)
     case 7: bit = 31; break;
     default: return MM_TRUE;
     }
-    regs = (mmio_active_sec() == MM_SECURE && u->rcc_regs_s != 0) ? u->rcc_regs_s : u->rcc_regs;
-    if (regs == 0) return MM_TRUE;
-    return ((regs[0x9c / 4] >> bit) & 1u) != 0u;
+    return rcc_bit_on(u, 0x9cu, bit);
 }
 
 static mm_bool clock_apb1henr_generic(struct stm32_usart_inst *u)
 {
     mm_u32 bit = 0;
-    mm_u32 *regs;
     switch (u->index) {
     case 8: bit = 0; break;
     case 11: bit = 1; break;
     default: return MM_TRUE;
     }
-    regs = (mmio_active_sec() == MM_SECURE && u->rcc_regs_s != 0) ? u->rcc_regs_s : u->rcc_regs;
-    if (regs == 0) return MM_TRUE;
-    return ((regs[0xa0 / 4] >> bit) & 1u) != 0u;
+    return rcc_bit_on(u, 0xa0u, bit);
 }
 
 static mm_bool clock_apb3_lpuart1(struct stm32_usart_inst *u)
 {
-    mm_u32 *regs = (mmio_active_sec() == MM_SECURE && u->rcc_regs_s != 0) ? u->rcc_regs_s : u->rcc_regs;
-    if (regs == 0) return MM_TRUE;
-    return ((regs[0xa8 / 4] >> 6) & 1u) != 0u;
+    return rcc_bit_on(u, 0xa8u, 6u);
 }
 
 void mm_stm32h563_usart_poll(void)

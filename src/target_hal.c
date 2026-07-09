@@ -183,6 +183,12 @@ void mm_uart_io_close(struct mm_uart_io *io)
     if (io->rx_fd >= 0 && io->rx_fd != STDIN_FILENO) {
         close(io->rx_fd);
     }
+    if (io->stdout_only) {
+        /* Return the stdio claim: firmware toggling the UART off and on
+         * again (e.g. across a secure/non-secure handover) must keep its
+         * console on stdout instead of being demoted to a fresh PTY. */
+        g_uart_stdout = MM_TRUE;
+    }
     io->rx_fd = -1;
     io->rx_pending = MM_FALSE;
     io->tx_head = io->tx_tail = 0;
