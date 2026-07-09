@@ -993,6 +993,14 @@ static mm_bool rng_clock_enabled(const struct rcc_state *rcc)
     return ((ahb2enr >> 18) & 1u) != 0u;
 }
 
+static mm_bool rng_clock_on_any(void)
+{
+    /* The RNG clock enable is shared hardware state: the secure and
+     * non-secure RCC views both act on the same clock, so honor the
+     * enable written through either alias. */
+    return rng_clock_enabled(&rcc) || rng_clock_enabled(&rcc_s);
+}
+
 static mm_bool rng_requires_secure(const struct simple_blk *tzsc)
 {
     /* GTZC1_TZSC_SECCFGR3 offset 0x18, RNGSEC bit18 */
@@ -1763,7 +1771,6 @@ static mm_bool rng_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *
 {
     struct rng_state *r = ((struct rng_state *)((void **)opaque)[0]);
     mm_bool secure_alias = ((void **)opaque)[1] != 0;
-    struct rcc_state *rcc = (struct rcc_state *)((void **)opaque)[2];
     struct simple_blk *tzsc = (struct simple_blk *)((void **)opaque)[3];
 
     if (value_out == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
@@ -1773,7 +1780,7 @@ static mm_bool rng_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *
         *value_out = 0;
         return MM_TRUE;
     }
-    if (!rng_clock_enabled(rcc)) {
+    if (!rng_clock_on_any()) {
         *value_out = 0;
         return MM_TRUE;
     }
@@ -1803,7 +1810,6 @@ static mm_bool rng_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
 {
     struct rng_state *r = ((struct rng_state *)((void **)opaque)[0]);
     mm_bool secure_alias = ((void **)opaque)[1] != 0;
-    struct rcc_state *rcc = (struct rcc_state *)((void **)opaque)[2];
     struct simple_blk *tzsc = (struct simple_blk *)((void **)opaque)[3];
 
     if (size_bytes == 0 || size_bytes > 4) return MM_FALSE;
@@ -1812,7 +1818,7 @@ static mm_bool rng_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     if (!secure_alias && rng_requires_secure(tzsc)) {
         return MM_TRUE;
     }
-    if (!rng_clock_enabled(rcc)) {
+    if (!rng_clock_on_any()) {
         return MM_TRUE;
     }
 

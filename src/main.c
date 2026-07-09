@@ -5636,6 +5636,9 @@ int main(int argc, char **argv)
                     force_ns_boot = MM_TRUE;
                     cfg.mpcbb_block_secure = 0;
                     cfg.mpcbb_block_size = 0;
+                    /* No TrustZone: the target IDAU attribution must not
+                     * fault accesses either. */
+                    cfg.tz_attr_for_addr = 0;
                     printf("[TZ] TrustZone disabled via --no-tz\n");
                 } else if (cfg.ram_base_s != cfg.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH) {
                     if (mm_vector_read(&map, MM_SECURE, boot_base_s, 0u, &initial_sp)) {
@@ -5643,6 +5646,9 @@ int main(int argc, char **argv)
                             force_ns_boot = MM_TRUE;
                             cfg.mpcbb_block_secure = 0;
                             cfg.mpcbb_block_size = 0;
+                            /* No TrustZone: the target IDAU attribution must
+                             * not fault accesses either. */
+                            cfg.tz_attr_for_addr = 0;
                             printf("[TZ] Non-secure boot detected (SP=0x%08lx); TrustZone disabled\n",
                                    (unsigned long)initial_sp);
                         }
