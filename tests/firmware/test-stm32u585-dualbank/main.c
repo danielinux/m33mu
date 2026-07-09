@@ -1,6 +1,6 @@
 /* m33mu -- an ARMv8-M Emulator
  *
- * Copyright (C) 2025  Daniele Lacamera <root@danielinux.net>
+ * Copyright (C) 2026  Daniele Lacamera <root@danielinux.net>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published
@@ -48,31 +48,33 @@ static void bkpt_ok(void)
     while (1) { }
 }
 
-#define FLASH_BASE          0x40022000u
-#define FLASH_NSKEYR        (*(volatile uint32_t *)(FLASH_BASE + 0x004u))
-#define FLASH_SECKEYR       (*(volatile uint32_t *)(FLASH_BASE + 0x008u))
-#define FLASH_NSCR          (*(volatile uint32_t *)(FLASH_BASE + 0x028u))
+#define FLASH_BASE          0x50022000u
+#define FLASH_NSKEYR        (*(volatile uint32_t *)(FLASH_BASE + 0x008u))
+#define FLASH_SECKEYR       (*(volatile uint32_t *)(FLASH_BASE + 0x00cu))
+#define FLASH_SECSR         (*(volatile uint32_t *)(FLASH_BASE + 0x024u))
 #define FLASH_SECCR         (*(volatile uint32_t *)(FLASH_BASE + 0x02cu))
-#define FLASH_OPTSR_PRG     (*(volatile uint32_t *)(FLASH_BASE + 0x054u))
+#define FLASH_OPTR          (*(volatile uint32_t *)(FLASH_BASE + 0x040u))
 
 #define FLASH_KEY1          0x45670123u
 #define FLASH_KEY2          0xCDEF89ABu
 
-#define FLASH_CR_PG         (1u << 1)
-#define FLASH_CR_SER        (1u << 2)
-#define FLASH_CR_STRT       (1u << 5)
-#define FLASH_CR_SNB_SHIFT  6
-#define FLASH_CR_SNB_MASK   (0x7fu << FLASH_CR_SNB_SHIFT)
-#define FLASH_CR_BKSEL      (1u << 31)
+#define FLASH_CR_PG         (1u << 0)
+#define FLASH_CR_PER        (1u << 1)
+#define FLASH_CR_MER1       (1u << 2)
+#define FLASH_CR_PNB_SHIFT  3
+#define FLASH_CR_PNB_MASK   (0xffu << FLASH_CR_PNB_SHIFT)
+#define FLASH_CR_BKER       (1u << 11)
+#define FLASH_CR_MER2       (1u << 15)
+#define FLASH_CR_STRT       (1u << 16)
 
-#define FLASH_OPTSR_SWAP    (1u << 31)
+#define FLASH_OPTR_SWAP     (1u << 20)
 
 #define FLASH_BASE_NS       0x08000000u
 #define FLASH_BASE_S        0x0C000000u
 #define FLASH_SIZE          0x00200000u
 #define FLASH_BANK_SIZE     (FLASH_SIZE / 2u)
-#define FLASH_SECTOR_COUNT  128u
-#define FLASH_SECTOR_SIZE   (FLASH_BANK_SIZE / FLASH_SECTOR_COUNT)
+#define FLASH_PAGE_COUNT    128u
+#define FLASH_PAGE_SIZE     (FLASH_BANK_SIZE / FLASH_PAGE_COUNT)
 
 __attribute__((section(".ramfunc")))
 static void flash_unlock(void)
@@ -82,21 +84,32 @@ static void flash_unlock(void)
 }
 
 __attribute__((section(".ramfunc")))
-static void flash_sector_erase(uint32_t bank, uint32_t snb)
+static void flash_page_erase(uint32_t bank, uint32_t pnb)
 {
     uint32_t cr = FLASH_SECCR;
-    cr &= ~(FLASH_CR_PG | FLASH_CR_SNB_MASK | FLASH_CR_BKSEL | FLASH_CR_SER | FLASH_CR_STRT);
-    cr |= FLASH_CR_SER | FLASH_CR_STRT | ((snb << FLASH_CR_SNB_SHIFT) & FLASH_CR_SNB_MASK);
+    cr &= ~(FLASH_CR_PG | FLASH_CR_PNB_MASK | FLASH_CR_BKER | FLASH_CR_PER | FLASH_CR_STRT);
+    cr |= FLASH_CR_PER | FLASH_CR_STRT | ((pnb << FLASH_CR_PNB_SHIFT) & FLASH_CR_PNB_MASK);
     if (bank != 0u) {
-        cr |= FLASH_CR_BKSEL;
+        cr |= FLASH_CR_BKER;
     }
     FLASH_SECCR = cr;
 }
 
 __attribute__((section(".ramfunc")))
+static void flash_mass_erase_bank2(void)
+{
+    uint32_t cr = FLASH_SECCR;
+    cr &= ~(FLASH_CR_PG | FLASH_CR_PNB_MASK | FLASH_CR_BKER | FLASH_CR_PER |
+            FLASH_CR_MER1 | FLASH_CR_MER2 | FLASH_CR_STRT);
+    cr |= FLASH_CR_MER2 | FLASH_CR_STRT;
+    FLASH_SECCR = cr;
+    FLASH_SECCR = cr & ~(FLASH_CR_MER2 | FLASH_CR_STRT);
+}
+
+__attribute__((section(".ramfunc")))
 static void flash_enable_program(void)
 {
-    FLASH_SECCR = (FLASH_SECCR & ~FLASH_CR_SER) | FLASH_CR_PG;
+    FLASH_SECCR = (FLASH_SECCR & ~(FLASH_CR_PER | FLASH_CR_MER1 | FLASH_CR_MER2)) | FLASH_CR_PG;
 }
 
 __attribute__((section(".ramfunc")))
@@ -107,18 +120,18 @@ static void dualbank_test_ram(void)
     uint32_t bank0_expected = 0x11112222u;
     uint32_t bank1_expected = 0x33334444u;
     uint32_t swap_expected = 0x55556666u;
-    uint32_t snb = 120u;
-    uint32_t offset = (snb * FLASH_SECTOR_SIZE) + 0x100u;
+    uint32_t mer_guard = 0x7777AAAAu;
+    uint32_t pnb = 120u;
+    uint32_t offset = (pnb * FLASH_PAGE_SIZE) + 0x100u;
 
     /* Firmware runs in secure state and uses SECKEYR/SECCR to program
-     * flash, so read-back must go through the secure alias: per RM0481,
-     * a secure access to the NS flash alias reads as zero when TZEN=1. */
+     * flash, so read-back goes through the secure alias. */
     bank0_addr = (volatile uint32_t *)(FLASH_BASE_S + offset);
     bank1_addr = (volatile uint32_t *)(FLASH_BASE_S + FLASH_BANK_SIZE + offset);
 
     flash_unlock();
-    flash_sector_erase(0u, snb);
-    flash_sector_erase(1u, snb);
+    flash_page_erase(0u, pnb);
+    flash_page_erase(1u, pnb);
     flash_enable_program();
 
     *bank0_addr = bank0_expected;
@@ -131,7 +144,8 @@ static void dualbank_test_ram(void)
         bkpt_fail();
     }
 
-    FLASH_OPTSR_PRG = FLASH_OPTSR_SWAP;
+    /* Swap: the mapped views must exchange. */
+    FLASH_OPTR = FLASH_OPTR_SWAP;
 
     if (*bank0_addr != bank1_expected) {
         bkpt_fail();
@@ -140,7 +154,7 @@ static void dualbank_test_ram(void)
         bkpt_fail();
     }
 
-    FLASH_OPTSR_PRG = 0u;
+    FLASH_OPTR = 0u;
 
     if (*bank0_addr != bank0_expected) {
         bkpt_fail();
@@ -149,14 +163,14 @@ static void dualbank_test_ram(void)
         bkpt_fail();
     }
 
-    /* Erase while the banks are swapped: BKSEL always refers to the
-     * physical bank, whatever the SWAP_BANK setting (RM0481). With
-     * SWAP_BANK active, physical bank 2 is mapped at the low logical
-     * addresses, so BKSEL=1 must erase the sector seen through the LOW
-     * alias, and physical bank 1 (mapped high) must be untouched. */
-    FLASH_OPTSR_PRG = FLASH_OPTSR_SWAP;
+    /* Erase while the banks are swapped: BKER selects the physical bank,
+     * whatever the SWAP_BANK setting (RM0456 7.5.8). With SWAP_BANK
+     * active, physical bank 2 is mapped at the low logical addresses, so
+     * BKER=1 must erase the page seen through the LOW alias, and physical
+     * bank 1 (mapped high) must be untouched. */
+    FLASH_OPTR = FLASH_OPTR_SWAP;
 
-    flash_sector_erase(1u, snb);
+    flash_page_erase(1u, pnb);
 
     if (*bank0_addr != 0xFFFFFFFFu) {
         bkpt_fail();
@@ -173,8 +187,8 @@ static void dualbank_test_ram(void)
         bkpt_fail();
     }
 
-    /* BKSEL=0 must erase physical bank 1, mapped HIGH while swapped. */
-    flash_sector_erase(0u, snb);
+    /* BKER=0 must erase physical bank 1, mapped HIGH while swapped. */
+    flash_page_erase(0u, pnb);
 
     if (*bank1_addr != 0xFFFFFFFFu) {
         bkpt_fail();
@@ -183,15 +197,34 @@ static void dualbank_test_ram(void)
         bkpt_fail();
     }
 
-    /* Swap back: the value programmed into physical bank 2 must now be
-     * visible through the high alias, and the low alias (physical bank 1)
-     * must read erased. */
-    FLASH_OPTSR_PRG = 0u;
-
-    if (*bank1_addr != swap_expected) {
+    /* Mark physical bank 1 (mapped high while swapped) so the mass erase
+     * check below can tell the banks apart. */
+    flash_enable_program();
+    *bank1_addr = mer_guard;
+    if (*bank1_addr != mer_guard) {
         bkpt_fail();
     }
+
+    /* MER2 mass-erases physical bank 2, whatever the SWAP_BANK setting:
+     * while swapped it must wipe the LOW mapped half and leave physical
+     * bank 1 (mapped high) intact. */
+    flash_mass_erase_bank2();
+
     if (*bank0_addr != 0xFFFFFFFFu) {
+        bkpt_fail();
+    }
+    if (*bank1_addr != mer_guard) {
+        bkpt_fail();
+    }
+
+    /* Swap back: physical bank 1 returns to the low alias, physical
+     * bank 2 (fully erased) to the high alias. */
+    FLASH_OPTR = 0u;
+
+    if (*bank0_addr != mer_guard) {
+        bkpt_fail();
+    }
+    if (*bank1_addr != 0xFFFFFFFFu) {
         bkpt_fail();
     }
 

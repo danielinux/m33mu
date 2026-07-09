@@ -1033,15 +1033,11 @@ static void flash_sync_option_regs(struct flash_state *f)
 
 static mm_u32 flash_sector_size(void)
 {
-    mm_u32 banks = flash_bank_count(&flash_ctl);
-    if (flash_ctl.flash_size == 0u) {
-        return 0u;
-    }
-    if (banks == 0u || (flash_ctl.flash_size % banks) != 0u) {
-        banks = 1u;
-    }
+    /* FLASH_SECTOR_COUNT is the total sector count over the whole flash:
+     * sectors are 8 Kbytes on STM32H5 (RM0481, 32 sectors per bank on
+     * STM32H533), so the bank count does not enter the division. */
     return (FLASH_SECTOR_COUNT == 0u) ? 0u
-        : ((flash_ctl.flash_size / banks) / FLASH_SECTOR_COUNT);
+        : (flash_ctl.flash_size / FLASH_SECTOR_COUNT);
 }
 
 static void flash_set_busy(mm_u32 reg_offset, mm_bool busy)
@@ -1098,24 +1094,40 @@ static void flash_apply_erase(mm_u32 cr_off, mm_u32 sr_off)
     mm_u32 bank_count = flash_bank_count(&flash_ctl);
     mm_u32 start = 0;
     mm_u32 length = 0;
+    mm_bool bank2;
     if (flash_ctl.flash == 0 || flash_ctl.flash_size == 0 || sector_size == 0) {
         return;
     }
+    /* BKSEL always refers to the physical bank, whatever the SWAP_BANK
+     * setting (RM0481), and selects the physical bank even when dualbank
+     * is disabled. The backing array holds the logical (post-swap) view,
+     * so the physical bank selection must be inverted while the banks are
+     * swapped. */
+    if (flash_ctl.flash_size != 0u) {
+        if (FLASH_BANK_COUNT > 1u && flash_ctl.flash_size >= FLASH_BANK_COUNT) {
+            bank_size = flash_ctl.flash_size / FLASH_BANK_COUNT;
+        } else {
+            bank_size = (bank_count != 0u) ? (flash_ctl.flash_size / bank_count) : 0u;
+        }
+    }
+    bank2 = ((cr & FLASH_CR_BKSEL) != 0u) ? MM_TRUE : MM_FALSE;
+    if (flash_ctl.swap_active) {
+        bank2 = bank2 ? MM_FALSE : MM_TRUE;
+    }
     if ((cr & FLASH_CR_BER) != 0u) {
-        start = 0;
-        length = flash_ctl.flash_size;
+        /* Bank erase targets the physical bank selected by BKSEL (RM0481:
+         * "swap setting is ignored"). */
+        if (bank_size != 0u) {
+            start = bank2 ? bank_size : 0u;
+            length = bank_size;
+        } else {
+            start = 0;
+            length = flash_ctl.flash_size;
+        }
     } else if ((cr & FLASH_CR_SER) != 0u) {
         mm_u32 snb = (cr & FLASH_CR_SNB_MASK) >> FLASH_CR_SNB_SHIFT;
         start = snb * sector_size;
-        if (flash_ctl.flash_size != 0u) {
-            /* BKSEL selects the physical bank even when dualbank is disabled. */
-            if (FLASH_BANK_COUNT > 1u && flash_ctl.flash_size >= FLASH_BANK_COUNT) {
-                bank_size = flash_ctl.flash_size / FLASH_BANK_COUNT;
-            } else {
-                bank_size = (bank_count != 0u) ? (flash_ctl.flash_size / bank_count) : 0u;
-            }
-        }
-        if ((cr & FLASH_CR_BKSEL) != 0u && bank_size != 0u) {
+        if (bank2 && bank_size != 0u) {
             bank_offset = bank_size;
             start += bank_offset;
         }

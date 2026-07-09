@@ -1085,15 +1085,11 @@ static void flash_sync_option_regs(struct flash_state *f)
 
 static mm_u32 flash_sector_size(void)
 {
-    mm_u32 banks = flash_bank_count(&flash_ctl);
-    if (flash_ctl.flash_size == 0u) {
-        return 0u;
-    }
-    if (banks == 0u || (flash_ctl.flash_size % banks) != 0u) {
-        banks = 1u;
-    }
+    /* FLASH_SECTOR_COUNT is the total page count over the whole flash:
+     * pages are 8 Kbytes on STM32U5 regardless of the DBANK setting
+     * (RM0456), so the bank count does not enter the division. */
     return (FLASH_SECTOR_COUNT == 0u) ? 0u
-        : ((flash_ctl.flash_size / banks) / FLASH_SECTOR_COUNT);
+        : (flash_ctl.flash_size / FLASH_SECTOR_COUNT);
 }
 
 static void flash_set_busy(mm_u32 reg_offset, mm_bool busy)
@@ -1159,20 +1155,37 @@ static void flash_apply_erase(mm_u32 cr_off, mm_u32 sr_off)
         bank_size = flash_ctl.flash_size / bank_count;
     }
 
+    /* BKER and MER1/MER2 select physical banks whatever the SWAP_BANK
+     * setting (RM0456 7.5.8: bank attributes follow their bank; only the
+     * address mapping is swapped). The backing array holds the logical
+     * (post-swap) view, so the physical bank selection must be inverted
+     * while the banks are swapped. */
     if ((cr & (FLASH_CR_MER1 | FLASH_CR_MER2)) != 0u) {
-        if ((cr & FLASH_CR_MER1) != 0u) {
+        if (bank_size == 0u) {
+            if ((cr & FLASH_CR_MER1) != 0u) {
+                start = 0u;
+                length = flash_ctl.flash_size;
+            } else {
+                return;
+            }
+        } else if ((cr & FLASH_CR_MER1) != 0u && (cr & FLASH_CR_MER2) != 0u) {
             start = 0u;
-            length = (bank_size != 0u) ? bank_size : flash_ctl.flash_size;
-        } else if ((cr & FLASH_CR_MER2) != 0u && bank_size != 0u) {
-            start = bank_size;
+            length = flash_ctl.flash_size;
+        } else if ((cr & FLASH_CR_MER1) != 0u) {
+            start = flash_ctl.swap_active ? bank_size : 0u;
             length = bank_size;
         } else {
-            return;
+            start = flash_ctl.swap_active ? 0u : bank_size;
+            length = bank_size;
         }
     } else if ((cr & FLASH_CR_PER) != 0u) {
         mm_u32 pnb = (cr & FLASH_CR_PNB_MASK) >> FLASH_CR_PNB_SHIFT;
+        mm_bool bank2 = ((cr & FLASH_CR_BKER) != 0u) ? MM_TRUE : MM_FALSE;
+        if (flash_ctl.swap_active) {
+            bank2 = bank2 ? MM_FALSE : MM_TRUE;
+        }
         start = pnb * sector_size;
-        if (bank_size != 0u && (cr & FLASH_CR_BKER) != 0u) {
+        if (bank_size != 0u && bank2) {
             bank_offset = bank_size;
             start += bank_offset;
         }

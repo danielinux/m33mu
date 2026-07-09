@@ -1058,6 +1058,12 @@ static void flash_apply_erase(mm_u32 cr_off, mm_u32 sr_off)
         } else if (bank_count != 0u) {
             bank_size = flash_ctl.flash_size / bank_count;
         }
+        /* Unlike STM32U5 (RM0456 7.5.8) and STM32H5 (RM0481), on STM32L5
+         * NSBKER/SECBKER is the "page number MSB" (RM0438): {BKER, PNB}
+         * addresses the page in the currently mapped (logical) view, so it
+         * is applied to the logical backing array directly, with no
+         * inversion when SWAP_BANK is active. Do not "fix" this to match
+         * the U5/H5 physical-bank behavior. */
         if (bank_size != 0u && (cr & FLASH_CR_BKER) != 0u) {
             bank_offset = bank_size;
             start += bank_offset;
