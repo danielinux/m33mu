@@ -92,6 +92,11 @@ extern void mm_system_request_reset(void);
 #define FLASH_OTP_BASE_NS 0x08FFF000u
 #define FLASH_OTP_BASE_S  0x0CFFF000u
 #define FLASH_OTP_SIZE    0x800u
+
+/* 96-bit factory unique device ID (RM0481 sec. 78.1), just past the OTP window. */
+#define UID_BASE_NS 0x08FFF800u
+#define UID_BASE_S  0x0CFFF800u
+#define UID_SIZE    0x10u
 #define FLASH_OTP_BLOCK_SIZE 64u
 #define FLASH_OTP_BLOCK_COUNT 32u
 
@@ -360,6 +365,7 @@ extern void mm_system_request_reset(void);
 #define FLASH_SECWM_END_SHIFT  16
 #define FLASH_SECWM_EMPTY  0x0000007Fu /* STRT=0x7F, END=0: no secure sector */
 
+/* Emulator fiction: real STM32H5 silicon has no UID in BSEC, it lives at UID_BASE_NS. */
 #define BSEC_UID0_OFFSET 0x014u
 #define BSEC_UID1_OFFSET 0x018u
 #define BSEC_UID2_OFFSET 0x01Cu
@@ -367,6 +373,15 @@ extern void mm_system_request_reset(void);
 #define BSEC_UID0_VALUE 0xB5EC0001u
 #define BSEC_UID1_VALUE 0xB5EC0002u
 #define BSEC_UID2_VALUE 0xB5EC0003u
+
+#define UID0_OFFSET 0x000u
+#define UID1_OFFSET 0x004u
+#define UID2_OFFSET 0x008u
+
+/* Deliberately unlike BSEC_UID*_VALUE so a regression to the BSEC read is detectable. */
+#define UID0_VALUE 0xF1D00001u
+#define UID1_VALUE 0xF1D00002u
+#define UID2_VALUE 0xF1D00003u
 
 struct rcc_state {
     mm_u32 regs[RCC_SIZE / 4];
@@ -450,6 +465,7 @@ static struct simple_blk sbs;
 static struct simple_blk sbs_sec;
 static struct simple_blk tamp;
 static struct simple_blk bsec;
+static struct simple_blk uid;
 static struct simple_blk ucpd1;
 static struct simple_blk ucpd1_sec;
 static struct simple_blk crs;
@@ -719,6 +735,9 @@ void mm_stm32h563_mmio_reset(void)
     bsec.regs[BSEC_UID0_OFFSET / 4u] = BSEC_UID0_VALUE;
     bsec.regs[BSEC_UID1_OFFSET / 4u] = BSEC_UID1_VALUE;
     bsec.regs[BSEC_UID2_OFFSET / 4u] = BSEC_UID2_VALUE;
+    uid.regs[UID0_OFFSET / 4u] = UID0_VALUE;
+    uid.regs[UID1_OFFSET / 4u] = UID1_VALUE;
+    uid.regs[UID2_OFFSET / 4u] = UID2_VALUE;
     /* Power ready flags. */
     pwr_update_vos(&pwr);
 
@@ -2218,6 +2237,9 @@ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
     bsec.regs[BSEC_UID0_OFFSET / 4u] = BSEC_UID0_VALUE;
     bsec.regs[BSEC_UID1_OFFSET / 4u] = BSEC_UID1_VALUE;
     bsec.regs[BSEC_UID2_OFFSET / 4u] = BSEC_UID2_VALUE;
+    uid.regs[UID0_OFFSET / 4u] = UID0_VALUE;
+    uid.regs[UID1_OFFSET / 4u] = UID1_VALUE;
+    uid.regs[UID2_OFFSET / 4u] = UID2_VALUE;
 
     /* RCC */
     reg.base = RCC_BASE;
@@ -2316,6 +2338,16 @@ mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
     reg.write = otp_mem_write;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
     reg.base = FLASH_OTP_BASE_S;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+
+    /* Unique device ID (non-secure and secure aliases) */
+    reg.base = UID_BASE_NS;
+    reg.size = UID_SIZE;
+    reg.opaque = &uid;
+    reg.read = simple_blk_read;
+    reg.write = simple_blk_write;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    reg.base = UID_BASE_S;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* GTZC TZSC secure */

@@ -5780,6 +5780,8 @@ int main(int argc, char **argv)
                 (strcmp(cpu_name, "stm32h563") == 0 || strcmp(cpu_name, "stm32h533") == 0)) {
                 mm_prot_add_region(&prot, 0x0CFFF000u, 0x800u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
                 mm_prot_add_region(&prot, 0x08FFF000u, 0x800u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                mm_prot_add_region(&prot, 0x0CFFF800u, 0x10u, MM_PROT_PERM_READ, MM_SECURE);
+                mm_prot_add_region(&prot, 0x08FFF800u, 0x10u, MM_PROT_PERM_READ, MM_NONSECURE);
             }
             if (cpu_name != 0 &&
                 (strcmp(cpu_name, "stm32u585") == 0 || strcmp(cpu_name, "stm32l552") == 0)) {
