@@ -272,7 +272,7 @@ static int test_stm32h563_tzsc_denies_ns_usart_when_secure(void)
     return 0;
 }
 
-static int test_stm32h563_usart_uses_ns_rcc_gate_for_ns_access(void)
+static int test_stm32h563_usart_rcc_gate_is_alias_shared(void)
 {
     struct mm_memmap map;
     struct mmio_region regions[96];
@@ -284,11 +284,11 @@ static int test_stm32h563_usart_uses_ns_rcc_gate_for_ns_access(void)
     if (!mm_stm32h563_register_mmio(&map.mmio)) return 1;
     mm_stm32h563_usart_init(&map.mmio, &nvic);
 
-    /* Secure RCC enable alone must not clock a Non-secure USART access. */
+    /* One physical enable bit behind two views, so either alias clocks it. */
     if (!mm_memmap_write(&map, MM_SECURE, 0x54020C9Cu, 4u, 1u << 18)) return 1;
     if (!mm_memmap_write(&map, MM_NONSECURE, 0x40004800u, 4u, (1u << 0) | (1u << 3))) return 1;
     if (!mm_memmap_read(&map, MM_NONSECURE, 0x4000481Cu, 4u, &isr)) return 1;
-    if ((isr & (1u << 21)) != 0u) return 1; /* TEACK */
+    if ((isr & (1u << 21)) == 0u) return 1; /* TEACK */
 
     if (!mm_memmap_write(&map, MM_NONSECURE, 0x44020C9Cu, 4u, 1u << 18)) return 1;
     if (!mm_memmap_write(&map, MM_NONSECURE, 0x40004800u, 4u, (1u << 0) | (1u << 3))) return 1;
@@ -304,7 +304,7 @@ int main(void)
         { "secure_sram_alias_denied_when_mpcbb_marks_ns", test_secure_sram_alias_denied_when_mpcbb_marks_ns },
         { "secure_data_read_can_access_ns_window_even_if_sau_disabled", test_secure_data_read_can_access_ns_window_even_if_sau_disabled },
         { "stm32h563_tzsc_denies_ns_usart_when_secure", test_stm32h563_tzsc_denies_ns_usart_when_secure },
-        { "stm32h563_usart_uses_ns_rcc_gate_for_ns_access", test_stm32h563_usart_uses_ns_rcc_gate_for_ns_access },
+        { "stm32h563_usart_rcc_gate_is_alias_shared", test_stm32h563_usart_rcc_gate_is_alias_shared },
     };
     int failures = 0;
     int i;
