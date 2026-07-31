@@ -38,6 +38,12 @@ jobs:
         run: build/m33mu tests/firmware/test-stm32h563/app.bin --spiflash:SPI1:file=/tmp/flash.bin:size=4096:mmap=0x60000000:cs=PB0 --tpm:SPI1:cs=PB1 --uart-stdout --expect-bkpt 0x7f --timeout 60 --quit-on-faults
       - name: Run STM32H5 dual-bank firmware test
         run: build/m33mu tests/firmware/test-stm32h563-dualbank/app.bin --dualbank --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
+      - name: Run STM32H5F4 dual-bank firmware test
+        # Erases sector 250, which does not fit the H563's 7-bit SNB field,
+        # so this covers both the widened field and the upper half of a
+        # 2 MB bank. Against a model still masking SNB with 0x7f the erase
+        # is truncated to sector 122 and the test fails.
+        run: build/m33mu --cpu stm32h5f4 tests/firmware/test-stm32h5f4-dualbank/app.bin --dualbank --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
       # NOTE: The STM32H5 wolfSSL IoTSAFE mTLS firmware test is
       # intentionally NOT run in CI. It performs a full TLS 1.2 handshake
       # under emulated Cortex-M33 with software P-256/AES-GCM and exhibits
