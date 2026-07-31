@@ -5,10 +5,10 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "stm32h5f4/stm32h5f4_i2c.h"
+#include "stm32h5_i2c.h"
 #include "m33mu/i2c_bus.h"
 
-#define STM32H5F4_I2C_COUNT 4
+#define STM32H563_I2C_COUNT 4
 #define STM32_I2C_SIZE 0x400u
 
 #define I2C_CR1     0x00u
@@ -63,15 +63,15 @@ struct stm32_i2c_inst {
     size_t rx_len;
 };
 
-static const mm_u32 g_i2c_bases[STM32H5F4_I2C_COUNT] = {
+static const mm_u32 g_i2c_bases[STM32H563_I2C_COUNT] = {
     0x40005400u, 0x40005800u, 0x40005C00u, 0x40008400u
 };
 
-static const mm_u32 g_i2c_bases_sec[STM32H5F4_I2C_COUNT] = {
+static const mm_u32 g_i2c_bases_sec[STM32H563_I2C_COUNT] = {
     0x50005400u, 0x50005800u, 0x50005C00u, 0x50008400u
 };
 
-static struct stm32_i2c_inst g_i2c[STM32H5F4_I2C_COUNT];
+static struct stm32_i2c_inst g_i2c[STM32H563_I2C_COUNT];
 static mm_bool g_i2c_init_done;
 
 static void i2c_set_idle(struct stm32_i2c_inst *i2c)
@@ -264,11 +264,11 @@ static mm_bool i2c_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     return MM_TRUE;
 }
 
-void mm_stm32h5f4_i2c_reset(void)
+void stm32h5_i2c_reset(void)
 {
     size_t i;
     g_i2c_init_done = MM_FALSE;
-    for (i = 0; i < STM32H5F4_I2C_COUNT; ++i) {
+    for (i = 0; i < STM32H563_I2C_COUNT; ++i) {
         mm_u32 base = g_i2c[i].base;
         int bus_index = g_i2c[i].bus_index;
         memset(&g_i2c[i], 0, sizeof(g_i2c[i]));
@@ -278,7 +278,7 @@ void mm_stm32h5f4_i2c_reset(void)
     }
 }
 
-void mm_stm32h5f4_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic)
+void stm32h5_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 {
     size_t i;
     (void)nvic;
@@ -286,7 +286,7 @@ void mm_stm32h5f4_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic)
         return;
     }
     g_i2c_init_done = MM_TRUE;
-    for (i = 0; i < STM32H5F4_I2C_COUNT; ++i) {
+    for (i = 0; i < STM32H563_I2C_COUNT; ++i) {
         struct mmio_region reg;
         memset(&g_i2c[i], 0, sizeof(g_i2c[i]));
         g_i2c[i].base = g_i2c_bases[i];
