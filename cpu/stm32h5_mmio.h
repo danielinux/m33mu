@@ -57,6 +57,9 @@ struct stm32h5_mmio_variant {
     /* GPIO banks present, counting from GPIOA. */
     int gpio_count;
 
+    /* I2C instances present, counting from I2C1. */
+    mm_u32 i2c_count;
+
     /* GPDMA1/GPDMA2 channel count, and optional explicit per-channel IRQ
      * tables for parts whose channel vectors are not contiguous. Null maps
      * mean irq_base + channel index. */

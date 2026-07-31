@@ -42,6 +42,7 @@ static const struct stm32h5_mmio_variant g_variant = {
     g_mpcbb_words,
 
     9,           /* gpio_count: GPIOA..I */
+    4u,          /* i2c_count */
 
     8u,          /* gpdma_channels: GPDMA1/2 CH0..CH7 */
     0,           /* channel IRQs contiguous from irq_base 27 */

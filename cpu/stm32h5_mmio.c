@@ -2604,7 +2604,7 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
 
     if (V->usb_register_mmio != 0 && !V->usb_register_mmio(bus)) return MM_FALSE;
     if (!stm32h5_eth_register_mmio(bus, stm32h5_rcc_regs())) return MM_FALSE;
-    stm32h5_i2c_init(bus, 0);
+    if (!stm32h5_i2c_init(bus, 0, V->i2c_count)) return MM_FALSE;
     return MM_TRUE;
 }
 

@@ -8,7 +8,7 @@
 #include "stm32h5_i2c.h"
 #include "m33mu/i2c_bus.h"
 
-#define STM32H563_I2C_COUNT 4
+#define STM32H5_I2C_MAX 4
 #define STM32_I2C_SIZE 0x400u
 
 #define I2C_CR1     0x00u
@@ -63,15 +63,19 @@ struct stm32_i2c_inst {
     size_t rx_len;
 };
 
-static const mm_u32 g_i2c_bases[STM32H563_I2C_COUNT] = {
-    0x40005400u, 0x40005800u, 0x40005C00u, 0x40008400u
+/* I2C1/I2C2 sit on APB1, I2C3/I2C4 on APB3; the secure alias of each is
+ * the same address plus 0x10000000. Instances beyond a part's count are
+ * simply not registered. */
+static const mm_u32 g_i2c_bases[STM32H5_I2C_MAX] = {
+    0x40005400u, 0x40005800u, 0x44002800u, 0x44002C00u
 };
 
-static const mm_u32 g_i2c_bases_sec[STM32H563_I2C_COUNT] = {
-    0x50005400u, 0x50005800u, 0x50005C00u, 0x50008400u
+static const mm_u32 g_i2c_bases_sec[STM32H5_I2C_MAX] = {
+    0x50005400u, 0x50005800u, 0x54002800u, 0x54002C00u
 };
 
-static struct stm32_i2c_inst g_i2c[STM32H563_I2C_COUNT];
+static struct stm32_i2c_inst g_i2c[STM32H5_I2C_MAX];
+static size_t g_i2c_count;
 static mm_bool g_i2c_init_done;
 
 static void i2c_set_idle(struct stm32_i2c_inst *i2c)
@@ -268,7 +272,7 @@ void stm32h5_i2c_reset(void)
 {
     size_t i;
     g_i2c_init_done = MM_FALSE;
-    for (i = 0; i < STM32H563_I2C_COUNT; ++i) {
+    for (i = 0; i < g_i2c_count; ++i) {
         mm_u32 base = g_i2c[i].base;
         int bus_index = g_i2c[i].bus_index;
         memset(&g_i2c[i], 0, sizeof(g_i2c[i]));
@@ -278,15 +282,19 @@ void stm32h5_i2c_reset(void)
     }
 }
 
-void stm32h5_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic)
+mm_bool stm32h5_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic, size_t count)
 {
     size_t i;
     (void)nvic;
+    if (count > STM32H5_I2C_MAX) {
+        count = STM32H5_I2C_MAX;
+    }
+    g_i2c_count = count;
     if (g_i2c_init_done) {
-        return;
+        return MM_TRUE;
     }
     g_i2c_init_done = MM_TRUE;
-    for (i = 0; i < STM32H563_I2C_COUNT; ++i) {
+    for (i = 0; i < count; ++i) {
         struct mmio_region reg;
         memset(&g_i2c[i], 0, sizeof(g_i2c[i]));
         g_i2c[i].base = g_i2c_bases[i];
@@ -298,9 +306,17 @@ void stm32h5_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic)
         reg.opaque = &g_i2c[i];
         reg.read = i2c_read;
         reg.write = i2c_write;
-        mmio_bus_register_region(bus, &reg);
+        /* An overlap here means the address table is wrong: the bus
+         * refuses the region and whatever really lives there would be
+         * shadowed. Fail loudly rather than silently dropping it. */
+        if (!mmio_bus_register_region(bus, &reg)) {
+            return MM_FALSE;
+        }
 
         reg.base = g_i2c_bases_sec[i];
-        mmio_bus_register_region(bus, &reg);
+        if (!mmio_bus_register_region(bus, &reg)) {
+            return MM_FALSE;
+        }
     }
+    return MM_TRUE;
 }
