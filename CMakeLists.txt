@@ -562,9 +562,11 @@ endif()
 add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563 app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-dualbank app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-dualbank app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32u585-dualbank app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32u585-swap-reset app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-uart-echo app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-uart-echo app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-wolfssl-iotsafe app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32u585 app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32l552 app.bin
