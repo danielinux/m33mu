@@ -102,10 +102,10 @@ extern void mm_system_request_reset(void);
 #define FLASH_OTP_BLOCK_COUNT 32u
 
 /* GTZC TZSC/TZIC (secure / non-secure aliases) */
-#define GTZC_TZSC_S_BASE 0x50036400u
-#define GTZC_TZSC_NS_BASE 0x40036400u
-#define GTZC_TZIC_S_BASE 0x50032400u
-#define GTZC_TZIC_NS_BASE 0x40032400u
+#define GTZC_TZSC_S_BASE 0x50032400u
+#define GTZC_TZSC_NS_BASE 0x40032400u
+#define GTZC_TZIC_S_BASE 0x50032800u
+#define GTZC_TZIC_NS_BASE 0x40032800u
 #define GTZC_TZSC_SIZE 0x400u
 #define GTZC_TZIC_SIZE 0x400u
 #define GTZC_BLK_SIZE 0x1000u
