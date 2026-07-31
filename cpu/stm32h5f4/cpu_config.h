@@ -36,8 +36,14 @@
 #define STM32H5F4_PERIPH_BASE_S  0x50000000u
 #define STM32H5F4_PERIPH_BASE_NS 0x40000000u
 
+/* Every entry here gets its own slice of the RAM backing store
+ * (mm_memmap_configure_ram assigns each one a running offset), so two
+ * entries never alias each other however their addresses relate. */
 static const struct mm_ram_region STM32H5F4_RAM_REGIONS[] = {
-    { 0x0A000000u, 0x0A000000u, 0x00180000u, -1 }, /* SRAM1..5 code-region alias */
+    /* Scratch block, not modelled silicon: the STM32H5 has no memory at
+     * 0x0A000000 and no second view of SRAM there. Independent storage,
+     * not an alias of the SRAM banks below. */
+    { 0x0A000000u, 0x0A000000u, 0x00180000u, -1 },
     { 0x30000000u, 0x20000000u, 0x00040000u, 0 }, /* SRAM1 256 KB */
     { 0x30040000u, 0x20040000u, 0x00020000u, 1 }, /* SRAM2 128 KB */
     { 0x30060000u, 0x20060000u, 0x00060000u, 2 }, /* SRAM3 384 KB */

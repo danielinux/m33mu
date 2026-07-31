@@ -36,8 +36,14 @@
 #define STM32H533_PERIPH_BASE_S  0x50000000u
 #define STM32H533_PERIPH_BASE_NS 0x40000000u
 
+/* Every entry here gets its own slice of the RAM backing store
+ * (mm_memmap_configure_ram assigns each one a running offset), so two
+ * entries never alias each other however their addresses relate. */
 static const struct mm_ram_region STM32H533_RAM_REGIONS[] = {
-    { 0x0A000000u, 0x0A000000u, 0x00020000u, -1 }, /* TCM 128 KB */
+    /* Scratch block, not modelled silicon: the STM32H5 has no TCM and no
+     * memory at 0x0A000000. Independent storage, not an alias of the
+     * SRAM banks below. */
+    { 0x0A000000u, 0x0A000000u, 0x00020000u, -1 },
     { 0x30000000u, 0x20000000u, 0x00020000u, 0 }, /* SRAM1 128 KB */
     { 0x30020000u, 0x20020000u, 0x00014000u, 1 }, /* SRAM2 80 KB */
     { 0x30034000u, 0x20034000u, 0x00010000u, 2 }, /* SRAM3 64 KB */
