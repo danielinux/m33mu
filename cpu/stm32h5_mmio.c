@@ -514,6 +514,23 @@ static void stm32h5_otp_init_impl(const char *target_name);
 
 #define mpcbb_words (V->mpcbb_words)
 
+/* GPDMA identity and channel wiring. Applied from both the reset path and
+ * the registration path: registration runs after mm_target_soc_reset(),
+ * so anything it clears has to be re-established here. */
+static void gpdma_configure_and_reset(void)
+{
+    gpdma1.instance = 0;
+    gpdma1.num_channels = V->gpdma_channels;
+    gpdma1.irq_base = 27; /* GPDMA1 channel IRQs start at 27 */
+    gpdma1.irq_map = V->gpdma1_irq_map;
+    stm32_gpdma_reset(&gpdma1);
+    gpdma2.instance = 1;
+    gpdma2.num_channels = V->gpdma_channels;
+    gpdma2.irq_base = 90; /* GPDMA2 channel IRQs start at 90 */
+    gpdma2.irq_map = V->gpdma2_irq_map;
+    stm32_gpdma_reset(&gpdma2);
+}
+
 static mm_u32 stm32h5_gpio_bank_read(void *opaque, int bank);
 static mm_u32 stm32h5_gpio_bank_read_moder(void *opaque, int bank);
 static mm_bool stm32h5_gpio_bank_clock(void *opaque, int bank);
@@ -698,16 +715,7 @@ static void stm32h5_mmio_reset_impl(void)
     flash_init_secwm_defaults(&flash_ctl);
     mpcbb_init_defaults();
     /* Initialize GPDMA with shared implementation */
-    gpdma1.instance = 0;
-    gpdma1.num_channels = V->gpdma_channels;
-    gpdma1.irq_base = 27; /* GPDMA1 channel IRQs start at 27 */
-    gpdma1.irq_map = V->gpdma1_irq_map;
-    stm32_gpdma_reset(&gpdma1);
-    gpdma2.instance = 1;
-    gpdma2.num_channels = V->gpdma_channels;
-    gpdma2.irq_base = 90; /* GPDMA2 channel IRQs start at 90 */
-    gpdma2.irq_map = V->gpdma2_irq_map;
-    stm32_gpdma_reset(&gpdma2);
+    gpdma_configure_and_reset();
     /* Initialize GPIO with shared implementation */
     for (i = 0; i < sizeof(gpio) / sizeof(gpio[0]); ++i) {
         stm32_gpio_reset(&gpio[i], (int)i);
@@ -2194,10 +2202,14 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
         flash_ctl.dualbank_enabled = dualbank;
     }
     flash_init_secwm_defaults(&flash_ctl);
-    memset(gpio, 0, sizeof(gpio));
     mpcbb_init_defaults();
-    memset(&gpdma1, 0, sizeof(gpdma1));
-    memset(&gpdma2, 0, sizeof(gpdma2));
+    {
+        size_t gi;
+        for (gi = 0; gi < (size_t)V->gpio_count; ++gi) {
+            stm32_gpio_reset(&gpio[gi], (int)gi);
+        }
+    }
+    gpdma_configure_and_reset();
     rcc.regs[RCC_CR / 4] |= 1u;
     rcc.regs[0x8c / 4u] = V->ahb2enr_reset;
     rcc_update_ready(&rcc);
