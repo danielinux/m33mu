@@ -56,6 +56,9 @@ static const struct stm32h5_mmio_variant g_variant = {
     11,          /* gpio_count: GPIOA..K */
     4u,          /* i2c_count */
 
+    MM_FALSE,    /* rcc_secure_is_alias: separate secure bank */
+    MM_TRUE,     /* has_tz_attr */
+
     12u,         /* gpdma_channels: GPDMA1/2 CH0..CH11 */
     g_gpdma1_irq_map,
     g_gpdma2_irq_map,

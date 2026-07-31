@@ -454,6 +454,9 @@ static void flash_sync_option_regs(struct flash_state *f);
 
 static struct rcc_state rcc;
 static struct rcc_state rcc_s;
+/* Points at rcc_s, or at rcc on parts where the secure alias is just a
+ * second view of the same register file. Set with V. */
+static struct rcc_state *rcc_sec = &rcc_s;
 static struct pwr_state pwr;
 static struct simple_blk tzsc_s;
 static struct simple_blk tzsc_ns;
@@ -808,7 +811,7 @@ mm_bool stm32h5_tz_attr_for_addr(mm_u32 addr,
 {
     mm_bool secure = MM_FALSE;
 
-    if (attr_out == 0) {
+    if (attr_out == 0 || V == 0 || !V->has_tz_attr) {
         return MM_FALSE;
     }
     if (region_out != 0) {
@@ -871,7 +874,7 @@ static mm_bool gpio_clock_enabled(const struct rcc_state *rcc, int index)
 
 static mm_bool stm32h5_gpio_clock_enabled_cb(int bank)
 {
-    return gpio_clock_enabled(&rcc, bank) || gpio_clock_enabled(&rcc_s, bank);
+    return gpio_clock_enabled(&rcc, bank) || gpio_clock_enabled(rcc_sec, bank);
 }
 
 static void exti_gpio_update_cb(int bank, mm_u32 old_level, mm_u32 new_level)
@@ -1057,7 +1060,7 @@ static mm_bool rng_clock_on_any(void)
     /* The RNG clock enable is shared hardware state: the secure and
      * non-secure RCC views both act on the same clock, so honor the
      * enable written through either alias. */
-    return rng_clock_enabled(&rcc) || rng_clock_enabled(&rcc_s);
+    return rng_clock_enabled(&rcc) || rng_clock_enabled(rcc_sec);
 }
 
 static mm_bool rng_requires_secure(const struct simple_blk *tzsc)
@@ -1903,7 +1906,7 @@ static mm_bool rng_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
 static mm_bool wwdg_clock_enabled(void)
 {
     return ((rcc.regs[0x9c / 4] >> 11) & 1u) != 0u ||
-           ((rcc_s.regs[0x9c / 4] >> 11) & 1u) != 0u;
+           ((rcc_sec->regs[0x9c / 4] >> 11) & 1u) != 0u;
 }
 
 static int exti_line_bank(int line)
@@ -2105,12 +2108,12 @@ mm_u32 *stm32h5_rcc_regs(void)
 
 mm_u32 *stm32h5_rcc_secure_regs(void)
 {
-    return rcc_s.regs;
+    return rcc_sec->regs;
 }
 
 mm_u64 stm32h5_cpu_hz(void)
 {
-    return rcc_s.cpu_hz != 0u ? rcc_s.cpu_hz : rcc.cpu_hz;
+    return rcc_sec->cpu_hz != 0u ? rcc_sec->cpu_hz : rcc.cpu_hz;
 }
 
 void stm32h5_exti_set_nvic(struct mm_nvic *nvic)
@@ -2299,7 +2302,7 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
     /* RCC secure alias */
     reg.base = RCC_SEC_BASE;
-    reg.opaque = &rcc_s;
+    reg.opaque = rcc_sec;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* PWR */
@@ -2534,7 +2537,7 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
     reg.base = RNG_SEC_BASE;
     rng_ctx[1][0] = &rng;
     rng_ctx[1][1] = (void *)1;
-    rng_ctx[1][2] = &rcc_s;
+    rng_ctx[1][2] = rcc_sec;
     rng_ctx[1][3] = &tzsc_s;
     reg.opaque = rng_ctx[1];
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
@@ -2681,6 +2684,7 @@ mm_bool stm32h5_register_mmio(const struct stm32h5_mmio_variant *v, struct mmio_
 {
     if (v == 0) return MM_FALSE;
     V = v;
+    rcc_sec = v->rcc_secure_is_alias ? &rcc : &rcc_s;
     return stm32h5_register_mmio_impl(bus);
 }
 
@@ -2688,6 +2692,7 @@ void stm32h5_mmio_reset(const struct stm32h5_mmio_variant *v)
 {
     if (v == 0) return;
     V = v;
+    rcc_sec = v->rcc_secure_is_alias ? &rcc : &rcc_s;
     stm32h5_mmio_reset_impl();
 }
 
@@ -2700,6 +2705,7 @@ void stm32h5_flash_bind(const struct stm32h5_mmio_variant *v,
 {
     if (v == 0) return;
     V = v;
+    rcc_sec = v->rcc_secure_is_alias ? &rcc : &rcc_s;
     stm32h5_flash_bind_impl(map, flash, flash_size, persist, flags);
 }
 
@@ -2707,5 +2713,6 @@ void stm32h5_otp_init(const struct stm32h5_mmio_variant *v, const char *target_n
 {
     if (v == 0) return;
     V = v;
+    rcc_sec = v->rcc_secure_is_alias ? &rcc : &rcc_s;
     stm32h5_otp_init_impl(target_name);
 }

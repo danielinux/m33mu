@@ -38,7 +38,11 @@ struct mm_flash_persist;
 
 /* Everything that differs between the STM32H5 parts sharing stm32h5_mmio.c.
  * Anything not listed here is identical across them and lives in the
- * implementation as a plain constant. */
+ * implementation as a plain constant.
+ *
+ * The per-part descriptors initialise this positionally, so when adding
+ * a field here, add it in the same position to every per-part descriptor
+ * under cpu/stm32h533, cpu/stm32h563 and cpu/stm32h5f4. */
 struct stm32h5_mmio_variant {
     /* Embedded flash geometry. sector_count is over the whole flash, both
      * banks; snb_mask and secwm_strt_mask are the unshifted field widths,
@@ -59,6 +63,15 @@ struct stm32h5_mmio_variant {
 
     /* I2C instances present, counting from I2C1. */
     mm_u32 i2c_count;
+
+    /* MM_TRUE when the secure RCC alias is just a second view of the one
+     * register file, as the SVD describes it, rather than a bank of its
+     * own. H533 models it that way; H563 and H5F4 keep two banks. */
+    mm_bool rcc_secure_is_alias;
+
+    /* MM_TRUE when the part reports SAU attribution for TZSC-filtered
+     * peripherals through stm32h5_tz_attr_for_addr(). */
+    mm_bool has_tz_attr;
 
     /* GPDMA1/GPDMA2 channel count, and optional explicit per-channel IRQ
      * tables for parts whose channel vectors are not contiguous. Null maps

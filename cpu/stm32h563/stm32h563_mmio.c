@@ -44,6 +44,9 @@ static const struct stm32h5_mmio_variant g_variant = {
     9,           /* gpio_count: GPIOA..I */
     4u,          /* i2c_count */
 
+    MM_FALSE,    /* rcc_secure_is_alias: separate secure bank */
+    MM_TRUE,     /* has_tz_attr */
+
     8u,          /* gpdma_channels: GPDMA1/2 CH0..CH7 */
     0,           /* channel IRQs contiguous from irq_base 27 */
     0,           /* channel IRQs contiguous from irq_base 90 */
