@@ -30,8 +30,8 @@ static const struct stm32h5_usart_desc g_desc[] = {
     { 0x40013800u, 58, "USART1",  0xa4u, 14u, STM32H5_USART_SECCFGR2, 1u << 11 },
     { 0x40004400u, 59, "USART2",  0x9cu, 17u, STM32H5_USART_SECCFGR1, 1u << 13 },
     { 0x40004800u, 60, "USART3",  0x9cu, 18u, STM32H5_USART_SECCFGR1, 1u << 14 },
-    { 0x40004C00u, 61, "UART4",   0x9cu, 19u, STM32H5_USART_SECCFGR1, 0u },
-    { 0x40005000u, 62, "UART5",   0x9cu, 20u, STM32H5_USART_SECCFGR1, 0u },
+    { 0x40004C00u, 61, "UART4",   0x9cu, 19u, STM32H5_USART_SECCFGR1, 1u << 15 },
+    { 0x40005000u, 62, "UART5",   0x9cu, 20u, STM32H5_USART_SECCFGR1, 1u << 16 },
     { 0x40006400u, 85, "USART6",  0x9cu, 25u, STM32H5_USART_SECCFGR1, 1u << 21 },
     { 0x44002400u, 63, "LPUART1", 0xa8u,  6u, STM32H5_USART_SECCFGR2, 1u << 25 }
 };
