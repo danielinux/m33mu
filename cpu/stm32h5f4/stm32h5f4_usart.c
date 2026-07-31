@@ -21,123 +21,45 @@
 
 #include "stm32h5f4/stm32h5f4_usart.h"
 #include "stm32h5f4/stm32h5f4_mmio.h"
-#include "stm32_usart.h"
+#include "stm32h5_usart.h"
 
-static struct stm32_usart_state g_usart;
+/* RCC offsets: APB1LENR 0x9c, APB1HENR 0xa0, APB2ENR 0xa4, APB3ENR 0xa8.
+ * Clock and TZSC bit numbers are from RM0517. */
+static const struct stm32h5_usart_desc g_desc[] = {
+    { 0x40013800u,  58, "USART1",  0xa4u, 14u, STM32H5_USART_SECCFGR2, 1u << 11 },
+    { 0x40004400u,  59, "USART2",  0x9cu, 17u, STM32H5_USART_SECCFGR1, 1u << 13 },
+    { 0x40004800u,  60, "USART3",  0x9cu, 18u, STM32H5_USART_SECCFGR1, 1u << 14 },
+    { 0x40004C00u,  61, "UART4",   0x9cu, 19u, STM32H5_USART_SECCFGR1, 0u },
+    { 0x40005000u,  62, "UART5",   0x9cu, 20u, STM32H5_USART_SECCFGR1, 0u },
+    { 0x40006400u,  85, "USART6",  0x9cu, 25u, STM32H5_USART_SECCFGR1, 1u << 21 },
+    { 0x40007800u,  98, "UART7",   0x9cu, 30u, STM32H5_USART_SECCFGR1, 0u },
+    { 0x40007C00u,  99, "UART8",   0x9cu, 31u, STM32H5_USART_SECCFGR1, 0u },
+    { 0x40008000u, 100, "UART9",   0xa0u,  0u, STM32H5_USART_SECCFGR1, 0u },
+    { 0x40006800u,  86, "USART10", STM32H5_USART_CLOCK_ALWAYS, 0u, STM32H5_USART_SECCFGR1, 0u },
+    { 0x40006C00u,  87, "USART11", STM32H5_USART_CLOCK_ALWAYS, 0u, STM32H5_USART_SECCFGR1, 0u },
+    { 0x40008400u, 101, "UART12",  0xa0u,  1u, STM32H5_USART_SECCFGR1, 0u },
+    { 0x44002400u,  63, "LPUART1", 0xa8u,  6u, STM32H5_USART_SECCFGR2, 1u << 25 }
+};
 
-static mm_bool rcc_bit_on(struct stm32_usart_inst *u, mm_u32 word_off, mm_u32 bit)
-{
-    /* The RCC clock-enable bits are shared hardware state: the secure and
-     * non-secure register views both act on the same clock, so the enable
-     * written through either alias must be honored whatever the security
-     * state of the peripheral access. */
-    if (u->rcc_regs == 0 && u->rcc_regs_s == 0) {
-        return MM_TRUE;
-    }
-    if (u->rcc_regs != 0 && ((u->rcc_regs[word_off / 4u] >> bit) & 1u) != 0u) {
-        return MM_TRUE;
-    }
-    if (u->rcc_regs_s != 0 && ((u->rcc_regs_s[word_off / 4u] >> bit) & 1u) != 0u) {
-        return MM_TRUE;
-    }
-    return MM_FALSE;
-}
-
-static mm_bool clock_apb2_usart1(struct stm32_usart_inst *u)
-{
-    return rcc_bit_on(u, 0xa4u, 14u);
-}
-
-static mm_bool clock_apb1lenr_generic(struct stm32_usart_inst *u)
-{
-    mm_u32 bit = 0;
-    switch (u->index) {
-    case 1: bit = 17; break;
-    case 2: bit = 18; break;
-    case 3: bit = 19; break;
-    case 4: bit = 20; break;
-    case 5: bit = 25; break;
-    case 6: bit = 30; break;
-    case 7: bit = 31; break;
-    default: return MM_TRUE;
-    }
-    return rcc_bit_on(u, 0x9cu, bit);
-}
-
-static mm_bool clock_apb1henr_generic(struct stm32_usart_inst *u)
-{
-    mm_u32 bit = 0;
-    switch (u->index) {
-    case 8: bit = 0; break;
-    case 11: bit = 1; break;
-    default: return MM_TRUE;
-    }
-    return rcc_bit_on(u, 0xa0u, bit);
-}
-
-static mm_bool clock_apb3_lpuart1(struct stm32_usart_inst *u)
-{
-    return rcc_bit_on(u, 0xa8u, 6u);
-}
+static const struct stm32h5_usart_variant g_variant = {
+    g_desc, sizeof(g_desc) / sizeof(g_desc[0])
+};
 
 void mm_stm32h5f4_usart_poll(void)
 {
-    stm32_usart_poll(&g_usart);
-}
-
-void mm_stm32h5f4_usart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
-{
-    static const mm_u32 bases[] = {
-        0x40013800u, 0x40004400u, 0x40004800u, 0x40004C00u,
-        0x40005000u, 0x40006400u, 0x40007800u, 0x40007C00u,
-        0x40008000u, 0x40006800u, 0x40006C00u, 0x40008400u,
-        0x44002400u
-    };
-    static const int irq_map[] = {
-        58, 59, 60, 61, 62, 85, 98, 99, 100, 86, 87, 101, 63
-    };
-    static const char *labels[] = {
-        "USART1", "USART2", "USART3", "UART4", "UART5", "USART6",
-        "UART7", "UART8", "UART9", "USART10", "USART11", "UART12",
-        "LPUART1"
-    };
-    mm_u32 *tz = mm_stm32h5f4_tzsc_regs();
-    mm_u32 *tz2 = tz != 0 ? tz + (0x14u / 4u) : 0;
-    mm_u32 *tz1 = tz != 0 ? tz + (0x10u / 4u) : 0;
-    size_t i;
-    stm32_usart_state_init(&g_usart, sizeof(bases) / sizeof(bases[0]), nvic);
-    mm_stm32h5f4_rng_set_nvic(nvic);
-    for (i = 0; i < g_usart.usart_count; ++i) {
-        struct stm32_usart_inst *u;
-        stm32_usart_register_instance(&g_usart, bus, i, bases[i], irq_map[i], labels[i],
-                                      MM_TRUE, MM_TRUE, stm32_usart_uart_rx_trace_enabled());
-        u = &g_usart.usarts[i];
-        u->rcc_regs = mm_stm32h5f4_rcc_regs();
-        u->rcc_regs_s = mm_stm32h5f4_rcc_secure_regs();
-        u->watch_macro = (i == 2u) ? MM_TRUE : MM_FALSE;
-        u->sec_reg = tz1;
-        if (i == 0) {
-            u->clock_on = clock_apb2_usart1;
-            u->sec_bitmask = (1u << 11);
-            u->sec_reg = tz2;
-        } else if (i >= 1 && i <= 7) {
-            u->clock_on = clock_apb1lenr_generic;
-            if (i == 1) u->sec_bitmask = (1u << 13);
-            else if (i == 2) u->sec_bitmask = (1u << 14);
-            else if (i == 5) u->sec_bitmask = (1u << 21);
-            else if (i == 9) u->sec_bitmask = (1u << 22);
-            else if (i == 10) u->sec_bitmask = (1u << 23);
-        } else if (i == 12u) {
-            u->clock_on = clock_apb3_lpuart1;
-            u->sec_reg = tz2;
-            u->sec_bitmask = (1u << 25);
-        } else {
-            u->clock_on = clock_apb1henr_generic;
-        }
-    }
+    stm32h5_usart_poll();
 }
 
 void mm_stm32h5f4_usart_reset(void)
 {
-    stm32_usart_reset(&g_usart);
+    stm32h5_usart_reset();
+}
+
+void mm_stm32h5f4_usart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
+{
+    mm_stm32h5f4_rng_set_nvic(nvic);
+    stm32h5_usart_init(&g_variant, bus, nvic,
+                       mm_stm32h5f4_rcc_regs(),
+                       mm_stm32h5f4_rcc_secure_regs(),
+                       mm_stm32h5f4_tzsc_regs());
 }
