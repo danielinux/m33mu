@@ -37,6 +37,7 @@
 #include "stm32h533/stm32h533_mmio.h"
 #include "stm32h533/stm32h533_usb.h"
 #include "stm32h5_eth.h"
+#include "stm32h5_i2c.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
 #include "m33mu/otp.h"
@@ -91,6 +92,12 @@ extern void mm_system_request_reset(void);
 #define FLASH_OTP_BASE_NS 0x08FFF000u
 #define FLASH_OTP_BASE_S  0x0CFFF000u
 #define FLASH_OTP_SIZE    0x800u
+
+/* 96-bit factory unique device ID (RM0493 sec. 65.1), just past the OTP
+ * window, matching the other STM32H5 parts. */
+#define UID_BASE_NS 0x08FFF800u
+#define UID_BASE_S  0x0CFFF800u
+#define UID_SIZE    0x10u
 #define FLASH_OTP_BLOCK_SIZE 64u
 #define FLASH_OTP_BLOCK_COUNT 32u
 
@@ -340,7 +347,7 @@ extern void mm_system_request_reset(void);
 #define FLASH_CR_BKSEL     (1u << 31)
 #define FLASH_OPTSR_SWAP_BANK (1u << 31)
 
-/* TrustZone flash security attribution (RM0481).
+/* TrustZone flash security attribution (RM0493).
  * SECWMx: per-bank secure watermark; sectors [STRT, END] are secure.
  * SECBBxRy: per-bank block-based attribution; each bit marks one sector
  * secure, on top of the watermark (used by wolfBoot's temporary claim
@@ -364,6 +371,15 @@ extern void mm_system_request_reset(void);
 #define BSEC_UID0_VALUE 0xB5EC0001u
 #define BSEC_UID1_VALUE 0xB5EC0002u
 #define BSEC_UID2_VALUE 0xB5EC0003u
+
+#define UID0_OFFSET 0x000u
+#define UID1_OFFSET 0x004u
+#define UID2_OFFSET 0x008u
+
+/* Deliberately unlike BSEC_UID*_VALUE so a regression to the BSEC read is detectable. */
+#define UID0_VALUE 0xF1D00001u
+#define UID1_VALUE 0xF1D00002u
+#define UID2_VALUE 0xF1D00003u
 
 struct rcc_state {
     mm_u32 regs[RCC_SIZE / 4];
@@ -449,6 +465,7 @@ static struct simple_blk sbs;
 static struct simple_blk sbs_sec;
 static struct simple_blk tamp;
 static struct simple_blk bsec;
+static struct simple_blk uid;
 static struct simple_blk ucpd1;
 static struct simple_blk ucpd1_sec;
 static struct simple_blk crs;
@@ -648,6 +665,7 @@ void mm_stm32h533_mmio_reset(void)
     memset(&sbs_sec, 0, sizeof(sbs_sec));
     memset(&tamp, 0, sizeof(tamp));
     memset(&bsec, 0, sizeof(bsec));
+    memset(&uid, 0, sizeof(uid));
     memset(&ucpd1, 0, sizeof(ucpd1));
     memset(&ucpd1_sec, 0, sizeof(ucpd1_sec));
     memset(&ucpd1_state, 0, sizeof(ucpd1_state));
@@ -694,6 +712,7 @@ void mm_stm32h533_mmio_reset(void)
         gpio_ctx_data[i * 2 + 1].exti_update = exti_gpio_update_cb;
     }
     mm_stm32h533_usb_reset();
+    stm32h5_i2c_reset();
     mm_gpio_bank_set_reader(stm32h533_gpio_bank_read, 0);
     mm_gpio_bank_set_moder_reader(stm32h533_gpio_bank_read_moder, 0);
     mm_gpio_bank_set_clock_reader(stm32h533_gpio_bank_clock, 0);
@@ -715,6 +734,9 @@ void mm_stm32h533_mmio_reset(void)
     bsec.regs[BSEC_UID0_OFFSET / 4u] = BSEC_UID0_VALUE;
     bsec.regs[BSEC_UID1_OFFSET / 4u] = BSEC_UID1_VALUE;
     bsec.regs[BSEC_UID2_OFFSET / 4u] = BSEC_UID2_VALUE;
+    uid.regs[UID0_OFFSET / 4u] = UID0_VALUE;
+    uid.regs[UID1_OFFSET / 4u] = UID1_VALUE;
+    uid.regs[UID2_OFFSET / 4u] = UID2_VALUE;
     /* Power ready flags. */
     pwr_update_vos(&pwr);
 
@@ -1054,7 +1076,7 @@ static void flash_sync_option_regs(struct flash_state *f)
 static mm_u32 flash_sector_size(void)
 {
     /* FLASH_SECTOR_COUNT is the total sector count over the whole flash:
-     * sectors are 8 Kbytes on STM32H5 (RM0481, 32 sectors per bank on
+     * sectors are 8 Kbytes on STM32H5 (RM0493, 32 sectors per bank on
      * STM32H533), so the bank count does not enter the division. */
     return (FLASH_SECTOR_COUNT == 0u) ? 0u
         : (flash_ctl.flash_size / FLASH_SECTOR_COUNT);
@@ -1180,7 +1202,7 @@ static void flash_apply_erase(mm_u32 cr_off, mm_u32 sr_off)
         return;
     }
     /* BKSEL always refers to the physical bank, whatever the SWAP_BANK
-     * setting (RM0481), and selects the physical bank even when dualbank
+     * setting (RM0493), and selects the physical bank even when dualbank
      * is disabled. The backing array holds the logical (post-swap) view,
      * so the physical bank selection must be inverted while the banks are
      * swapped. */
@@ -1196,7 +1218,7 @@ static void flash_apply_erase(mm_u32 cr_off, mm_u32 sr_off)
         bank2 = bank2 ? MM_FALSE : MM_TRUE;
     }
     if ((cr & FLASH_CR_BER) != 0u) {
-        /* Bank erase targets the physical bank selected by BKSEL (RM0481:
+        /* Bank erase targets the physical bank selected by BKSEL (RM0493:
          * "swap setting is ignored"). */
         if (bank_size != 0u) {
             start = bank2 ? bank_size : 0u;
@@ -1279,7 +1301,7 @@ static mm_bool flash_write_cb(void *opaque, enum mm_sec_state sec, mm_u32 addr, 
     }
     if (base == flash_ctl.base_ns &&
             flash_sector_attr_secure(&flash_ctl, offset)) {
-        /* NS-alias write to a secure sector: write ignored (RM0481). */
+        /* NS-alias write to a secure sector: write ignored (RM0493). */
         return MM_TRUE;
     }
     if (!flash_is_unlocked(cr_off)) {
@@ -2067,6 +2089,7 @@ mm_bool mm_stm32h533_register_mmio(struct mmio_bus *bus)
     memset(&tzic_s, 0, sizeof(tzic_s));
     memset(&tzic_ns, 0, sizeof(tzic_ns));
     memset(&bsec, 0, sizeof(bsec));
+    memset(&uid, 0, sizeof(uid));
     memset(&rng, 0, sizeof(rng));
     memset(&hash_accel, 0, sizeof(hash_accel));
     memset(&aes_accel, 0, sizeof(aes_accel));
@@ -2165,6 +2188,9 @@ mm_bool mm_stm32h533_register_mmio(struct mmio_bus *bus)
     bsec.regs[BSEC_UID0_OFFSET / 4u] = BSEC_UID0_VALUE;
     bsec.regs[BSEC_UID1_OFFSET / 4u] = BSEC_UID1_VALUE;
     bsec.regs[BSEC_UID2_OFFSET / 4u] = BSEC_UID2_VALUE;
+    uid.regs[UID0_OFFSET / 4u] = UID0_VALUE;
+    uid.regs[UID1_OFFSET / 4u] = UID1_VALUE;
+    uid.regs[UID2_OFFSET / 4u] = UID2_VALUE;
 
     /* RCC */
     reg.base = RCC_BASE;
@@ -2262,6 +2288,16 @@ mm_bool mm_stm32h533_register_mmio(struct mmio_bus *bus)
     reg.write = otp_mem_write;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
     reg.base = FLASH_OTP_BASE_S;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+
+    /* Unique device ID (non-secure and secure aliases) */
+    reg.base = UID_BASE_NS;
+    reg.size = UID_SIZE;
+    reg.opaque = &uid;
+    reg.read = simple_blk_read;
+    reg.write = simple_blk_write;
+    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    reg.base = UID_BASE_S;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* GTZC TZSC secure */
@@ -2486,6 +2522,8 @@ mm_bool mm_stm32h533_register_mmio(struct mmio_bus *bus)
     }
 
     if (!mm_stm32h533_usb_register_mmio(bus)) return MM_FALSE;
+    /* I2C1..3; the H533 has no I2C4 (RM0493 / STM32H533.svd). */
+    if (!stm32h5_i2c_init(bus, 0, 3)) return MM_FALSE;
     if (!stm32h5_eth_register_mmio(bus, mm_stm32h533_rcc_regs())) return MM_FALSE;
     return MM_TRUE;
 }
