@@ -25,6 +25,16 @@
 
 static void gpdma_execute_transfer(struct stm32_gpdma_state *d, mm_u32 ch_idx);
 
+/* Channel interrupts are numbered irq_base + index unless the part supplies
+ * an explicit table (see struct stm32_gpdma_state::irq_map). */
+static mm_u32 gpdma_channel_irq(const struct stm32_gpdma_state *d, mm_u32 ch_idx)
+{
+    if (d->irq_map != 0) {
+        return (mm_u32)d->irq_map[ch_idx];
+    }
+    return d->irq_base + ch_idx;
+}
+
 void stm32_gpdma_reset(struct stm32_gpdma_state *d)
 {
     mm_u32 i;
@@ -209,7 +219,7 @@ static void gpdma_execute_transfer(struct stm32_gpdma_state *d, mm_u32 ch_idx)
         if (i >= count / 2 && (ch->sr & STM32_GPDMA_CxSR_HTF) == 0u) {
             ch->sr |= STM32_GPDMA_CxSR_HTF;
             if ((ch->cr & STM32_GPDMA_CxCR_HTIE) && d->nvic) {
-                mm_nvic_set_pending(d->nvic, d->irq_base + ch_idx, MM_TRUE);
+                mm_nvic_set_pending(d->nvic, gpdma_channel_irq(d, ch_idx), MM_TRUE);
             }
         }
     }
@@ -225,7 +235,7 @@ static void gpdma_execute_transfer(struct stm32_gpdma_state *d, mm_u32 ch_idx)
         d->misr |= (1u << ch_idx);
 
         if ((ch->cr & STM32_GPDMA_CxCR_TCIE) && d->nvic) {
-            mm_nvic_set_pending(d->nvic, d->irq_base + ch_idx, MM_TRUE);
+            mm_nvic_set_pending(d->nvic, gpdma_channel_irq(d, ch_idx), MM_TRUE);
         }
 
         /* Linked list handling */

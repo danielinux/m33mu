@@ -45,6 +45,7 @@
 #include "rp2350/rp2350_mmio.h"
 #include "stm32h533/stm32h533_mmio.h"
 #include "stm32h563/stm32h563_mmio.h"
+#include "stm32h5f4/stm32h5f4_mmio.h"
 #include "m33mu/mem_prot.h"
 #include "m33mu/exc_return.h"
 #include "m33mu/tz.h"
@@ -5248,6 +5249,8 @@ int main(int argc, char **argv)
         mm_stm32h563_otp_init(cpu_name);
     } else if (cpu_name != 0 && strcmp(cpu_name, "stm32h533") == 0) {
         mm_stm32h533_otp_init(cpu_name);
+    } else if (cpu_name != 0 && strcmp(cpu_name, "stm32h5f4") == 0) {
+        mm_stm32h5f4_otp_init(cpu_name);
     }
 
     if (image_count > 0 && boot_mode != MM_BOOT_RAM) {
@@ -5777,7 +5780,8 @@ int main(int argc, char **argv)
                 mm_prot_add_region(&prot, 0x0A000000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
             }
             if (cpu_name != 0 &&
-                (strcmp(cpu_name, "stm32h563") == 0 || strcmp(cpu_name, "stm32h533") == 0)) {
+                (strcmp(cpu_name, "stm32h563") == 0 || strcmp(cpu_name, "stm32h533") == 0 ||
+                 strcmp(cpu_name, "stm32h5f4") == 0)) {
                 mm_prot_add_region(&prot, 0x0CFFF000u, 0x800u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
                 mm_prot_add_region(&prot, 0x08FFF000u, 0x800u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
                 mm_prot_add_region(&prot, 0x0CFFF800u, 0x10u, MM_PROT_PERM_READ, MM_SECURE);

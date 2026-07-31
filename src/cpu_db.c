@@ -33,6 +33,12 @@
 #include "stm32h533/stm32h533_spi.h"
 #include "stm32h533/stm32h533_eth.h"
 #include "stm32h533/cpu_config.h"
+#include "stm32h5f4/stm32h5f4_mmio.h"
+#include "stm32h5f4/stm32h5f4_timers.h"
+#include "stm32h5f4/stm32h5f4_usart.h"
+#include "stm32h5f4/stm32h5f4_spi.h"
+#include "stm32h5f4/stm32h5f4_eth.h"
+#include "stm32h5f4/cpu_config.h"
 #include "stm32u585/stm32u585_mmio.h"
 #include "stm32u585/stm32u585_timers.h"
 #include "stm32u585/stm32u585_usart.h"
@@ -153,6 +159,42 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H533_TIMER_RESET,
             STM32H533_TIMER_TICK,
             0
+        }
+    },
+    {
+        "stm32h5f4",
+        {
+            STM32H5F4_FLASH_BASE_S,
+            STM32H5F4_FLASH_SIZE,
+            STM32H5F4_FLASH_BASE_NS,
+            STM32H5F4_FLASH_SIZE,
+            STM32H5F4_RAM_BASE_S,
+            STM32H5F4_RAM_SIZE,
+            STM32H5F4_RAM_BASE_NS,
+            STM32H5F4_RAM_SIZE,
+            1,
+            STM32H5F4_RAM_REGIONS,
+            STM32H5F4_RAM_REGION_COUNT,
+            STM32H5F4_MPCBB_BLOCK_SIZE,
+            mm_stm32h5f4_mpcbb_block_secure,
+            STM32H5F4_FLAGS,
+            STM32H5F4_SOC_RESET,
+            STM32H5F4_SOC_REGISTER,
+            STM32H5F4_FLASH_BIND,
+            STM32H5F4_CLOCK_GET_HZ,
+            STM32H5F4_USART_INIT,
+            STM32H5F4_USART_RESET,
+            STM32H5F4_USART_POLL,
+            STM32H5F4_SPI_INIT,
+            STM32H5F4_SPI_RESET,
+            STM32H5F4_SPI_POLL,
+            STM32H5F4_ETH_INIT,
+            STM32H5F4_ETH_RESET,
+            STM32H5F4_ETH_POLL,
+            STM32H5F4_TIMER_INIT,
+            STM32H5F4_TIMER_RESET,
+            STM32H5F4_TIMER_TICK,
+            STM32H5F4_TZ_ATTR
         }
     },
     {

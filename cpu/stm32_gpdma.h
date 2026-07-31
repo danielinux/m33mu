@@ -107,8 +107,13 @@ struct stm32_gpdma_state {
     struct stm32_gpdma_channel ch[STM32_GPDMA_CH_COUNT];
     struct mm_nvic *nvic;
     mm_u32 irq_base;   /* Base IRQ number for this DMA controller */
+    /* Optional per-channel IRQ table, for parts whose GPDMA channel
+     * interrupts are not numbered contiguously from irq_base (the
+     * STM32H5F4 places channels 8..11 far above channels 0..7). When
+     * null, the IRQ number is irq_base + channel index. */
+    const mm_u16 *irq_map;
     mm_u8 instance;    /* 0 = GPDMA1, 1 = GPDMA2 */
-    mm_u8 num_channels; /* Actual number of channels (8 or 16) */
+    mm_u8 num_channels; /* Actual number of channels (8, 12 or 16) */
 };
 
 void stm32_gpdma_reset(struct stm32_gpdma_state *d);
