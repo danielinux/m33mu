@@ -61,9 +61,9 @@ static const struct mm_ram_region STM32H5F4_RAM_REGIONS[] = {
 #define STM32H5F4_SPI_RESET      mm_stm32h5f4_spi_reset
 #define STM32H5F4_SPI_POLL       mm_stm32h5f4_spi_poll
 
-#define STM32H5F4_ETH_INIT       mm_stm32h5f4_eth_init
-#define STM32H5F4_ETH_RESET      mm_stm32h5f4_eth_reset
-#define STM32H5F4_ETH_POLL       mm_stm32h5f4_eth_poll
+#define STM32H5F4_ETH_INIT       stm32h5_eth_init
+#define STM32H5F4_ETH_RESET      stm32h5_eth_reset
+#define STM32H5F4_ETH_POLL       stm32h5_eth_poll
 
 #define STM32H5F4_TIMER_INIT  mm_stm32h5f4_timers_init
 #define STM32H5F4_TIMER_RESET mm_stm32h5f4_timers_reset

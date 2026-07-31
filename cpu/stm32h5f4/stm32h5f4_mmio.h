@@ -45,10 +45,6 @@ mm_bool mm_stm32h5f4_tz_attr_for_addr(mm_u32 addr,
                                       mm_u32 *region_out);
 void mm_stm32h5f4_rng_set_nvic(struct mm_nvic *nvic);
 void mm_stm32h5f4_exti_set_nvic(struct mm_nvic *nvic);
-mm_bool mm_stm32h5f4_eth_register_mmio(struct mmio_bus *bus);
-void mm_stm32h5f4_eth_set_nvic(struct mm_nvic *nvic);
-void mm_stm32h5f4_eth_reset(void);
-void mm_stm32h5f4_eth_poll(void);
 void mm_stm32h5f4_watchdog_tick(mm_u64 cycles);
 mm_bool mm_stm32h5f4_mpcbb_block_secure(int bank, mm_u32 block_index);
 void mm_stm32h5f4_mmio_reset(void);

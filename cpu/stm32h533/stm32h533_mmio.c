@@ -36,7 +36,7 @@
 #endif
 #include "stm32h533/stm32h533_mmio.h"
 #include "stm32h533/stm32h533_usb.h"
-#include "stm32h533/stm32h533_eth.h"
+#include "stm32h5_eth.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
 #include "m33mu/otp.h"
@@ -2486,7 +2486,7 @@ mm_bool mm_stm32h533_register_mmio(struct mmio_bus *bus)
     }
 
     if (!mm_stm32h533_usb_register_mmio(bus)) return MM_FALSE;
-    if (!mm_stm32h533_eth_register_mmio(bus)) return MM_FALSE;
+    if (!stm32h5_eth_register_mmio(bus, mm_stm32h533_rcc_regs())) return MM_FALSE;
     return MM_TRUE;
 }
 

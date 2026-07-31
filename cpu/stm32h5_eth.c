@@ -6,8 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/random.h>
-#include "stm32h533/stm32h533_eth.h"
-#include "stm32h533/stm32h533_mmio.h"
+#include "stm32h5_eth.h"
 #include "m33mu/eth_backend.h"
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
@@ -119,7 +118,7 @@ struct eth_desc {
     mm_u32 des3;
 };
 
-struct stm32h533_eth {
+struct stm32h5_eth {
     mm_u32 regs[ETH_SIZE / 4u];
     mm_u16 phy_regs[32];
     mm_u8 mac[6];
@@ -129,7 +128,7 @@ struct stm32h533_eth {
     mm_u32 *rcc_regs;
 };
 
-static struct stm32h533_eth g_eth;
+static struct stm32h5_eth g_eth;
 
 static mm_bool eth_clock_enabled(void)
 {
@@ -269,25 +268,28 @@ static void eth_apply_mac(void)
                                    ((mm_u32)g_eth.mac[0]);
 }
 
-void mm_stm32h533_eth_reset(void)
+void stm32h5_eth_reset(void)
 {
     memset(g_eth.regs, 0, sizeof(g_eth.regs));
     g_eth.tx_idx = 0;
     g_eth.rx_idx = 0;
     eth_generate_mac(g_eth.mac);
     eth_apply_mac();
+    fprintf(stderr, "[ETH_MAC] assigned MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
+            g_eth.mac[0], g_eth.mac[1], g_eth.mac[2],
+            g_eth.mac[3], g_eth.mac[4], g_eth.mac[5]);
     eth_phy_reset();
 }
 
-void mm_stm32h533_eth_set_nvic(struct mm_nvic *nvic)
+void stm32h5_eth_set_nvic(struct mm_nvic *nvic)
 {
     g_eth.nvic = nvic;
 }
 
-void mm_stm32h533_eth_init(struct mmio_bus *bus, struct mm_nvic *nvic)
+void stm32h5_eth_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 {
     (void)bus;
-    mm_stm32h533_eth_set_nvic(nvic);
+    stm32h5_eth_set_nvic(nvic);
 }
 
 static void eth_handle_mdio(void)
@@ -382,7 +384,7 @@ static mm_bool eth_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
         g_eth.regs[offset / 4u] = value;
         if ((value & ETH_DMAMR_SWR) != 0u) {
             eth_dma_reset();
-            mm_stm32h533_eth_reset();
+            stm32h5_eth_reset();
             g_eth.regs[ETH_DMAMR / 4u] &= ~ETH_DMAMR_SWR;
         }
         return MM_TRUE;
@@ -418,10 +420,13 @@ static void eth_tx_poll(void)
     mm_bool te;
     mm_u32 processed = 0;
 
-    if (!eth_clock_enabled() || !eth_tx_clock_enabled()) return;
+    if (!eth_clock_enabled() || !eth_tx_clock_enabled())
+        return;
     te = (g_eth.regs[ETH_MACCR / 4u] & ETH_MACCR_TE) != 0u;
-    if (!te) return;
-    if ((g_eth.regs[ETH_DMACTXCR / 4u] & 1u) == 0u) return;
+    if (!te)
+        return;
+    if ((g_eth.regs[ETH_DMACTXCR / 4u] & 1u) == 0u)
+        return;
 
     base = g_eth.regs[ETH_DMACTXDLAR / 4u];
     count = eth_desc_count(g_eth.regs[ETH_DMACTXRLR / 4u]);
@@ -431,8 +436,10 @@ static void eth_tx_poll(void)
         mm_u32 len;
         mm_u32 j;
         mm_u8 buf[1600];
-        if (!eth_dma_read_desc(addr, &desc)) break;
-        if ((desc.des3 & ETH_TDES3_OWN) == 0u) break;
+        if (!eth_dma_read_desc(addr, &desc))
+            break;
+        if ((desc.des3 & ETH_TDES3_OWN) == 0u)
+            break;
         len = desc.des2 & ETH_TDES2_B1L_MASK;
         if (len > sizeof(buf)) len = sizeof(buf);
         for (j = 0; j < len; ++j) {
@@ -441,7 +448,7 @@ static void eth_tx_poll(void)
             b = (mm_u8)((desc.des1 >> ((j & 3u) * 8u)) & 0xFFu);
             buf[j] = b;
         }
-        (void)mm_eth_backend_send(buf, len);
+        mm_eth_backend_send(buf, len);
         desc.des3 &= ~ETH_TDES3_OWN;
         eth_dma_write_desc(addr, &desc);
         g_eth.regs[ETH_DMACSR / 4u] |= ETH_DMACSR_TI;
@@ -472,13 +479,17 @@ static void eth_rx_poll(void)
     mm_u32 i;
     mm_bool re;
 
-    if (!eth_clock_enabled() || !eth_rx_clock_enabled()) return;
+    if (!eth_clock_enabled() || !eth_rx_clock_enabled())
+        return;
     re = (g_eth.regs[ETH_MACCR / 4u] & ETH_MACCR_RE) != 0u;
-    if (!re) return;
-    if ((g_eth.regs[ETH_DMACRXCR / 4u] & 1u) == 0u) return;
+    if (!re)
+        return;
+    if ((g_eth.regs[ETH_DMACRXCR / 4u] & 1u) == 0u)
+        return;
 
     n = mm_eth_backend_recv(buf, sizeof(buf));
-    if (n <= 0) return;
+    if (n <= 0)
+        return;
 
     base = g_eth.regs[ETH_DMACRXDLAR / 4u];
     count = eth_desc_count(g_eth.regs[ETH_DMACRXRLR / 4u]);
@@ -512,14 +523,15 @@ static void eth_rx_poll(void)
     g_eth.rx_idx = (g_eth.rx_idx + 1u) % count;
 }
 
-void mm_stm32h533_eth_poll(void)
+void stm32h5_eth_poll(void)
 {
-    if (!eth_clock_enabled()) return;
+    if (!eth_clock_enabled())
+        return;
     eth_tx_poll();
     eth_rx_poll();
 }
 
-mm_bool mm_stm32h533_eth_get_mac(mm_u8 mac[6])
+mm_bool stm32h5_eth_get_mac(mm_u8 mac[6])
 {
     if (mac == 0) {
         return MM_FALSE;
@@ -528,7 +540,7 @@ mm_bool mm_stm32h533_eth_get_mac(mm_u8 mac[6])
     return MM_TRUE;
 }
 
-mm_bool mm_stm32h533_eth_register_mmio(struct mmio_bus *bus)
+mm_bool stm32h5_eth_register_mmio(struct mmio_bus *bus, mm_u32 *rcc_regs)
 {
     struct mmio_region reg;
     if (bus == 0) return MM_FALSE;
@@ -541,6 +553,6 @@ mm_bool mm_stm32h533_eth_register_mmio(struct mmio_bus *bus)
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
     reg.base = ETH_SEC_BASE;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
-    g_eth.rcc_regs = mm_stm32h533_rcc_regs();
+    g_eth.rcc_regs = rcc_regs;
     return MM_TRUE;
 }

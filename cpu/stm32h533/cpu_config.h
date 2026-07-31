@@ -59,9 +59,9 @@ static const struct mm_ram_region STM32H533_RAM_REGIONS[] = {
 #define STM32H533_SPI_RESET      mm_stm32h533_spi_reset
 #define STM32H533_SPI_POLL       mm_stm32h533_spi_poll
 
-#define STM32H533_ETH_INIT       mm_stm32h533_eth_init
-#define STM32H533_ETH_RESET      mm_stm32h533_eth_reset
-#define STM32H533_ETH_POLL       mm_stm32h533_eth_poll
+#define STM32H533_ETH_INIT       stm32h5_eth_init
+#define STM32H533_ETH_RESET      stm32h5_eth_reset
+#define STM32H533_ETH_POLL       stm32h5_eth_poll
 
 #define STM32H533_TIMER_INIT  mm_stm32h533_timers_init
 #define STM32H533_TIMER_RESET mm_stm32h533_timers_reset

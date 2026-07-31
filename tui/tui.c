@@ -42,7 +42,7 @@
 #include "m33mu/gpio.h"
 #include "m33mu/eth_backend.h"
 #include "m33mu/memmap.h"
-#include "stm32h563/stm32h563_eth.h"
+#include "stm32h5_eth.h"
 #include "tui.h"
 
 typedef uint32_t uintattr_t;
@@ -1659,7 +1659,7 @@ static void tui_draw(struct mm_tui *tui)
             }
             eth_backend = mm_eth_backend_type_get();
             eth_link = mm_eth_backend_link_up();
-            eth_mac_ok = mm_stm32h563_eth_get_mac(eth_mac);
+            eth_mac_ok = stm32h5_eth_get_mac(eth_mac);
             if (eth_mac_ok) {
                 snprintf(mac_buf, sizeof(mac_buf), "%02x:%02x:%02x:%02x:%02x:%02x",
                          eth_mac[0], eth_mac[1], eth_mac[2], eth_mac[3], eth_mac[4], eth_mac[5]);
