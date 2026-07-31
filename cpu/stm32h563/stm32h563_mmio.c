@@ -163,7 +163,7 @@ extern void mm_system_request_reset(void);
 
 /* UCPD1 base addresses */
 #define UCPD1_BASE     0x4000DC00u
-#define UCPD1_SEC_BASE 0x5400DC00u
+#define UCPD1_SEC_BASE 0x5000DC00u
 #define UCPD1_SIZE     0x400u
 
 /* CRS base addresses */
@@ -690,12 +690,12 @@ void mm_stm32h563_mmio_reset(void)
     mpcbb_init_defaults();
     /* Initialize GPDMA with shared implementation */
     gpdma1.instance = 0;
-    gpdma1.num_channels = 16;
-    gpdma1.irq_base = 27; /* GPDMA1 channel IRQs start at 27 */
+    gpdma1.num_channels = 8;
+    gpdma1.irq_base = 27; /* GPDMA1_CH0..CH7 are IRQ 27..34 */
     stm32_gpdma_reset(&gpdma1);
     gpdma2.instance = 1;
-    gpdma2.num_channels = 16;
-    gpdma2.irq_base = 43; /* GPDMA2 channel IRQs start at 43 */
+    gpdma2.num_channels = 8;
+    gpdma2.irq_base = 90; /* GPDMA2_CH0..CH7 are IRQ 90..97 */
     stm32_gpdma_reset(&gpdma2);
     /* Initialize GPIO with shared implementation */
     for (i = 0; i < sizeof(gpio) / sizeof(gpio[0]); ++i) {
