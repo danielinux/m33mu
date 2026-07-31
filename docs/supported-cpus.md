@@ -4,6 +4,7 @@ These values are accepted by `--cpu`:
 
 - `stm32h533`
 - `stm32h563` (default)
+- `stm32h5f4`
 - `stm32u585`
 - `stm32l552`
 - `lpc55s69`
