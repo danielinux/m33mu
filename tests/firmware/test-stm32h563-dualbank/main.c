@@ -53,6 +53,7 @@ static void bkpt_ok(void)
 #define FLASH_SECKEYR       (*(volatile uint32_t *)(FLASH_BASE + 0x008u))
 #define FLASH_NSCR          (*(volatile uint32_t *)(FLASH_BASE + 0x028u))
 #define FLASH_SECCR         (*(volatile uint32_t *)(FLASH_BASE + 0x02cu))
+#define FLASH_OPTSR_CUR     (*(volatile uint32_t *)(FLASH_BASE + 0x050u))
 #define FLASH_OPTSR_PRG     (*(volatile uint32_t *)(FLASH_BASE + 0x054u))
 
 #define FLASH_KEY1          0x45670123u
@@ -66,6 +67,16 @@ static void bkpt_ok(void)
 #define FLASH_CR_BKSEL      (1u << 31)
 
 #define FLASH_OPTSR_SWAP    (1u << 31)
+#define FLASH_OPTSR_PRODUCT_STATE_MASK (0xffu << 8)
+#define FLASH_OPTSR_PRODUCT_STATE_OPEN (0xedu << 8)
+
+#define AIRCR               (*(volatile uint32_t *)0xe000ed0cu)
+#define AIRCR_RESET         0x05fa0004u
+
+#define RESET_MARKER_MAGIC  0x57545253u
+
+__attribute__((section(".noinit")))
+static volatile uint32_t reset_marker;
 
 #define FLASH_BASE_NS       0x08000000u
 #define FLASH_BASE_S        0x0C000000u
@@ -198,8 +209,64 @@ static void dualbank_test_ram(void)
     bkpt_ok();
 }
 
+__attribute__((section(".ramfunc"), noinline))
+static void product_state_reset_test(void)
+{
+    uint32_t expected;
+
+    if (reset_marker != RESET_MARKER_MAGIC) {
+        expected = FLASH_OPTSR_PRODUCT_STATE_OPEN;
+        if ((FLASH_OPTSR_CUR & (FLASH_OPTSR_PRODUCT_STATE_MASK |
+                FLASH_OPTSR_SWAP)) != expected) {
+            bkpt_fail();
+        }
+        if ((FLASH_OPTSR_PRG & (FLASH_OPTSR_PRODUCT_STATE_MASK |
+                FLASH_OPTSR_SWAP)) != expected) {
+            bkpt_fail();
+        }
+
+        FLASH_OPTSR_PRG = FLASH_OPTSR_SWAP;
+        expected |= FLASH_OPTSR_SWAP;
+        if ((FLASH_OPTSR_CUR & (FLASH_OPTSR_PRODUCT_STATE_MASK |
+                FLASH_OPTSR_SWAP)) != expected) {
+            bkpt_fail();
+        }
+        if ((FLASH_OPTSR_PRG & (FLASH_OPTSR_PRODUCT_STATE_MASK |
+                FLASH_OPTSR_SWAP)) != expected) {
+            bkpt_fail();
+        }
+
+        reset_marker = RESET_MARKER_MAGIC;
+        AIRCR = AIRCR_RESET;
+        while (1) {
+        }
+    }
+
+    expected = FLASH_OPTSR_PRODUCT_STATE_OPEN | FLASH_OPTSR_SWAP;
+    if ((FLASH_OPTSR_CUR & (FLASH_OPTSR_PRODUCT_STATE_MASK |
+            FLASH_OPTSR_SWAP)) != expected) {
+        bkpt_fail();
+    }
+    if ((FLASH_OPTSR_PRG & (FLASH_OPTSR_PRODUCT_STATE_MASK |
+            FLASH_OPTSR_SWAP)) != expected) {
+        bkpt_fail();
+    }
+
+    FLASH_OPTSR_PRG = 0u;
+    if ((FLASH_OPTSR_CUR & (FLASH_OPTSR_PRODUCT_STATE_MASK |
+            FLASH_OPTSR_SWAP)) != FLASH_OPTSR_PRODUCT_STATE_OPEN) {
+        bkpt_fail();
+    }
+    if ((FLASH_OPTSR_PRG & (FLASH_OPTSR_PRODUCT_STATE_MASK |
+            FLASH_OPTSR_SWAP)) != FLASH_OPTSR_PRODUCT_STATE_OPEN) {
+        bkpt_fail();
+    }
+    reset_marker = 0u;
+}
+
 int main(void)
 {
+    product_state_reset_test();
     dualbank_test_ram();
     bkpt_fail();
     return 0;
