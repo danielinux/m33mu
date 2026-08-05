@@ -60,11 +60,12 @@ static int test_banked_flash_same_backing(void)
     return 0;
 }
 
-static mm_bool test_sector_secure_first8(void *opaque, mm_u32 byte_offset)
+static enum mm_flash_tz_attr test_sector_secure_first8(void *opaque,
+                                                       mm_u32 byte_offset)
 {
     (void)opaque;
     /* Sectors of 8 bytes: the first sector is attributed secure. */
-    return (byte_offset < 8u) ? MM_TRUE : MM_FALSE;
+    return (byte_offset < 8u) ? MM_FLASH_TZ_SECURE : MM_FLASH_TZ_NONSECURE;
 }
 
 static int test_ns_alias_read_secure_sector_raz(void)
@@ -92,9 +93,18 @@ static int test_ns_alias_read_secure_sector_raz(void)
     if (!mm_memmap_configure_flash(&map, &cfg, flash, MM_TRUE)) return 1;
     mm_memmap_set_flash_sector_secure(&map, test_sector_secure_first8, 0);
 
-    /* Secure alias: always readable. */
+    /* Secure alias of a secure sector: readable. */
     if (!mm_memmap_read(&map, MM_SECURE, 0x0C000000u, 2u, &val)) return 1;
     if ((val & 0xFFFFu) != 0x3412u) return 1;
+    /* Secure alias of a NON-SECURE sector: RAZ.  The filter rejects the
+     * mismatch in this direction too -- confirmed on NUCLEO-H563ZI, where a
+     * secure read of 0x0C060000 returns 0 while 0x08060000 returns the word. */
+    if (!mm_memmap_read(&map, MM_SECURE, 0x0C000008u, 2u, &val)) return 1;
+    if (val != 0u) return 1;
+    if (!mm_memmap_read(&map, MM_NONSECURE, 0x0C000008u, 2u, &val)) return 1;
+    if (val != 0u) return 1;
+    if (!mm_memmap_read8(&map, MM_SECURE, 0x0C000009u, &val8)) return 1;
+    if (val8 != 0u) return 1;
     /* NS alias of a secure sector: RAZ, whatever the CPU state (the alias
      * carries a non-secure transaction). */
     if (!mm_memmap_read(&map, MM_NONSECURE, 0x08000000u, 2u, &val)) return 1;
@@ -107,6 +117,103 @@ static int test_ns_alias_read_secure_sector_raz(void)
     if (!mm_memmap_read(&map, MM_NONSECURE, 0x08000008u, 2u, &val)) return 1;
     if ((val & 0xFFFFu) != 0x7856u) return 1;
     if (!mm_memmap_read(&map, MM_SECURE, 0x08000008u, 2u, &val)) return 1;
+    if ((val & 0xFFFFu) != 0x7856u) return 1;
+    return 0;
+}
+
+/* Stands in for a disabled SAU, where every address is attributed Secure
+ * whichever alias it came from. */
+static enum mm_sec_state test_bus_attr_all_secure(void *opaque, mm_u32 addr)
+{
+    (void)opaque;
+    (void)addr;
+    return MM_SECURE;
+}
+
+/* The transaction attribute comes from SAU/IDAU, not from the alias.  With the
+ * SAU disabled a non-secure-alias read still issues a secure transaction, so it
+ * reaches secure sectors and is rejected by non-secure ones -- the inverse of
+ * the alias-derived default.  Matches NUCLEO-H563ZI with SAU_CTRL=0. */
+static int test_bus_attr_overrides_alias(void)
+{
+    struct mm_memmap map;
+    struct mmio_region regions[4];
+    struct mm_target_cfg cfg;
+    mm_u8 flash[16];
+    mm_u32 val = 0xFFFFFFFFu;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.flash_base_s = 0x0C000000u;
+    cfg.flash_size_s = sizeof(flash);
+    cfg.flash_base_ns = 0x08000000u;
+    cfg.flash_size_ns = sizeof(flash);
+
+    memset(flash, 0xFF, sizeof(flash));
+    flash[0] = 0x12;
+    flash[1] = 0x34;
+    flash[8] = 0x56;
+    flash[9] = 0x78;
+
+    mm_memmap_init(&map, regions, 4);
+    if (!mm_memmap_configure_flash(&map, &cfg, flash, MM_TRUE)) return 1;
+    mm_memmap_set_flash_sector_secure(&map, test_sector_secure_first8, 0);
+    mm_memmap_set_bus_attr(&map, test_bus_attr_all_secure, 0);
+
+    /* NS alias, secure sector: secure transaction, so it reads through. */
+    if (!mm_memmap_read(&map, MM_SECURE, 0x08000000u, 2u, &val)) return 1;
+    if ((val & 0xFFFFu) != 0x3412u) return 1;
+    /* NS alias, non-secure sector: still a secure transaction -> RAZ. */
+    if (!mm_memmap_read(&map, MM_SECURE, 0x08000008u, 2u, &val)) return 1;
+    if (val != 0u) return 1;
+    /* Secure alias is unchanged by the override. */
+    if (!mm_memmap_read(&map, MM_SECURE, 0x0C000000u, 2u, &val)) return 1;
+    if ((val & 0xFFFFu) != 0x3412u) return 1;
+    if (!mm_memmap_read(&map, MM_SECURE, 0x0C000008u, 2u, &val)) return 1;
+    if (val != 0u) return 1;
+    return 0;
+}
+
+static enum mm_flash_tz_attr test_sector_unfiltered(void *opaque,
+                                                    mm_u32 byte_offset)
+{
+    (void)opaque;
+    (void)byte_offset;
+    return MM_FLASH_TZ_UNFILTERED;
+}
+
+/* An unprovisioned device has no secure attribution programmed: the flash TZ
+ * filter has nothing to enforce and both aliases read straight through. */
+static int test_unfiltered_flash_passes_both_aliases(void)
+{
+    struct mm_memmap map;
+    struct mmio_region regions[4];
+    struct mm_target_cfg cfg;
+    mm_u8 flash[16];
+    mm_u32 val = 0xFFFFFFFFu;
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.flash_base_s = 0x0C000000u;
+    cfg.flash_size_s = sizeof(flash);
+    cfg.flash_base_ns = 0x08000000u;
+    cfg.flash_size_ns = sizeof(flash);
+
+    memset(flash, 0xFF, sizeof(flash));
+    flash[0] = 0x12;
+    flash[1] = 0x34;
+    flash[8] = 0x56;
+    flash[9] = 0x78;
+
+    mm_memmap_init(&map, regions, 4);
+    if (!mm_memmap_configure_flash(&map, &cfg, flash, MM_TRUE)) return 1;
+    mm_memmap_set_flash_sector_secure(&map, test_sector_unfiltered, 0);
+
+    if (!mm_memmap_read(&map, MM_SECURE, 0x0C000000u, 2u, &val)) return 1;
+    if ((val & 0xFFFFu) != 0x3412u) return 1;
+    if (!mm_memmap_read(&map, MM_SECURE, 0x0C000008u, 2u, &val)) return 1;
+    if ((val & 0xFFFFu) != 0x7856u) return 1;
+    if (!mm_memmap_read(&map, MM_NONSECURE, 0x08000000u, 2u, &val)) return 1;
+    if ((val & 0xFFFFu) != 0x3412u) return 1;
+    if (!mm_memmap_read(&map, MM_NONSECURE, 0x08000008u, 2u, &val)) return 1;
     if ((val & 0xFFFFu) != 0x7856u) return 1;
     return 0;
 }
@@ -193,6 +300,8 @@ int main(void)
     struct { const char *name; int (*fn)(void); } tests[] = {
         { "banked_flash", test_banked_flash_same_backing },
         { "ns_alias_read_secure_sector_raz", test_ns_alias_read_secure_sector_raz },
+        { "unfiltered_flash_passes_both_aliases", test_unfiltered_flash_passes_both_aliases },
+        { "bus_attr_overrides_alias", test_bus_attr_overrides_alias },
         { "ram_write_read", test_ram_write_read },
         { "secure_nonsecure_sram_aliases_share_backing", test_secure_nonsecure_sram_aliases_share_backing },
         { "interceptor_blocks", test_interceptor_blocks_write },

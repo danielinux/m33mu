@@ -2688,6 +2688,17 @@ static mm_bool prot_mux_interceptor(void *opaque, enum mm_access_type type, enum
     return mm_prot_interceptor(g_active_prot_ctx, type, sec, addr, size_bytes);
 }
 
+/* Security attribute a bus transaction to `addr` carries, for peripherals that
+ * enforce TZ attribution themselves (the flash TZ filter). */
+static enum mm_sec_state prot_mux_bus_attr(void *opaque, mm_u32 addr)
+{
+    (void)opaque;
+    if (g_active_prot_ctx == 0) {
+        return MM_SECURE;
+    }
+    return mm_prot_bus_attr_for_addr(g_active_prot_ctx, addr);
+}
+
 static mm_bool allow_system_reset(const struct mm_target_cfg *cfg, const char *cpu_name)
 {
     if (cfg == 0 || cpu_name == 0) {
@@ -5737,11 +5748,18 @@ int main(int argc, char **argv)
             }
             g_active_prot_ctx = &prot;
             mm_memmap_set_interceptor(&map, prot_mux_interceptor, 0);
+            mm_memmap_set_bus_attr(&map, prot_mux_bus_attr, 0);
             mm_prot_add_region(&prot, cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
             mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+            /* Secure code may address the non-secure flash alias: on ARMv8-M a
+             * secure master reaching an address the SAU/IDAU attributes NS just
+             * issues a non-secure transaction, it is not denied.  Whether the
+             * read returns data is then up to the flash TZ filter, which
+             * mm_memmap_read applies.  Without this region the access never got
+             * that far and read back as zero even for NS-attributed sectors. */
+            mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns,
+                               MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
             if (cpu_name != 0 && strcmp(cpu_name, "mcxn947") == 0) {
-                mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns,
-                                   MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
                 mm_prot_add_region(&prot, 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_SECURE);
                 mm_prot_add_region(&prot, 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_NONSECURE);
             }

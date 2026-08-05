@@ -55,12 +55,39 @@ typedef mm_bool (*mm_flash_write_cb)(void *opaque,
  */
 typedef mm_bool (*mm_flash_ecc_check_cb)(void *opaque, mm_u32 byte_offset);
 
-/* Returns MM_TRUE if the flash sector containing byte_offset is currently
- * attributed SECURE (watermark and/or block-based attribution). Used to
- * filter accesses through the non-secure flash alias: the alias carries a
- * non-secure bus transaction whatever the CPU security state, and the
- * flash TZ filter reads it as zero when the target sector is secure. */
-typedef mm_bool (*mm_flash_sector_secure_cb)(void *opaque, mm_u32 byte_offset);
+/*
+ * TrustZone attribution of a flash sector, as enforced by the flash
+ * controller's TZ filter.
+ *
+ * The filter compares the security attribute of the bus transaction against
+ * the attribution of the target sector and reads back zero on a mismatch --
+ * in BOTH directions.  A secure access to a sector attributed non-secure is
+ * rejected just like the reverse, silently and without a bus fault.  See
+ * mm_bus_attr_cb for where the transaction attribute comes from.
+ *
+ * Verified on NUCLEO-H563ZI silicon (TZEN=1, SECWM1 = sectors 0..15, SAU
+ * marking the flash alias above 0x08020000 non-secure): a read of
+ * 0x0C060000 returns 0 while 0x08060000 returns the stored word.
+ */
+enum mm_flash_tz_attr {
+    MM_FLASH_TZ_UNFILTERED = 0, /* not provisioned: filter passes everything */
+    MM_FLASH_TZ_SECURE,         /* sector attributed Secure */
+    MM_FLASH_TZ_NONSECURE       /* sector attributed Non-secure */
+};
+
+/* Returns the TZ attribution of the flash sector containing byte_offset. */
+typedef enum mm_flash_tz_attr (*mm_flash_sector_secure_cb)(void *opaque,
+                                                           mm_u32 byte_offset);
+
+/*
+ * Returns the security attribute a bus transaction to `addr` carries, i.e. the
+ * effective SAU/IDAU attribution.  The alias alone does not decide it: the SAU
+ * can attribute a non-secure-alias address Secure (it does out of reset, when
+ * SAU is disabled and every address is Secure), and the flash filter then sees
+ * a secure transaction even though the address came from the NS window.
+ * When unset, the filter falls back to the alias the access arrived through.
+ */
+typedef enum mm_sec_state (*mm_bus_attr_cb)(void *opaque, mm_u32 addr);
 
 struct mm_memmap {
     struct mm_mem flash;
@@ -88,6 +115,8 @@ struct mm_memmap {
     void *flash_ecc_check_opaque;
     mm_flash_sector_secure_cb flash_sector_secure;
     void *flash_sector_secure_opaque;
+    mm_bus_attr_cb bus_attr;
+    void *bus_attr_opaque;
 };
 
 void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t region_capacity);
@@ -96,6 +125,7 @@ void mm_memmap_set_interceptor(struct mm_memmap *map, mm_access_interceptor fn, 
 void mm_memmap_set_flash_writer(struct mm_memmap *map, mm_flash_write_cb fn, void *opaque);
 void mm_memmap_set_flash_ecc_check(struct mm_memmap *map, mm_flash_ecc_check_cb fn, void *opaque);
 void mm_memmap_set_flash_sector_secure(struct mm_memmap *map, mm_flash_sector_secure_cb fn, void *opaque);
+void mm_memmap_set_bus_attr(struct mm_memmap *map, mm_bus_attr_cb fn, void *opaque);
 void mm_memmap_set_code_cache(struct mm_memmap *map, struct mm_code_cache *cc);
 mm_bool mm_memmap_configure_flash(struct mm_memmap *map, const struct mm_target_cfg *cfg, const mm_u8 *backing, mm_bool secure_view);
 mm_bool mm_memmap_configure_ram(struct mm_memmap *map, const struct mm_target_cfg *cfg, mm_u8 *backing, mm_bool secure_view);

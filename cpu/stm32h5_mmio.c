@@ -1236,10 +1236,57 @@ static mm_bool flash_sector_attr_secure(struct flash_state *f, mm_u32 offset)
     return MM_FALSE;
 }
 
-static mm_bool flash_sector_secure_cb(void *opaque, mm_u32 byte_offset)
+/*
+ * True once a bank carries any secure attribution at all.  Out of reset the
+ * emulated device is unprovisioned (SECWM empty, SECBB clear); the flash TZ
+ * filter then has nothing to enforce and passes every access, which is what
+ * lets a bare secure image boot from the secure alias before it programs a
+ * watermark.  Once the watermark is programmed the filter applies in both
+ * directions.
+ */
+static mm_bool flash_tz_filter_armed(struct flash_state *f, mm_bool phys_hi)
+{
+    mm_u32 secwm;
+    mm_u32 i;
+    mm_u32 bb_base;
+
+    secwm = f->regs[(phys_hi ? FLASH_SECWM2R_CUR : FLASH_SECWM1R_CUR) / 4u];
+    if (secwm != FLASH_SECWM_EMPTY) {
+        return MM_TRUE;
+    }
+    bb_base = phys_hi ? FLASH_SECBB2R : FLASH_SECBB1R;
+    for (i = 0; i < FLASH_SECBB_NREGS; i++) {
+        if (f->regs[(bb_base + 4u * i) / 4u] != 0u) {
+            return MM_TRUE;
+        }
+    }
+    return MM_FALSE;
+}
+
+static enum mm_flash_tz_attr flash_sector_secure_cb(void *opaque,
+                                                    mm_u32 byte_offset)
 {
     struct flash_state *f = (struct flash_state *)opaque;
-    return flash_sector_attr_secure(f, byte_offset);
+    mm_u32 bank_size;
+    mm_bool phys_hi;
+
+    if (f == 0 || f->flash_size == 0u || FLASH_BANK_COUNT < 2u ||
+            byte_offset >= f->flash_size) {
+        return MM_FLASH_TZ_UNFILTERED;
+    }
+    bank_size = f->flash_size / FLASH_BANK_COUNT;
+    if (bank_size == 0u) {
+        return MM_FLASH_TZ_UNFILTERED;
+    }
+    phys_hi = (byte_offset >= bank_size) ? MM_TRUE : MM_FALSE;
+    if (f->swap_active) {
+        phys_hi = phys_hi ? MM_FALSE : MM_TRUE;
+    }
+    if (!flash_tz_filter_armed(f, phys_hi)) {
+        return MM_FLASH_TZ_UNFILTERED;
+    }
+    return flash_sector_attr_secure(f, byte_offset) ? MM_FLASH_TZ_SECURE
+                                                    : MM_FLASH_TZ_NONSECURE;
 }
 
 static void flash_set_busy(mm_u32 reg_offset, mm_bool busy)

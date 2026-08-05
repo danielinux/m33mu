@@ -183,6 +183,40 @@ static mm_bool target_attr_for_addr(const struct mm_prot_ctx *ctx,
     return MM_TRUE;
 }
 
+/*
+ * Effective SAU/IDAU attribution of an address: the security attribute that a
+ * bus transaction targeting it will carry.  Mirrors the attribution step of
+ * mm_prot_check().  Peripherals such as the flash TZ filter compare this
+ * against the attribution of the target resource, so they need the same
+ * answer the CPU's own address decode produces.
+ */
+enum mm_sec_state mm_prot_bus_attr_for_addr(const struct mm_prot_ctx *ctx,
+                                            mm_u32 addr)
+{
+    enum mm_sau_attr attr = MM_SAU_SECURE;
+    enum mm_sec_state addr_sec = MM_SECURE;
+    enum mm_sau_attr mpc_attr = MM_SAU_SECURE;
+    enum mm_sec_state mpc_addr_sec = MM_SECURE;
+    mm_bool mpc_secure_alias = MM_FALSE;
+
+    if (ctx == 0) {
+        return MM_SECURE;
+    }
+    if (target_attr_for_addr(ctx, addr, &attr, &addr_sec)) {
+        return addr_sec;
+    }
+    if (ctx->scs == 0) {
+        return MM_SECURE;
+    }
+    attr = mm_sau_attr_for_addr(ctx->scs, addr);
+    /* MPCBB (IDAU) and SAU both apply to SRAM; most restrictive wins. */
+    if (mpcbb_attr_for_addr(ctx, addr, &mpc_attr, &mpc_addr_sec,
+                            &mpc_secure_alias) && mpc_attr == MM_SAU_SECURE) {
+        attr = MM_SAU_SECURE;
+    }
+    return (attr == MM_SAU_NONSECURE) ? MM_NONSECURE : MM_SECURE;
+}
+
 static const char *attr_name(enum mm_sau_attr attr)
 {
     switch (attr) {

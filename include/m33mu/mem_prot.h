@@ -50,4 +50,9 @@ void mm_prot_init(struct mm_prot_ctx *ctx, struct mm_scs *scs, const struct mm_t
 mm_bool mm_prot_add_region(struct mm_prot_ctx *ctx, mm_u32 base, mm_u32 size, mm_u8 perms, enum mm_sec_state sec);
 mm_bool mm_prot_interceptor(void *opaque, enum mm_access_type type, enum mm_sec_state sec, mm_u32 addr, mm_u32 size_bytes);
 
+/* Effective SAU/IDAU attribution of an address: the security attribute a bus
+ * transaction targeting it will carry. */
+enum mm_sec_state mm_prot_bus_attr_for_addr(const struct mm_prot_ctx *ctx,
+                                            mm_u32 addr);
+
 #endif /* M33MU_MEM_PROT_H */

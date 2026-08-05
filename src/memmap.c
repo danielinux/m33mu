@@ -252,6 +252,10 @@ void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t r
     map->flash_write_opaque = 0;
     map->flash_ecc_check = 0;
     map->flash_ecc_check_opaque = 0;
+    map->flash_sector_secure = 0;
+    map->flash_sector_secure_opaque = 0;
+    map->bus_attr = 0;
+    map->bus_attr_opaque = 0;
     map->code_cache = 0;
     map->flash_base_s = map->flash_base_ns = 0;
     map->flash_size_s = map->flash_size_ns = 0;
@@ -282,6 +286,54 @@ void mm_memmap_set_flash_sector_secure(struct mm_memmap *map, mm_flash_sector_se
     if (map == 0) return;
     map->flash_sector_secure = fn;
     map->flash_sector_secure_opaque = opaque;
+}
+
+void mm_memmap_set_bus_attr(struct mm_memmap *map, mm_bus_attr_cb fn, void *opaque)
+{
+    if (map == 0) return;
+    map->bus_attr = fn;
+    map->bus_attr_opaque = opaque;
+}
+
+/*
+ * Flash TZ filter: reads back zero when the security attribute of the bus
+ * transaction does not match the attribution of the target sector.  The
+ * mismatch is rejected in both directions -- a secure access to a sector
+ * attributed non-secure reads as zero just like a non-secure access to a
+ * secure sector -- and neither raises a bus fault.
+ *
+ * The transaction attribute comes from the SAU/IDAU attribution of the address
+ * rather than from the CPU's security state.  It usually follows the alias --
+ * that is what the aliases are for -- but not always: with SAU disabled every
+ * address is Secure, so even a non-secure-alias read issues a secure
+ * transaction.  `alias_access` is the fallback when no resolver is installed.
+ *
+ * Debug-port accesses (mm_memmap_peek) deliberately skip this: on silicon the
+ * DAP reads both aliases regardless of attribution.
+ */
+static mm_bool flash_tz_rejects(const struct mm_memmap *map, mm_u32 addr,
+                                mm_u32 offset, enum mm_sec_state alias_access)
+{
+    enum mm_flash_tz_attr attr;
+    enum mm_sec_state access = alias_access;
+
+    if (map->flash_sector_secure == 0) {
+        return MM_FALSE;
+    }
+    attr = map->flash_sector_secure(map->flash_sector_secure_opaque, offset);
+    if (attr == MM_FLASH_TZ_UNFILTERED) {
+        return MM_FALSE;
+    }
+    if (map->bus_attr != 0) {
+        access = map->bus_attr(map->bus_attr_opaque, addr);
+    }
+    if (attr == MM_FLASH_TZ_SECURE) {
+        return (access == MM_SECURE) ? MM_FALSE : MM_TRUE;
+    }
+    if (attr == MM_FLASH_TZ_NONSECURE) {
+        return (access == MM_SECURE) ? MM_TRUE : MM_FALSE;
+    }
+    return MM_FALSE;
 }
 
 void mm_memmap_set_flash_ecc_check(struct mm_memmap *map, mm_flash_ecc_check_cb fn, void *opaque)
@@ -380,6 +432,13 @@ mm_bool mm_memmap_read(const struct mm_memmap *map, enum mm_sec_state sec, mm_u3
         }
         if (addr >= base && (addr - base) + size <= size_limit) {
             offset = addr - base;
+            /* The secure alias issues a secure bus transaction: the flash TZ
+             * filter reads it as zero when the target sector is attributed
+             * non-secure. */
+            if (flash_tz_rejects(map, addr, offset, MM_SECURE)) {
+                *value_out = 0u;
+                return MM_TRUE;
+            }
             if (map->flash_ecc_check != 0 && !map->flash_ecc_check(map->flash_ecc_check_opaque, offset)) {
                 return MM_FALSE;
             }
@@ -397,8 +456,7 @@ mm_bool mm_memmap_read(const struct mm_memmap *map, enum mm_sec_state sec, mm_u3
             /* The NS alias issues a non-secure bus transaction whatever the
              * CPU security state: the flash TZ filter reads it as zero when
              * the target sector is attributed secure (RM0481). */
-            if (map->flash_sector_secure != 0 &&
-                    map->flash_sector_secure(map->flash_sector_secure_opaque, offset)) {
+            if (flash_tz_rejects(map, addr, offset, MM_NONSECURE)) {
                 *value_out = 0u;
                 return MM_TRUE;
             }
@@ -630,6 +688,11 @@ mm_bool mm_memmap_read8(const struct mm_memmap *map, enum mm_sec_state sec, mm_u
         }
         if (addr >= base && (addr - base) < size_limit) {
             mm_u32 flash_off = addr - base;
+            /* See mm_memmap_read: S-alias reads of non-secure sectors are RAZ. */
+            if (flash_tz_rejects(map, addr, flash_off, MM_SECURE)) {
+                *value_out = 0u;
+                return MM_TRUE;
+            }
             if (map->flash_ecc_check != 0 && !map->flash_ecc_check(map->flash_ecc_check_opaque, flash_off)) {
                 return MM_FALSE;
             }
@@ -645,8 +708,7 @@ mm_bool mm_memmap_read8(const struct mm_memmap *map, enum mm_sec_state sec, mm_u
         if (addr >= base && (addr - base) < size_limit) {
             mm_u32 flash_off = addr - base;
             /* See mm_memmap_read: NS-alias reads of secure sectors are RAZ. */
-            if (map->flash_sector_secure != 0 &&
-                    map->flash_sector_secure(map->flash_sector_secure_opaque, flash_off)) {
+            if (flash_tz_rejects(map, addr, flash_off, MM_NONSECURE)) {
                 *value_out = 0u;
                 return MM_TRUE;
             }
