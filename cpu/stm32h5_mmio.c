@@ -323,6 +323,7 @@ extern void mm_system_request_reset(void);
 #define FLASH_SECCCR   0x034u
 #define FLASH_OPTSR_CUR 0x050u
 #define FLASH_OPTSR_PRG 0x054u
+#define FLASH_ECCDETR   0x104u
 #define FLASH_OTPBLR_CUR 0x090u
 #define FLASH_OTPBLR_PRG 0x094u
 
@@ -1828,6 +1829,17 @@ static mm_bool flash_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u3
         f->regs[FLASH_OTPBLR_PRG / 4u] = value;
         if (cur == 0xFFFFFFFFu) {
             (void)mm_otp_set_flags(&otp_state, MM_OTP_FLAG_FINAL_LOCK);
+        }
+        return MM_TRUE;
+    }
+
+    /* ECCDETR.ECCD is cleared by writing a one to the status bit.  The
+     * STM32H5 flash driver uses this sequence around every checked read;
+     * treating ECCDETR as an ordinary storage register would leave ECCD set
+     * forever and make every read look like an ECC failure. */
+    if (offset == FLASH_ECCDETR) {
+        if ((value & (1u << 31)) != 0u) {
+            f->regs[offset / 4u] &= ~(1u << 31);
         }
         return MM_TRUE;
     }
