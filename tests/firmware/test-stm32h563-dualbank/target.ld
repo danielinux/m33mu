@@ -68,6 +68,11 @@ SECTIONS
         *(COMMON)
         _ebss = .;
     } > RAM
+
+    .noinit (NOLOAD) :
+    {
+        *(.noinit*)
+    } > RAM
 }
 
 _siramfunc = LOADADDR(.ramfunc);

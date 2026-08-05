@@ -594,7 +594,11 @@ add_custom_target(firmware-build
 
 add_custom_target(test-firmware
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-stm32h563/app.bin || true"
-  COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-stm32h563-dualbank/app.bin --dualbank || true"
+  COMMAND $<TARGET_FILE:m33mu>
+          tests/firmware/test-stm32h563-dualbank/app.bin
+          tests/firmware/test-stm32h563-dualbank/app.bin:0x100000
+          --dualbank --expect-bkpt 0x7f --timeout 60 --uart-stdout
+          --quit-on-faults
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> --cpu stm32u585 tests/firmware/test-stm32u585-dualbank/app.bin --dualbank || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> --cpu stm32u585 tests/firmware/test-stm32u585-swap-reset/app.bin tests/firmware/test-stm32u585-swap-reset/app.bin:0x100000 --dualbank || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-rtos-exceptions/app.bin || true"

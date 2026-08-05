@@ -37,7 +37,7 @@ jobs:
       - name: Run STM32H5 firmware test (SPI peripherals selection)
         run: build/m33mu tests/firmware/test-stm32h563/app.bin --spiflash:SPI1:file=/tmp/flash.bin:size=4096:mmap=0x60000000:cs=PB0 --tpm:SPI1:cs=PB1 --uart-stdout --expect-bkpt 0x7f --timeout 60 --quit-on-faults
       - name: Run STM32H5 dual-bank firmware test
-        run: build/m33mu tests/firmware/test-stm32h563-dualbank/app.bin --dualbank --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
+        run: build/m33mu tests/firmware/test-stm32h563-dualbank/app.bin tests/firmware/test-stm32h563-dualbank/app.bin:0x100000 --dualbank --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
       - name: Run STM32H5F4 dual-bank firmware test
         # Erases sector 250, which does not fit the H563's 7-bit SNB field,
         # so this covers both the widened field and the upper half of a

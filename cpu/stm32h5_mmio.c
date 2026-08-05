@@ -346,6 +346,8 @@ extern void mm_system_request_reset(void);
 #define FLASH_BANK_COUNT   2u
 #define FLASH_CR_BKSEL     (1u << 31)
 #define FLASH_OPTSR_SWAP_BANK (1u << 31)
+#define FLASH_OPTSR_PRODUCT_STATE_SHIFT 8u
+#define FLASH_OPTSR_PRODUCT_STATE_OPEN  (0xEDu << FLASH_OPTSR_PRODUCT_STATE_SHIFT)
 
 /* TrustZone flash security attribution (RM0517).
  * SECWMx: per-bank secure watermark; sectors [STRT, END] are secure.
@@ -716,6 +718,10 @@ static void stm32h5_mmio_reset_impl(void)
     memset(&flash_ctl, 0, sizeof(flash_ctl));
     flash_ctl.dualbank_enabled = dualbank;
     flash_ctl.swap_active = (optsr_swap != 0u) ? MM_TRUE : MM_FALSE;
+    flash_ctl.regs[FLASH_OPTSR_CUR / 4u] =
+        FLASH_OPTSR_PRODUCT_STATE_OPEN | optsr_swap;
+    flash_ctl.regs[FLASH_OPTSR_PRG / 4u] =
+        FLASH_OPTSR_PRODUCT_STATE_OPEN | optsr_swap;
     flash_init_secwm_defaults(&flash_ctl);
     mpcbb_init_defaults();
     /* Initialize GPDMA with shared implementation */
@@ -2237,6 +2243,9 @@ void stm32h5_watchdog_tick(mm_u64 cycles)
 static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
 {
     struct mmio_region reg;
+    mm_bool swap_active;
+    mm_bool dualbank;
+    size_t gi;
 
     memset(&rcc, 0, sizeof(rcc));
     memset(&rcc_s, 0, sizeof(rcc_s));
@@ -2254,22 +2263,20 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
     memset(&exti, 0, sizeof(exti));
     memset(&iwdg, 0, sizeof(iwdg));
     memset(&wwdg, 0, sizeof(wwdg));
-    {
-        /* SWAP_BANK is a non-volatile option bit: it must survive MMIO
-         * re-registration on system reset, like in the reset handler. */
-        mm_bool swap_active = flash_ctl.swap_active;
-        mm_bool dualbank = flash_ctl.dualbank_enabled;
-        memset(&flash_ctl, 0, sizeof(flash_ctl));
-        flash_ctl.swap_active = swap_active;
-        flash_ctl.dualbank_enabled = dualbank;
-    }
+    /* SWAP_BANK is a non-volatile option bit: it must survive MMIO
+     * re-registration on system reset, like in the reset handler. */
+    swap_active = flash_ctl.swap_active;
+    dualbank = flash_ctl.dualbank_enabled;
+    memset(&flash_ctl, 0, sizeof(flash_ctl));
+    flash_ctl.swap_active = swap_active;
+    flash_ctl.dualbank_enabled = dualbank;
+    flash_ctl.regs[FLASH_OPTSR_CUR / 4u] = FLASH_OPTSR_PRODUCT_STATE_OPEN;
+    flash_ctl.regs[FLASH_OPTSR_PRG / 4u] = FLASH_OPTSR_PRODUCT_STATE_OPEN;
+    flash_sync_option_regs(&flash_ctl);
     flash_init_secwm_defaults(&flash_ctl);
     mpcbb_init_defaults();
-    {
-        size_t gi;
-        for (gi = 0; gi < (size_t)V->gpio_count; ++gi) {
-            stm32_gpio_reset(&gpio[gi], (int)gi);
-        }
+    for (gi = 0; gi < (size_t)V->gpio_count; ++gi) {
+        stm32_gpio_reset(&gpio[gi], (int)gi);
     }
     gpdma_configure_and_reset();
     rcc.regs[RCC_CR / 4] |= 1u;
