@@ -609,6 +609,26 @@ add_custom_target(test-firmware
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
+# --covdump coverage-region dump.
+#
+# Deliberately outside `all`, `firmware-build`, `test-firmware` and ctest: the
+# firmware must be compiled by a clang that can target bare-metal Thumb, and the
+# coverage half additionally wants llvm-profdata/llvm-cov. Run it explicitly:
+#
+#   cmake --build build --target covdump-test
+#
+# The check degrades on its own: the structural half needs only readelf, and the
+# coverage half is skipped rather than failed when the llvm tools are absent.
+add_custom_target(covdump-test
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-covdump clean
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-covdump all
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-covdump check
+          M33MU=$<TARGET_FILE:m33mu>
+  DEPENDS m33mu
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Building and checking the --covdump test firmware (needs clang)"
+)
+
 add_custom_target(test-stm32h5
   COMMAND $<TARGET_FILE:m33mu> tests/firmware/test-stm32h563/app.bin
           --uart-stdout

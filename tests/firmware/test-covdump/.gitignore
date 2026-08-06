@@ -1,0 +1,9 @@
+*.o
+app.elf
+cov.cnts.bin
+cov.bits.bin
+cov.json
+cov.profraw
+cov.profdata
+cov-export.json
+probe*.profraw
