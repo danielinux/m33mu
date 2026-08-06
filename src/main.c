@@ -27,6 +27,7 @@
 #include "m33mu/target.h"
 #include "m33mu/cpu.h"
 #include "m33mu/memmap.h"
+#include "m33mu/covdump.h"
 #include "m33mu/vector.h"
 #include "m33mu/scs.h"
 #include "m33mu/fetch.h"
@@ -4605,6 +4606,10 @@ int main(int argc, char **argv)
     size_t loaded_max_end = 0;
     mm_bool opt_gdb = MM_FALSE;
     mm_bool opt_dump = MM_FALSE;
+    mm_u64 covdump_cycles = 0;
+    const char *opt_covdump = 0;
+    const char *opt_covdump_elf = 0;
+    mm_bool opt_covdump_success_only = MM_FALSE;
     mm_bool opt_tui = MM_FALSE;
     mm_bool opt_persist = MM_FALSE;
     mm_bool opt_quit_on_faults = MM_FALSE;
@@ -4733,6 +4738,35 @@ int main(int argc, char **argv)
             opt_gdb = MM_TRUE;
         } else if (strcmp(argv[i], "--dump") == 0) {
             opt_dump = MM_TRUE;
+        } else if (strcmp(argv[i], "--covdump") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing covdump prefix\n");
+                return 1;
+            }
+            opt_covdump = argv[i + 1];
+            i++;
+        } else if (strcmp(argv[i], "--covdump-elf") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing covdump-elf path\n");
+                return 1;
+            }
+            opt_covdump_elf = argv[i + 1];
+            i++;
+        } else if (strcmp(argv[i], "--covdump-when") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing covdump-when value\n");
+                return 1;
+            }
+            if (strcmp(argv[i + 1], "success") == 0) {
+                opt_covdump_success_only = MM_TRUE;
+            } else if (strcmp(argv[i + 1], "always") == 0) {
+                opt_covdump_success_only = MM_FALSE;
+            } else {
+                fprintf(stderr, "invalid covdump-when value: %s "
+                                "(expected success or always)\n", argv[i + 1]);
+                return 1;
+            }
+            i++;
         } else if (strcmp(argv[i], "--tui") == 0) {
 #ifdef M33MU_HAS_NCURSES
             opt_tui = MM_TRUE;
@@ -7026,12 +7060,61 @@ check_irq_pending:
             if (opt_record_dump > 0u && mm_trace_enabled() && g_record_started) {
                 dump_trace_tail(&cpu, &map, opt_record_dump);
             }
+            covdump_cycles = cycle_total;
             mm_code_cache_release(&code_cache);
             break;
         }
     }
 
 cleanup:
+    if (opt_covdump != 0) {
+        struct mm_covdump_info covinfo;
+        char coverr[MM_COVDUMP_ERRSZ];
+        const char *cov_elf = opt_covdump_elf;
+        const char *reason;
+        mm_bool cov_success;
+        int ci;
+
+        coverr[0] = '\0';
+        cov_success = (!opt_expect_bkpt || expect_bkpt_hit) ? MM_TRUE : MM_FALSE;
+        if (opt_expect_bkpt) {
+            reason = expect_bkpt_hit ? "expect-bkpt-hit" : "expect-bkpt-missed";
+        } else {
+            reason = "stopped";
+        }
+        if (cov_elf == 0) {
+            for (ci = 0; ci < image_count; ++ci) {
+                if (images[ci].type == MM_IMAGE_ELF && images[ci].path != 0) {
+                    if (cov_elf != 0) {
+                        fprintf(stderr, "--covdump: several ELF images are "
+                                        "loaded; use --covdump-elf\n");
+                        cov_elf = 0;
+                        rc = 1;
+                        break;
+                    }
+                    cov_elf = images[ci].path;
+                }
+            }
+        }
+        if (cov_elf == 0) {
+            if (rc == 0) {
+                fprintf(stderr, "--covdump: no ELF image to take coverage "
+                                "symbols from; use --covdump-elf\n");
+                rc = 1;
+            }
+        } else if (opt_covdump_success_only && !cov_success) {
+            printf("[COVDUMP] skipped (%s, --covdump-when success)\n", reason);
+        } else if (!mm_covdump_resolve(cov_elf, &covinfo, coverr,
+                                       sizeof(coverr))) {
+            fprintf(stderr, "--covdump: %s\n", coverr);
+            rc = 1;
+        } else if (!mm_covdump_write(&map, cpu.sec_state, &covinfo, cov_elf,
+                                     opt_covdump, reason, covdump_cycles,
+                                     coverr, sizeof(coverr))) {
+            fprintf(stderr, "--covdump: %s\n", coverr);
+            rc = 1;
+        }
+    }
     mm_spiflash_shutdown_all();
 #ifdef M33MU_HAS_LIBTPMS
     mm_tpm_tis_shutdown_all();

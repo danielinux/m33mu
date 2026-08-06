@@ -84,6 +84,58 @@ Print per\-instruction decode output and selected execution details.
 
 This is mainly a debugging and bring\-up aid. It is useful when a firmware image is not behaving as expected and you want an immediate textual trace.
 .TP
+.BR --covdump " " <prefix>
+Write the LLVM instrumentation regions to disk when execution ends, for firmware
+built with
+.BR "clang \-fprofile\-instr\-generate \-fcoverage\-mapping" .
+Three files are produced:
+.IR <prefix>.cnts.bin
+and
+.IR <prefix>.bits.bin ,
+the verbatim contents of the
+.B __llvm_prf_cnts
+and
+.B __llvm_prf_bits
+regions, and
+.IR <prefix>.json ,
+a manifest recording the ELF used, every region's address and size, the security
+state the memory was read in, why execution stopped, and the cycle count.
+
+The emulator writes no coverage format of its own. A host-side tool combines
+these blobs with the ELF into a
+.B .profraw
+for
+.BR llvm\-profdata (1),
+which keeps the versioned LLVM container next to the toolchain that reads it.
+Doing it here instead of inside the firmware removes the on-target serializer,
+its staging buffer, and the transport used to get the profile off the device.
+
+Region bounds come from the
+.BR __start___llvm_prf_ *
+and
+.BR __stop___llvm_prf_ *
+symbols, so the firmware's linker script must define them. Bitmaps are optional
+and absent unless the firmware was built with
+.BR \-fcoverage\-mcdc .
+Exits non\-zero, with a diagnostic, if the ELF carries no instrumentation
+symbols or a region is not mapped \- it never quietly writes nothing.
+.TP
+.BR --covdump-elf " " <file>
+Take the coverage symbols from
+.I file
+rather than the loaded image. Required when more than one ELF image is loaded.
+.TP
+.BR --covdump-when " " success|always
+Dump only when the
+.B --expect-bkpt
+contract was satisfied, or on every exit including faults and timeouts. The
+default is
+.BR always ,
+so a run that ends badly still yields the counters it accumulated; the
+manifest's
+.B exit_reason
+field records which case applied.
+.TP
 .BR --puf-seed " " <value>
 Fill initial RAM with a deterministic pseudo\-random byte stream derived from the given seed.
 
