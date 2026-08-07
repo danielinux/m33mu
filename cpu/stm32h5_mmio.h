@@ -118,4 +118,12 @@ mm_bool stm32h5_mpcbb_block_secure(int bank, mm_u32 block_index);
 mm_u8 stm32h5_gpio_get_af(int bank, int pin);
 mm_u8 stm32h5_gpio_get_mode(int bank, int pin);
 
+/* Provision a bank's secure watermark option byte, the way a board is
+ * provisioned before a secure-boot image is flashed onto it. `bank` is 0 for
+ * SECWM1 and 1 for SECWM2; `strt` and `end` are sector indices within the
+ * bank, and strt > end means the bank carries no secure sector. Without this
+ * the bank keeps its TZEN=1 reset value: bank 1 all secure, bank 2 all
+ * non-secure. */
+void stm32h5_flash_set_secwm(int bank, mm_u32 strt, mm_u32 end);
+
 #endif /* M33MU_STM32H5_MMIO_H */

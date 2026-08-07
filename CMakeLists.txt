@@ -566,6 +566,7 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32u585-dualbank app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32u585-swap-reset app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-uart-echo app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-flash-tz app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-uart-echo app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-wolfssl-iotsafe app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32u585 app.bin
@@ -592,6 +593,15 @@ add_custom_target(firmware-build
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
+# Flash TZ filter parity against a NUCLEO-H563ZI transcript. The firmware
+# binary is committed, so this runs from ctest without a cross toolchain; the
+# script skips itself if the binary is missing.
+add_test(NAME flash_tz_hw_parity_test
+  COMMAND /bin/sh "${CMAKE_SOURCE_DIR}/scripts/flash-tz-hw-parity.sh" "$<TARGET_FILE:m33mu>")
+set_tests_properties(flash_tz_hw_parity_test PROPERTIES
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
 add_custom_target(test-firmware
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-stm32h563/app.bin || true"
   COMMAND $<TARGET_FILE:m33mu>
@@ -599,6 +609,9 @@ add_custom_target(test-firmware
           tests/firmware/test-stm32h563-dualbank/app.bin:0x100000
           --dualbank --expect-bkpt 0x7f --timeout 60 --uart-stdout
           --quit-on-faults
+          # The firmware runs secure out of both banks, so bank 2 needs a
+          # watermark; a TZEN=1 part leaves it entirely non-secure.
+          --secwm2=0:127
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> --cpu stm32u585 tests/firmware/test-stm32u585-dualbank/app.bin --dualbank || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> --cpu stm32u585 tests/firmware/test-stm32u585-swap-reset/app.bin tests/firmware/test-stm32u585-swap-reset/app.bin:0x100000 --dualbank || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-rtos-exceptions/app.bin || true"

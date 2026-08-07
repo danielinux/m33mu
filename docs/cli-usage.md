@@ -111,6 +111,22 @@ Only one Ethernet backend can be selected at a time.
 ## TrustZone / Memory / Flash Options
 
 - `--no-tz`: run without TrustZone protections for the session
+- `--secwm1=<strt>:<end>`, `--secwm2=<strt>:<end>`: provision a flash secure
+  watermark on stm32h5 targets, as the option bytes of a real board carry it.
+  Sectors are counted within the bank, and `strt > end` means the bank holds no
+  secure sector. A bank left unnamed is secure in full.
+
+  Passing either flag turns on the flash TrustZone filter, which reads back zero
+  when the security attribute of an access does not match the attribution of the
+  target sector, in both directions, exactly as silicon does. Passing neither
+  leaves the filter inert and says so on stdout: which sectors are secure is a
+  property of the board's option bytes rather than of the image, so there is
+  nothing sound to infer from an image alone.
+
+  wolfBoot's stm32h5 TrustZone layout, for example, is
+  `--secwm1=0:47 --secwm2=0:127`: bootloader secure, boot partition non-secure so
+  the application can run, bank 2 secure for the update partition at
+  `0x0C100000`.
 - `--dualbank`: enable STM32 dual-bank flash behavior
 - `--persist`: write modified flash contents back to the original input BINs when supported
 - `--puf-seed <value>`: fill initial RAM deterministically from a fixed PRNG seed

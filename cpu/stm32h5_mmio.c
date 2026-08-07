@@ -39,6 +39,7 @@
 #include "stm32h5_i2c.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
+#include "m33mu/target_hal.h"
 #include "m33mu/otp.h"
 #include "m33mu/spi_bus.h"
 #include "m33mu/gpio.h"
@@ -491,6 +492,9 @@ static struct iwdg_state iwdg;
 static struct wwdg_state wwdg;
 static struct flash_state flash_ctl;
 static void flash_init_secwm_defaults(struct flash_state *f);
+static void flash_secwm_save(const struct flash_state *f, mm_u32 out[2]);
+static void flash_secwm_restore(struct flash_state *f, const mm_u32 in[2]);
+static void flash_apply_secwm_fallback(struct flash_state *f);
 static mm_bool flash_sector_attr_secure(struct flash_state *f, mm_u32 offset);
 static struct mm_otp otp_state;
 static struct stm32_gpio_state gpio[STM32H5_GPIO_MAX]; /* A..K */
@@ -687,6 +691,11 @@ static void stm32h5_mmio_reset_impl(void)
     size_t i;
     mm_u32 optsr_swap = flash_ctl.regs[FLASH_OPTSR_CUR / 4u] & FLASH_OPTSR_SWAP_BANK;
     mm_bool dualbank = flash_ctl.dualbank_enabled;
+    /* SECWM is an option byte: preserve it across the reset, but only once
+     * the model has been bound to a flash -- before that there is nothing
+     * programmed and the reset values apply. */
+    mm_bool secwm_valid = (flash_ctl.flash_size != 0u) ? MM_TRUE : MM_FALSE;
+    mm_u32 secwm_saved[2];
     memset(&rcc, 0, sizeof(rcc));
     memset(&rcc_s, 0, sizeof(rcc_s));
     memset(&pwr, 0, sizeof(pwr));
@@ -715,6 +724,7 @@ static void stm32h5_mmio_reset_impl(void)
     memset(&exti, 0, sizeof(exti));
     memset(&iwdg, 0, sizeof(iwdg));
     memset(&wwdg, 0, sizeof(wwdg));
+    flash_secwm_save(&flash_ctl, secwm_saved);
     memset(&flash_ctl, 0, sizeof(flash_ctl));
     flash_ctl.dualbank_enabled = dualbank;
     flash_ctl.swap_active = (optsr_swap != 0u) ? MM_TRUE : MM_FALSE;
@@ -723,6 +733,9 @@ static void stm32h5_mmio_reset_impl(void)
     flash_ctl.regs[FLASH_OPTSR_PRG / 4u] =
         FLASH_OPTSR_PRODUCT_STATE_OPEN | optsr_swap;
     flash_init_secwm_defaults(&flash_ctl);
+    if (secwm_valid) {
+        flash_secwm_restore(&flash_ctl, secwm_saved);
+    }
     mpcbb_init_defaults();
     /* Initialize GPDMA with shared implementation */
     gpdma_configure_and_reset();
@@ -1188,15 +1201,122 @@ static mm_u32 flash_sector_size(void)
         : (flash_ctl.flash_size / FLASH_SECTOR_COUNT);
 }
 
+/*
+ * Provisioned watermarks, i.e. the SECWM option bytes.  Set from the command
+ * line before the first reset, and thereafter carried across resets by
+ * flash_secwm_save()/flash_secwm_restore(): option bytes are non-volatile, so
+ * a watermark programmed through the _PRG registers has to survive the system
+ * reset that applies it, exactly like SWAP_BANK.
+ */
+static mm_u32 g_secwm_prov[2];
+static mm_bool g_secwm_prov_valid[2];
+
+/* True once any bank has been provisioned from the command line. */
+static mm_bool flash_secwm_provisioned(void)
+{
+    return (g_secwm_prov_valid[0] || g_secwm_prov_valid[1]) ? MM_TRUE : MM_FALSE;
+}
+
+/*
+ * Watermark a bank carries when --secwm did not name it.
+ *
+ * The whole bank secure. This is the permissive choice, and it is only ever
+ * consulted in a session that provisioned the *other* bank: a session that
+ * provisioned neither does not consult the watermark at all, see
+ * flash_sector_secure_cb.
+ */
+static mm_u32 flash_secwm_reset_value(mm_bool phys_hi)
+{
+    mm_u32 sectors_per_bank;
+
+    (void)phys_hi;
+    if (FLASH_BANK_COUNT == 0u) {
+        return FLASH_SECWM_EMPTY;
+    }
+    sectors_per_bank = FLASH_SECTOR_COUNT / FLASH_BANK_COUNT;
+    if (sectors_per_bank == 0u) {
+        return FLASH_SECWM_EMPTY;
+    }
+    /* STRT = 0, END = last sector of the bank. */
+    return ((sectors_per_bank - 1u) & FLASH_SECWM_STRT_MASK)
+        << FLASH_SECWM_END_SHIFT;
+}
+
+void stm32h5_flash_set_secwm(int bank, mm_u32 strt, mm_u32 end)
+{
+    if (bank < 0 || bank > 1) {
+        return;
+    }
+    g_secwm_prov[bank] = (strt & 0xFFFFu) |
+        ((end & 0xFFFFu) << FLASH_SECWM_END_SHIFT);
+    g_secwm_prov_valid[bank] = MM_TRUE;
+}
+
 static void flash_init_secwm_defaults(struct flash_state *f)
 {
-    /* Out of reset the emulated device is not provisioned: no secure
-     * watermark. Firmware (or a provisioning step) may program the
-     * watermark via the _PRG registers. */
-    f->regs[FLASH_SECWM1R_CUR / 4u] = FLASH_SECWM_EMPTY;
-    f->regs[FLASH_SECWM1R_PRG / 4u] = FLASH_SECWM_EMPTY;
-    f->regs[FLASH_SECWM2R_CUR / 4u] = FLASH_SECWM_EMPTY;
-    f->regs[FLASH_SECWM2R_PRG / 4u] = FLASH_SECWM_EMPTY;
+    static const mm_u32 cur_off[2] = { FLASH_SECWM1R_CUR, FLASH_SECWM2R_CUR };
+    static const mm_u32 prg_off[2] = { FLASH_SECWM1R_PRG, FLASH_SECWM2R_PRG };
+    mm_u32 i;
+
+    for (i = 0; i < 2u; i++) {
+        mm_u32 v = g_secwm_prov_valid[i] ? g_secwm_prov[i]
+                                         : flash_secwm_reset_value(i != 0u);
+        f->regs[cur_off[i] / 4u] = v;
+        f->regs[prg_off[i] / 4u] = v;
+    }
+}
+
+/*
+ * Recompute the fallback watermark once the flash geometry is known, and say
+ * so.  Banks named by --secwm1/--secwm2 are provisioned and left alone.
+ */
+static void flash_apply_secwm_fallback(struct flash_state *f)
+{
+    static mm_bool announced = MM_FALSE;
+    mm_u32 v1;
+    mm_u32 v2;
+
+    if (f->flash_size == 0u) {
+        return;
+    }
+    if (!g_secwm_prov_valid[0]) {
+        v1 = flash_secwm_reset_value(MM_FALSE);
+        f->regs[FLASH_SECWM1R_CUR / 4u] = v1;
+        f->regs[FLASH_SECWM1R_PRG / 4u] = v1;
+    }
+    if (!g_secwm_prov_valid[1]) {
+        v2 = flash_secwm_reset_value(MM_TRUE);
+        f->regs[FLASH_SECWM2R_CUR / 4u] = v2;
+        f->regs[FLASH_SECWM2R_PRG / 4u] = v2;
+    }
+    if (announced) {
+        return;
+    }
+    announced = MM_TRUE;
+    if (!flash_secwm_provisioned()) {
+        printf("[FLASH] SECWM not provisioned; flash TZ filter inert. "
+               "Pass --secwm1/--secwm2 to model a provisioned part.\n");
+    } else {
+        printf("[FLASH] SECWM1=0x%08lx SECWM2=0x%08lx\n",
+               (unsigned long)f->regs[FLASH_SECWM1R_CUR / 4u],
+               (unsigned long)f->regs[FLASH_SECWM2R_CUR / 4u]);
+    }
+}
+
+/* Option bytes survive a system reset: capture and reapply the watermark
+ * around the memset that models the reset of the volatile controller state. */
+static void flash_secwm_save(const struct flash_state *f, mm_u32 out[2])
+{
+    out[0] = f->regs[FLASH_SECWM1R_CUR / 4u];
+    out[1] = f->regs[FLASH_SECWM2R_CUR / 4u];
+}
+
+static void flash_secwm_restore(struct flash_state *f, const mm_u32 in[2])
+{
+    f->regs[FLASH_SECWM1R_CUR / 4u] = in[0];
+    f->regs[FLASH_SECWM1R_PRG / 4u] = in[0];
+    f->regs[FLASH_SECWM2R_CUR / 4u] = in[1];
+    f->regs[FLASH_SECWM2R_PRG / 4u] = in[1];
 }
 
 static mm_bool flash_sector_attr_secure(struct flash_state *f, mm_u32 offset)
@@ -1244,38 +1364,36 @@ static mm_bool flash_sector_attr_secure(struct flash_state *f, mm_u32 offset)
 }
 
 /*
- * True once a bank carries any secure attribution at all.  Out of reset the
- * emulated device is unprovisioned (SECWM empty, SECBB clear); the flash TZ
- * filter then has nothing to enforce and passes every access, which is what
- * lets a bare secure image boot from the secure alias before it programs a
- * watermark.  Once the watermark is programmed the filter applies in both
- * directions.
+ * Sector attribution as the flash TZ filter sees it.
+ *
+ * There is no "unprovisioned, therefore unfiltered" state: on silicon a
+ * sector outside every watermark and with no SECBB bit is simply non-secure,
+ * and a secure access to it reads back zero.  Measured on NUCLEO-H563ZI with
+ * SECWM1 = sectors 0..15 and SECBB clear -- sector 20 read 0 through the
+ * secure alias and its marker word through the non-secure one.  The emulated
+ * part therefore resets with a real watermark (flash_secwm_reset_value) the
+ * way a TZEN=1 device does, rather than with an empty one that has to be
+ * special-cased.
+ *
+ * UNFILTERED survives for two cases.  One is a session with TrustZone disabled
+ * (--no-tz, or a non-secure image detected at boot), where the part behaves as
+ * TZEN=0 and the filter does not exist.
+ *
+ * The other is a session that did not provision a watermark.  Modelling the
+ * filter needs to know which sectors are secure, and that is a property of the
+ * board's option bytes, not of the image: the dual-bank firmware here wants all
+ * of bank 1 secure, while a bootloader handing off to an application wants the
+ * application's sectors non-secure.  No single guess serves both, and guessing
+ * wrong breaks the run in a way that looks nothing like a watermark problem.
+ * So an unprovisioned session keeps the pre-filter behaviour and says so, and
+ * --secwm1/--secwm2 opts into the real model.
  */
-static mm_bool flash_tz_filter_armed(struct flash_state *f, mm_bool phys_hi)
-{
-    mm_u32 secwm;
-    mm_u32 i;
-    mm_u32 bb_base;
-
-    secwm = f->regs[(phys_hi ? FLASH_SECWM2R_CUR : FLASH_SECWM1R_CUR) / 4u];
-    if (secwm != FLASH_SECWM_EMPTY) {
-        return MM_TRUE;
-    }
-    bb_base = phys_hi ? FLASH_SECBB2R : FLASH_SECBB1R;
-    for (i = 0; i < FLASH_SECBB_NREGS; i++) {
-        if (f->regs[(bb_base + 4u * i) / 4u] != 0u) {
-            return MM_TRUE;
-        }
-    }
-    return MM_FALSE;
-}
-
 static enum mm_flash_tz_attr flash_sector_secure_cb(void *opaque,
                                                     mm_u32 byte_offset)
 {
     struct flash_state *f = (struct flash_state *)opaque;
+    const struct mm_target_cfg *cfg;
     mm_u32 bank_size;
-    mm_bool phys_hi;
 
     if (f == 0 || f->flash_size == 0u || FLASH_BANK_COUNT < 2u ||
             byte_offset >= f->flash_size) {
@@ -1285,11 +1403,13 @@ static enum mm_flash_tz_attr flash_sector_secure_cb(void *opaque,
     if (bank_size == 0u) {
         return MM_FLASH_TZ_UNFILTERED;
     }
-    phys_hi = (byte_offset >= bank_size) ? MM_TRUE : MM_FALSE;
-    if (f->swap_active) {
-        phys_hi = phys_hi ? MM_FALSE : MM_TRUE;
+    /* Unprovisioned: nothing to enforce, and nothing to guess. */
+    if (!flash_secwm_provisioned()) {
+        return MM_FLASH_TZ_UNFILTERED;
     }
-    if (!flash_tz_filter_armed(f, phys_hi)) {
+    /* TZEN=0 equivalent: no security attribution to enforce. */
+    cfg = mm_target_current_cfg();
+    if (cfg != 0 && cfg->tz_attr_for_addr == 0) {
         return MM_FLASH_TZ_UNFILTERED;
     }
     return flash_sector_attr_secure(f, byte_offset) ? MM_FLASH_TZ_SECURE
@@ -2245,6 +2365,8 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
     struct mmio_region reg;
     mm_bool swap_active;
     mm_bool dualbank;
+    mm_bool secwm_valid;
+    mm_u32 secwm_saved[2];
     size_t gi;
 
     memset(&rcc, 0, sizeof(rcc));
@@ -2267,6 +2389,8 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
      * re-registration on system reset, like in the reset handler. */
     swap_active = flash_ctl.swap_active;
     dualbank = flash_ctl.dualbank_enabled;
+    secwm_valid = (flash_ctl.flash_size != 0u) ? MM_TRUE : MM_FALSE;
+    flash_secwm_save(&flash_ctl, secwm_saved);
     memset(&flash_ctl, 0, sizeof(flash_ctl));
     flash_ctl.swap_active = swap_active;
     flash_ctl.dualbank_enabled = dualbank;
@@ -2274,6 +2398,9 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
     flash_ctl.regs[FLASH_OPTSR_PRG / 4u] = FLASH_OPTSR_PRODUCT_STATE_OPEN;
     flash_sync_option_regs(&flash_ctl);
     flash_init_secwm_defaults(&flash_ctl);
+    if (secwm_valid) {
+        flash_secwm_restore(&flash_ctl, secwm_saved);
+    }
     mpcbb_init_defaults();
     for (gi = 0; gi < (size_t)V->gpio_count; ++gi) {
         stm32_gpio_reset(&gpio[gi], (int)gi);
@@ -2702,6 +2829,9 @@ static void stm32h5_flash_bind_impl(struct mm_memmap *map,
     flash_ctl.flash_size = flash_size;
     flash_ctl.persist = persist;
     flash_ctl.flags = flags;
+    /* The fallback watermark needs the sector size, which is only known now
+     * that the flash is bound; registration computed it without one. */
+    flash_apply_secwm_fallback(&flash_ctl);
     flash_ctl.base_s = map->flash_base_s;
     flash_ctl.base_ns = map->flash_base_ns;
     flash_ctl.dualbank_enabled = (flags & MM_TARGET_FLAG_DUALBANK) != 0u;

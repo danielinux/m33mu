@@ -47,6 +47,7 @@
 #include "stm32h533/stm32h533_mmio.h"
 #include "stm32h563/stm32h563_mmio.h"
 #include "stm32h5f4/stm32h5f4_mmio.h"
+#include "stm32h5_mmio.h"
 #include "m33mu/mem_prot.h"
 #include "m33mu/exc_return.h"
 #include "m33mu/tz.h"
@@ -4692,6 +4693,9 @@ int main(int argc, char **argv)
     int tropic01_count = 0;
 #endif
     mm_bool opt_no_tz = MM_FALSE;
+    mm_u32 opt_secwm_strt[2] = { 0u, 0u };
+    mm_u32 opt_secwm_end[2] = { 0u, 0u };
+    mm_bool opt_secwm_set[2] = { MM_FALSE, MM_FALSE };
     const char *memwatch_env = getenv("M33MU_MEMWATCH");
     const char *capstone_pc_env = getenv("CAPSTONE_PC");
     const char *disable_tb_env = getenv("M33MU_DISABLE_TB");
@@ -5022,6 +5026,33 @@ int main(int argc, char **argv)
             opt_timeout = (mm_u32)t;
         } else if (strcmp(argv[i], "--no-tz") == 0) {
             opt_no_tz = MM_TRUE;
+        } else if (strncmp(argv[i], "--secwm1=", 9) == 0 ||
+                   strncmp(argv[i], "--secwm2=", 9) == 0) {
+            /* Provision a flash secure watermark, as the option bytes of a
+             * real board would carry it. Format: --secwm1=<strt>:<end>. */
+            int bank = (argv[i][7] == '2') ? 1 : 0;
+            const char *spec = argv[i] + 9;
+            char *endp = 0;
+            unsigned long strt;
+            unsigned long end;
+            strt = strtoul(spec, &endp, 0);
+            if (endp == spec || endp == 0 || *endp != ':') {
+                fprintf(stderr, "invalid watermark: %s (expected <strt>:<end>)\n", argv[i]);
+                return 1;
+            }
+            spec = endp + 1;
+            end = strtoul(spec, &endp, 0);
+            if (endp == spec || endp == 0 || *endp != '\0') {
+                fprintf(stderr, "invalid watermark: %s (expected <strt>:<end>)\n", argv[i]);
+                return 1;
+            }
+            if (strt > 0xFFFFu || end > 0xFFFFu) {
+                fprintf(stderr, "watermark sector out of range: %s\n", argv[i]);
+                return 1;
+            }
+            opt_secwm_strt[bank] = (mm_u32)strt;
+            opt_secwm_end[bank] = (mm_u32)end;
+            opt_secwm_set[bank] = MM_TRUE;
         } else if (strcmp(argv[i], "--boot") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "missing boot mode\n");
@@ -5206,7 +5237,7 @@ int main(int argc, char **argv)
 #ifdef M33MU_USE_LIBCAPSTONE
                         "[--capstone] [--capstone-verbose] "
 #endif
-                        "[--uart-stdout] [--quit-on-faults] [--meminfo] [--record] [--record-start <pc>] [--record-start-dump] [--record-start-dump-ram] [--record-end-dump-ram] [--record-trace <path>] [--record-quiet] [--record-dump <n>] [--call-trace] [--dualbank] [--fault-clock N] [--no-tz] [--gdb-symbols <elf>] "
+                        "[--uart-stdout] [--quit-on-faults] [--meminfo] [--record] [--record-start <pc>] [--record-start-dump] [--record-start-dump-ram] [--record-end-dump-ram] [--record-trace <path>] [--record-quiet] [--record-dump <n>] [--call-trace] [--dualbank] [--fault-clock N] [--no-tz] [--secwm1=<strt>:<end>] [--secwm2=<strt>:<end>] [--gdb-symbols <elf>] "
                         "[--expect-bkpt 0xNN] [--timeout seconds] "
                         "[--boot flash|ram|spiflash] "
                         "[--boot-offset=0xN] "
@@ -5734,6 +5765,19 @@ int main(int argc, char **argv)
                                         diag,
                                         0u,
                                         0u);
+            }
+            if (opt_secwm_set[0] || opt_secwm_set[1]) {
+                if (cpu_name == 0 || strncmp(cpu_name, "stm32h5", 7) != 0) {
+                    fprintf(stderr, "--secwm1/--secwm2 are only supported on stm32h5 targets\n");
+                    rc = 1;
+                    goto cleanup;
+                }
+                if (opt_secwm_set[0]) {
+                    stm32h5_flash_set_secwm(0, opt_secwm_strt[0], opt_secwm_end[0]);
+                }
+                if (opt_secwm_set[1]) {
+                    stm32h5_flash_set_secwm(1, opt_secwm_strt[1], opt_secwm_end[1]);
+                }
             }
             if (!mm_target_register_mmio(&cfg, &map.mmio)) {
                 fprintf(stderr, "Failed to register MMIO for CPU %s\n", (cpu_name != 0) ? cpu_name : "unknown");
