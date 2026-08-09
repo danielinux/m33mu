@@ -42,6 +42,8 @@ build/m33mu --gdb --gdb-symbols firmware.elf firmware.bin
 - `--quit-on-faults`: terminate when the first fault is raised
 - `--timeout <seconds>`: force a host-side timeout
 - `--expect-bkpt <imm>`: turn a firmware BKPT into a pass/fail test signal
+- `--capstone`: cross-check decode/execute behavior against Capstone
+- `--fault-clock <NNN>`: skip the instruction fetched at virtual cycle `NNN`, for fault-injection testing. May be repeated up to 16 times; values must not be contiguous.
 
 ## Recording And Debug-Oriented Options
 
@@ -58,6 +60,34 @@ The trace/record options are useful when debugging difficult firmware behavior:
 - `--record-quiet`
 
 These let you capture a bounded execution window, dump machine state around a specific PC, and export traces for offline inspection.
+
+## Coverage Options
+
+For firmware built with `clang -fprofile-instr-generate -fcoverage-mapping`
+(and `-fcoverage-mcdc` for MC/DC bitmaps):
+
+- `--covdump <prefix>`: on exit, write the LLVM instrumentation regions read
+  from the emulated memory map to `<prefix>.cnts.bin` and `<prefix>.bits.bin`
+  (the verbatim `__llvm_prf_cnts`/`__llvm_prf_bits` contents), plus
+  `<prefix>.json`, a manifest with the ELF used, each region's address and
+  size, the security state read, the exit reason, and the cycle count.
+  No `.profraw` is produced here — that versioned LLVM container is meant to
+  be assembled host-side, next to the `llvm-profdata` that consumes it.
+  Region bounds come from the firmware's `__start___llvm_prf_*` /
+  `__stop___llvm_prf_*` linker symbols; a missing instrumentation symbol or
+  an unmapped region is a hard error rather than a silently empty dump.
+- `--covdump-elf <file>`: read the coverage symbols from `<file>` instead of
+  the loaded image. Required when more than one ELF image is loaded.
+- `--covdump-when success|always`: dump only on runs that satisfy
+  `--expect-bkpt` (`success`), or on every exit including faults and
+  timeouts (`always`, the default) — a run that ends badly still yields the
+  counters it accumulated, and the manifest's `exit_reason` records which
+  case applied.
+
+## Debug Cross-Check Options
+
+- `--capstone`: enable Capstone-based cross-check logging for decode/execute behavior
+- `--capstone-verbose`: same as `--capstone`, with more operand-level detail in the logs
 
 ## Peripheral / Backend Options
 
