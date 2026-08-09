@@ -312,6 +312,25 @@ Disable TrustZone protections for the session and force non\-secure boot behavio
 
 Use this only when you explicitly want to remove secure/non\-secure separation from the run.
 .TP
+.BR --secwm1 = <strt>:<end> ", " --secwm2 = <strt>:<end>
+Provision a flash secure watermark on stm32h5 targets, as the option bytes of a
+real board carry it. Sectors are counted within the bank, and a start value
+greater than the end value means the bank holds no secure sector. A bank left
+unnamed is secure in full.
+
+Passing either flag turns on the flash TrustZone filter, which reads back zero
+when the security attribute of an access does not match the attribution of the
+target sector, in both directions, exactly as silicon does. Passing neither
+leaves the filter inert and says so on stdout: which sectors are secure is a
+property of the board's option bytes rather than of the image, so there is
+nothing sound to infer from an image alone.
+
+wolfBoot's stm32h5 TrustZone layout, for example, is
+.BR "--secwm1=0:47 --secwm2=0:127" :
+bootloader secure, boot partition non\-secure so the application can run, bank 2
+secure for the update partition at
+.IR 0x0C100000 .
+.TP
 .BR --boot " " flash|ram|spiflash
 Select the boot source.
 
