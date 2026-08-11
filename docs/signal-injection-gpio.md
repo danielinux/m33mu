@@ -282,34 +282,39 @@ comparison.)
 
 ### 4.3 GPIO external-input hook (in `cpu/stm32_gpio.c`, existing file)
 
+**Implemented and verified** (`stm32_gpio_set_external_input()`, `cpu/stm32_gpio.c`).
 Mirrors `gpio_sync_odr()`'s exact shape — same struct, same `exti_update`
 call — but sourced from `signal.c`'s threshold-crossing schedule instead of
-an `ODR` write:
+an `ODR` write. Guards on `stm32_gpio_get_pin_mode(g, pin) != 0u`, which
+rejects Output (`01`), AF (`10`), *and* Analog (`11`) together — any mode
+other than Input (`00`) — since real hardware only accepts an external
+drive on a pin actually configured as a digital input.
 
-```c
-/* New — called from signal.c when a bound GPIO pin's zero-order-hold
- * value crosses either Schmitt-trigger threshold (§4.1). Serves both polling
- * (IDR is now readable via the existing stm32_gpio_read() path) and
- * interrupt-driven firmware (exti_update fires the existing EXTI/NVIC
- * chain), from a single write. */
-void stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bool level)
-{
-    mm_u32 old_idr = ctx->gpio->regs[STM32_GPIO_IDR_OFFSET / 4];
-    mm_u32 new_idr = level ? (old_idr | (1u << pin)) : (old_idr & ~(1u << pin));
-    if (new_idr != old_idr) {
-        ctx->gpio->regs[STM32_GPIO_IDR_OFFSET / 4] = new_idr;
-        if (ctx->exti_update) {
-            ctx->exti_update(ctx->bank_index, old_idr, new_idr);
-        }
-    }
-}
-```
+**Second, related fix in `stm32_gpio_read()` (not `stm32_gpio_set_external_input()`):**
+on real STM32 silicon, a pin configured `MODER=0b11` (Analog) has its
+digital input buffer (Schmitt trigger) powered down to avoid parasitic
+leakage current — `IDR` reads `0` for that pin regardless of the actual
+analog voltage, and EXTI cannot fire from it. The write-side guard above
+prevents `stm32_gpio_set_external_input()` from ever *setting* an `IDR` bit
+for an Analog-mode pin, but doesn't address a pin that was driven while
+still in Input mode and is *later* reconfigured to Analog: neither that
+function nor `gpio_sync_odr()` ever clears a stale bit on a mode change
+away from Input, so without a corresponding read-side fix the stale `1`
+would remain visible in `IDR` forever, which doesn't match real silicon.
+Fixed in `stm32_gpio_read()`: any `IDR` bit whose corresponding `MODER`
+field currently reads Analog is masked to `0` on every read, evaluated
+live against current `MODER` state (not latched at the mode-change
+instant, so switching back to Input immediately un-masks it again).
+Covered by `tests/stm32_gpio_signal_test.c` (`analog_mode_forces_idr_zero`,
+which explicitly checks the underlying register word still holds the stale
+bit — proving the fix is in the read path, not a side effect of the mode
+change clearing storage — and `analog_mask_is_per_pin`, which confirms the
+mask doesn't disturb other pins' bits).
 
-Note: this only applies to pins in input mode (`MODER` not set to output/AF)
-— for a pin in output mode, firmware owns `ODR`→`IDR` via the existing
-`gpio_sync_odr()` path, and an external-input write would conflict; the
-binding setup (§4.4 CLI) should validate `MODER` at bind time, or the setter
-should no-op if the pin's current mode isn't input.
+Note: this only applies to pins in input mode (`MODER` not set to
+output/AF/analog) — for a pin in output mode, firmware owns `ODR`→`IDR` via
+the existing `gpio_sync_odr()` path, and an external-input write would
+conflict; the setter no-ops if the pin's current mode isn't input.
 
 ### 4.4 CLI surface (GPIO phase)
 
