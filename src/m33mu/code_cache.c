@@ -22,6 +22,7 @@
 #include "m33mu/scs.h"
 #include "m33mu/execute.h"
 #include "m33mu/exec_helpers.h"
+#include "m33mu/signal.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -429,9 +430,13 @@ struct mm_tb *mm_tb_build(struct mm_code_cache *cc,
     page_gen = cc->page_gen[page_id];
 
     while (op_count < (sizeof(ops) / sizeof(ops[0]))) {
-        struct mm_fetch_result f = mm_fetch_t32_memmap_at(map, sec, pc);
+        struct mm_fetch_result f;
         struct mm_decoded d;
 
+        if (op_count > 0u && mm_signal_is_trigger_pc(pc)) {
+            break;
+        }
+        f = mm_fetch_t32_memmap_at(map, sec, pc);
         if (f.fault) {
             break;
         }

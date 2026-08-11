@@ -51,6 +51,55 @@ mm_u8 stm32_gpio_get_pin_mode(const struct stm32_gpio_state *g, int pin)
     return (mm_u8)((moder >> (pin * 2)) & 0x3u);
 }
 
+#define GPIO_MODE_INPUT  0u
+#define GPIO_MODE_OUTPUT 1u
+#define GPIO_MODE_AF     2u
+#define GPIO_MODE_ANALOG 3u
+
+static mm_u32 gpio_mode_pins_mask(const struct stm32_gpio_state *g, mm_u32 mode)
+{
+    mm_u32 moder = g->regs[STM32_GPIO_MODER_OFFSET / 4];
+    mm_u32 mask = 0;
+    int pin;
+    for (pin = 0; pin < 16; ++pin) {
+        if (((moder >> (pin * 2)) & 0x3u) == mode) {
+            mask |= (1u << pin);
+        }
+    }
+    return mask;
+}
+
+static mm_u32 gpio_analog_pins_mask(const struct stm32_gpio_state *g)
+{
+    return gpio_mode_pins_mask(g, GPIO_MODE_ANALOG);
+}
+
+/* Injected Input pins read the pad; injected Output and AF pins read back ODR. */
+static mm_u32 gpio_pad_idr(const struct stm32_gpio_state *g, mm_u32 idr)
+{
+    mm_u32 pad = g->ext_driven & gpio_mode_pins_mask(g, GPIO_MODE_INPUT);
+    mm_u32 driven = g->ext_driven & (gpio_mode_pins_mask(g, GPIO_MODE_OUTPUT) |
+                                     gpio_mode_pins_mask(g, GPIO_MODE_AF));
+    idr = (idr & ~driven) | (g->regs[STM32_GPIO_ODR_OFFSET / 4] & driven);
+    return (idr & ~pad) | (g->ext_level & pad);
+}
+
+static void gpio_set_idr(struct stm32_gpio_ctx *ctx, mm_u32 new_idr)
+{
+    mm_u32 old_idr = ctx->gpio->regs[STM32_GPIO_IDR_OFFSET / 4];
+    if (new_idr != old_idr) {
+        ctx->gpio->regs[STM32_GPIO_IDR_OFFSET / 4] = new_idr;
+        if (ctx->exti_update) {
+            ctx->exti_update(ctx->bank_index, old_idr, new_idr);
+        }
+    }
+}
+
+static void gpio_refresh_pad_inputs(struct stm32_gpio_ctx *ctx)
+{
+    gpio_set_idr(ctx, gpio_pad_idr(ctx->gpio, ctx->gpio->regs[STM32_GPIO_IDR_OFFSET / 4]));
+}
+
 mm_u8 stm32_gpio_get_pin_af(const struct stm32_gpio_state *g, int pin)
 {
     if (pin < 0 || pin >= 16) {
@@ -90,11 +139,26 @@ static void gpio_sync_odr(struct stm32_gpio_ctx *ctx, mm_u32 old_odr)
 {
     mm_u32 new_odr = ctx->gpio->regs[STM32_GPIO_ODR_OFFSET / 4];
     if (new_odr != old_odr) {
-        ctx->gpio->regs[STM32_GPIO_IDR_OFFSET / 4] = new_odr;
-        if (ctx->exti_update) {
-            ctx->exti_update(ctx->bank_index, old_odr, new_odr);
-        }
+        gpio_set_idr(ctx, gpio_pad_idr(ctx->gpio, new_odr));
     }
+}
+
+mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bool level)
+{
+    struct stm32_gpio_state *g = ctx->gpio;
+    mm_u32 bit;
+
+    if (pin < 0 || pin >= 16) {
+        return MM_FALSE;
+    }
+    bit = 1u << (mm_u32)pin;
+    g->ext_driven |= bit;
+    g->ext_level = level ? (g->ext_level | bit) : (g->ext_level & ~bit);
+    if (stm32_gpio_get_pin_mode(g, pin) != GPIO_MODE_INPUT) {
+        return MM_FALSE;
+    }
+    gpio_refresh_pad_inputs(ctx);
+    return MM_TRUE;
 }
 
 mm_bool stm32_gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
@@ -113,6 +177,11 @@ mm_bool stm32_gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
 
     if (offset < sizeof(g->regs)) {
         memcpy(&v, (mm_u8 *)g->regs + offset, size_bytes);
+    }
+
+    if (offset == STM32_GPIO_IDR_OFFSET) {
+        /* Analog mode disables the input Schmitt trigger: IDR reads 0. */
+        v &= ~gpio_analog_pins_mask(g);
     }
 
     if (!ctx->is_secure_alias) {
@@ -188,6 +257,9 @@ mm_bool stm32_gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
             mm_u32 m2 = gpio_mask_to_2bit(mask & 0xFFFFu);
             value &= m2;
             g->regs[offset / 4] = (g->regs[offset / 4] & ~m2) | value;
+            if (offset == STM32_GPIO_MODER_OFFSET) {
+                gpio_refresh_pad_inputs(ctx);
+            }
             return MM_TRUE;
         }
         if (offset == STM32_GPIO_OTYPER_OFFSET) {
@@ -218,6 +290,11 @@ mm_bool stm32_gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     if (offset == STM32_GPIO_AFRL_OFFSET || offset == STM32_GPIO_AFRH_OFFSET) {
         g->regs[offset / 4] = value;
         stm32_gpio_update_pin_af(g);
+        return MM_TRUE;
+    }
+    if (offset == STM32_GPIO_MODER_OFFSET) {
+        g->regs[offset / 4] = value;
+        gpio_refresh_pad_inputs(ctx);
         return MM_TRUE;
     }
     if (offset == STM32_GPIO_LCKR_OFFSET) {

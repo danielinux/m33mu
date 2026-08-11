@@ -45,6 +45,8 @@ struct stm32_gpio_state {
     mm_u32 regs[STM32_GPIO_REG_SIZE / 4];
     mm_u8  pin_af[16]; /* computed AF per pin (0-15) */
     mm_bool locked;    /* LCKR lock sequence completed */
+    mm_u32 ext_driven; /* pins with an external level on the pad */
+    mm_u32 ext_level;
 };
 
 /* Context structure passed to read/write functions */
@@ -65,5 +67,9 @@ mm_bool stm32_gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                         mm_u32 *value_out);
 mm_bool stm32_gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                          mm_u32 value);
+
+/* Records the pad level; IDR and EXTI follow it while the pin is an input.
+ * Returns MM_FALSE if the pin is not an input right now. */
+mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bool level);
 
 #endif /* M33MU_STM32_GPIO_H */
