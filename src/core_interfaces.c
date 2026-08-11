@@ -690,6 +690,28 @@ mm_bool mm_gpio_bank_reader_present(void)
     return (g_gpio_bank_reader != 0) ? MM_TRUE : MM_FALSE;
 }
 
+static mm_gpio_set_external_input_fn g_gpio_external_input_writer = 0;
+static void *g_gpio_external_input_opaque = 0;
+
+void mm_gpio_set_external_input_writer(mm_gpio_set_external_input_fn writer, void *opaque)
+{
+    g_gpio_external_input_writer = writer;
+    g_gpio_external_input_opaque = opaque;
+}
+
+mm_bool mm_gpio_set_external_input(int bank, int pin, mm_bool level)
+{
+    if (g_gpio_external_input_writer == 0) {
+        return MM_FALSE;
+    }
+    return g_gpio_external_input_writer(g_gpio_external_input_opaque, bank, pin, level);
+}
+
+mm_bool mm_gpio_external_input_writer_present(void)
+{
+    return (g_gpio_external_input_writer != 0) ? MM_TRUE : MM_FALSE;
+}
+
 mm_bool mm_rcc_clock_list_present(void)
 {
     return (g_rcc_clock_list_reader != 0) ? MM_TRUE : MM_FALSE;

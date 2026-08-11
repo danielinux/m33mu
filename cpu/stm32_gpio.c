@@ -97,6 +97,34 @@ static void gpio_sync_odr(struct stm32_gpio_ctx *ctx, mm_u32 old_odr)
     }
 }
 
+mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bool level)
+{
+    mm_u32 old_idr;
+    mm_u32 new_idr;
+    struct stm32_gpio_state *g = ctx->gpio;
+
+    if (pin < 0 || pin >= 16) {
+        return MM_FALSE;
+    }
+    /* Only pins actually configured as input (MODER == 0b00 for that pin)
+     * accept an external drive; a pin in output/AF/analog mode is owned by
+     * firmware's own ODR->IDR mirror (gpio_sync_odr) and must not be
+     * clobbered here. */
+    if (stm32_gpio_get_pin_mode(g, pin) != 0u) {
+        return MM_FALSE;
+    }
+
+    old_idr = g->regs[STM32_GPIO_IDR_OFFSET / 4];
+    new_idr = level ? (old_idr | (1u << pin)) : (old_idr & ~(1u << (mm_u32)pin));
+    if (new_idr != old_idr) {
+        g->regs[STM32_GPIO_IDR_OFFSET / 4] = new_idr;
+        if (ctx->exti_update) {
+            ctx->exti_update(ctx->bank_index, old_idr, new_idr);
+        }
+    }
+    return MM_TRUE;
+}
+
 mm_bool stm32_gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                         mm_u32 *value_out)
 {

@@ -66,4 +66,12 @@ mm_bool stm32_gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
 mm_bool stm32_gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                          mm_u32 value);
 
+/* External-signal-injection entry point (src/signal.c). Drives pin's IDR
+ * bit and fans out through the existing EXTI path exactly like a real
+ * pin transition would, but only if the pin is currently configured as
+ * input; returns MM_FALSE (no-op) otherwise so a pin briefly repurposed
+ * as output mid-test cannot have its ODR-driven IDR value clobbered by a
+ * stale binding. */
+mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bool level);
+
 #endif /* M33MU_STM32_GPIO_H */

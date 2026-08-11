@@ -35,6 +35,7 @@ typedef mm_bool (*mm_gpio_bank_clock_fn)(void *opaque, int bank);
 typedef mm_u32 (*mm_gpio_bank_read_seccfgr_fn)(void *opaque, int bank);
 typedef mm_bool (*mm_rcc_clock_list_fn)(void *opaque, int line, char *out, size_t out_len);
 typedef mm_bool (*mm_gpio_bank_info_fn)(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out);
+typedef mm_bool (*mm_gpio_set_external_input_fn)(void *opaque, int bank, int pin, mm_bool level);
 
 struct mm_gpio_line {
     mm_gpio_listener_fn listener;
@@ -61,5 +62,20 @@ mm_bool mm_rcc_clock_list_line(int line, char *out, size_t out_len);
 
 void mm_gpio_set_bank_info_reader(mm_gpio_bank_info_fn reader, void *opaque);
 mm_bool mm_gpio_bank_info(int bank, char *name_out, size_t name_len, int *pins_out);
+
+/*
+ * External-input injection: lets a peripheral-agnostic source (e.g. the
+ * signal-injection module, src/signal.c) drive a GPIO pin's IDR bit as if
+ * a physical signal were applied, without needing direct access to the
+ * per-target static gpio_ctx_data[] table. Mirrors the read-side "reader"
+ * registration pattern above. bank is 0=A, 1=B, ... matching the same
+ * bank indexing used by mm_gpio_bank_read()/mm_gpio_bank_info(); pin is
+ * 0-15. Returns MM_FALSE if no writer is registered for the current
+ * target, or if the target rejects the write (e.g. pin not currently in
+ * input mode).
+ */
+void mm_gpio_set_external_input_writer(mm_gpio_set_external_input_fn writer, void *opaque);
+mm_bool mm_gpio_set_external_input(int bank, int pin, mm_bool level);
+mm_bool mm_gpio_external_input_writer_present(void);
 
 #endif /* M33MU_GPIO_H */

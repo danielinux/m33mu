@@ -54,6 +54,9 @@
 #include "m33mu/exception.h"
 #include "m33mu/table_branch.h"
 #include "m33mu/timer.h"
+#include "m33mu/signal.h"
+#include "m33mu/signal.h"
+#include "m33mu/signal.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/spiflash.h"
 #include "m33mu/usbdev.h"
@@ -3597,6 +3600,8 @@ static mm_bool step_core_simple(struct mm_cpu *cpu,
         if (cycles_since_poll) *cycles_since_poll += insn_cycles;
         mm_scs_systick_advance(scs, insn_cycles);
         mm_timer_tick(cfg, insn_cycles);
+        mm_signal_check_trigger(cpu->r[15] & ~1u);
+        mm_signal_advance((mm_u64)insn_cycles);
         if (cycle_total && fault_clock_hit(*cycle_total, fault_clocks, fault_clock_count)) {
             fault_skip = MM_TRUE;
         }
@@ -4598,6 +4603,33 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
     return MM_TRUE;
 }
 
+/* Parses a "PA5"-style pin name into (bank, pin), same convention as the
+ * private parse_gpio_name() helpers already used by tpm_tis.c/ta100.c/etc
+ * for their own CS pin specs (kept local here rather than exported, since
+ * none of those are exported either). bank 0=A, 1=B, ..., matching
+ * mm_gpio_bank_read()'s indexing. */
+static mm_bool signal_parse_gpio_name(const char *s, int *bank_out, int *pin_out)
+{
+    int bank;
+    int pin = 0;
+    const char *p;
+    if (s == 0 || bank_out == 0 || pin_out == 0) return MM_FALSE;
+    if (s[0] != 'P' && s[0] != 'p') return MM_FALSE;
+    if (s[1] < 'A' || (s[1] > 'Z' && s[1] < 'a') || s[1] > 'z') return MM_FALSE;
+    bank = (s[1] >= 'a') ? (s[1] - 'a') : (s[1] - 'A');
+    p = s + 2;
+    if (*p < '0' || *p > '9') return MM_FALSE;
+    while (*p >= '0' && *p <= '9') {
+        pin = (pin * 10) + (*p - '0');
+        p++;
+    }
+    if (*p != '\0') return MM_FALSE;
+    if (pin < 0 || pin > 15) return MM_FALSE;
+    *bank_out = bank;
+    *pin_out = pin;
+    return MM_TRUE;
+}
+
 int main(int argc, char **argv)
 {
     struct mm_image_spec images[16];
@@ -4682,6 +4714,20 @@ int main(int argc, char **argv)
     int ta100_count = 0;
     struct mm_iotsafe_uart_cfg iotsafe_uart_cfgs[4];
     int iotsafe_uart_count = 0;
+    /* --- Signal injection (GPIO phase) --- */
+    struct mm_signal_bind_spec {
+        char trace_name[MM_SIGNAL_TRACE_NAME_LEN];
+        int  bank;
+        int  pin;
+        mm_u32 group_id;
+    } signal_bind_specs[MM_SIGNAL_MAX_BINDINGS];
+    int signal_bind_count = 0;
+    mm_i32 opt_vdd_mv = 3300;
+    char opt_signal_file[512] = "";
+    mm_bool has_signal_file = MM_FALSE;
+    mm_u32 opt_signal_trigger_addr = 0;
+    mm_u32 opt_signal_trigger_group = MM_SIGNAL_MASTER_GROUP;
+    mm_bool has_signal_trigger = MM_FALSE;
 #ifdef M33MU_HAS_RUST_PLUGINS
     struct mm_se050_cfg se050_cfgs[4];
     int se050_count = 0;
@@ -5162,6 +5208,83 @@ int main(int argc, char **argv)
                 return 1;
             }
             iotsafe_uart_count++;
+        } else if (strncmp(argv[i], "--vdd_mv=", 9) == 0) {
+            char *endp;
+            long v = strtol(argv[i] + 9, &endp, 0);
+            if (*endp != '\0') {
+                fprintf(stderr, "invalid --vdd_mv value: %s\n", argv[i]);
+                return 1;
+            }
+            opt_vdd_mv = (mm_i32)v;
+        } else if (strncmp(argv[i], "--signal-file=", 14) == 0) {
+            snprintf(opt_signal_file, sizeof(opt_signal_file), "%s", argv[i] + 14);
+            has_signal_file = MM_TRUE;
+        } else if (strncmp(argv[i], "--signal-master-trigger-addr=", 29) == 0) {
+            char *endp;
+            unsigned long addr = strtoul(argv[i] + 29, &endp, 0);
+            if (*endp != '\0' || addr > 0xFFFFFFFFul) {
+                fprintf(stderr, "invalid --signal-master-trigger-addr value: %s\n", argv[i]);
+                return 1;
+            }
+            /* Thumb bit (bit 0) is masked here, once, at parse time: cpu->r[15]
+             * as compared in mm_signal_tick() never carries it (see main.c's
+             * consistent "& ~1u" convention on every other PC comparison), so
+             * an address pasted straight from `nm` (which reports Thumb
+             * function symbols with bit 0 set) must be normalised before
+             * being stored, not left for the tick-site comparison to handle. */
+            opt_signal_trigger_addr = (mm_u32)addr & ~1u;
+            has_signal_trigger = MM_TRUE;
+        } else if (strncmp(argv[i], "--signal-bind:", 14) == 0) {
+            char tmp[512];
+            char *tok;
+            mm_bool have_trace = MM_FALSE, have_target = MM_FALSE, have_role = MM_FALSE;
+            struct mm_signal_bind_spec spec;
+            memset(&spec, 0, sizeof(spec));
+            spec.group_id = MM_SIGNAL_MASTER_GROUP;
+            snprintf(tmp, sizeof(tmp), "%s", argv[i] + 14);
+            tok = strtok(tmp, ":");
+            while (tok != 0) {
+                if (strncmp(tok, "trace=", 6) == 0) {
+                    snprintf(spec.trace_name, sizeof(spec.trace_name), "%s", tok + 6);
+                    have_trace = MM_TRUE;
+                } else if (strncmp(tok, "target=", 7) == 0) {
+                    if (!signal_parse_gpio_name(tok + 7, &spec.bank, &spec.pin)) {
+                        fprintf(stderr, "invalid --signal-bind target: %s\n", tok + 7);
+                        return 1;
+                    }
+                    have_target = MM_TRUE;
+                } else if (strncmp(tok, "role=", 5) == 0) {
+                    if (strcmp(tok + 5, "gpio") != 0) {
+                        /* ADC role lands in the follow-on phase (see
+                         * m33mu-signal-injection-adc.md); not accepted here. */
+                        fprintf(stderr, "unsupported --signal-bind role: %s\n", tok + 5);
+                        return 1;
+                    }
+                    have_role = MM_TRUE;
+                } else if (strncmp(tok, "group=", 6) == 0) {
+                    char *gendp;
+                    unsigned long g = strtoul(tok + 6, &gendp, 0);
+                    if (*gendp != '\0') {
+                        fprintf(stderr, "invalid --signal-bind group: %s\n", tok + 6);
+                        return 1;
+                    }
+                    spec.group_id = (mm_u32)g;
+                } else {
+                    fprintf(stderr, "unrecognised --signal-bind field: %s\n", tok);
+                    return 1;
+                }
+                tok = strtok(0, ":");
+            }
+            if (!have_trace || !have_target || !have_role) {
+                fprintf(stderr, "--signal-bind requires trace=, target=, and role=\n");
+                return 1;
+            }
+            if (signal_bind_count >= (int)(sizeof(signal_bind_specs) / sizeof(signal_bind_specs[0]))) {
+                fprintf(stderr, "too many --signal-bind entries\n");
+                return 1;
+            }
+            signal_bind_specs[signal_bind_count] = spec;
+            signal_bind_count++;
 #ifdef M33MU_HAS_RUST_PLUGINS
         } else if (strncmp(argv[i], "--se050:", 8) == 0) {
             if (se050_count >= (int)(sizeof(se050_cfgs) / sizeof(se050_cfgs[0]))) {
@@ -5381,6 +5504,40 @@ int main(int argc, char **argv)
             fprintf(stderr, "failed to register iotsafe-uart\n");
             return 1;
         }
+    }
+
+    /* --- Signal injection setup (one-time, mirrors the pattern above):
+     * load the container, set thresholds, bind, arm the master trigger.
+     * mm_signal_prepare_for_run() (called once per soft-reset inside the
+     * main loop) re-arms the triggers/cursors on every subsequent boot
+     * without re-parsing any of this. */
+    if (has_signal_file) {
+        mm_signal_set_vdd_mv(opt_vdd_mv); /* must precede mm_signal_bind(): the
+                                            * GPIO crossing schedule is built at
+                                            * bind time using whatever threshold
+                                            * is in effect right now */
+        if (!mm_signal_load(opt_signal_file)) {
+            fprintf(stderr, "failed to load --signal-file %s\n", opt_signal_file);
+            return 1;
+        }
+        for (i = 0; i < signal_bind_count; ++i) {
+            int bid = mm_signal_bind(signal_bind_specs[i].trace_name,
+                                      signal_bind_specs[i].bank,
+                                      signal_bind_specs[i].pin,
+                                      MM_SIGNAL_ROLE_GPIO,
+                                      signal_bind_specs[i].group_id);
+            if (bid < 0) {
+                fprintf(stderr, "failed to bind signal trace '%s'\n",
+                        signal_bind_specs[i].trace_name);
+                return 1;
+            }
+        }
+        if (has_signal_trigger) {
+            mm_signal_set_master_trigger(opt_signal_trigger_group, opt_signal_trigger_addr);
+        }
+    } else if (signal_bind_count > 0) {
+        fprintf(stderr, "--signal-bind given without --signal-file\n");
+        return 1;
     }
 #ifdef M33MU_HAS_RUST_PLUGINS
     for (i = 0; i < se050_count; ++i) {
@@ -5653,6 +5810,9 @@ int main(int argc, char **argv)
             mm_u64 hz_now = 0;
             mm_u64 last_hz = 0;
             tui_steps_offset = 0;
+            mm_signal_set_cpu_hz(cpu_hz); /* nominal default; corrected as soon as
+                                            * mm_target_cpu_hz() reports the real
+                                            * rate below, same as cpu_hz itself */
             if (fault_clock_count > 0u) {
                 mm_u8 i;
                 if (fault_clock_count > (mm_u8)(sizeof(fault_clocks) / sizeof(fault_clocks[0]))) {
@@ -5671,6 +5831,7 @@ int main(int argc, char **argv)
             mm_memmap_init(&map, regions, sizeof(regions) / sizeof(regions[0]));
             mm_target_soc_reset(&cfg);
             mm_timer_reset(&cfg);
+            mm_signal_prepare_for_run();
             mm_spiflash_reset_all();
 #ifdef M33MU_HAS_LIBTPMS
             mm_tpm_tis_reset_all();
@@ -6133,6 +6294,11 @@ int main(int argc, char **argv)
                     last_hz = hz_now;
                     sync_granularity = cpu_hz / 100000u;
                     if (sync_granularity == 0) sync_granularity = 1u;
+                    mm_signal_set_cpu_hz(cpu_hz); /* keep signal replay's cycle->ns
+                                                    * conversion on the same clock
+                                                    * rate deadline_ns() uses, even
+                                                    * across a firmware-driven PLL
+                                                    * reconfiguration mid-run */
                     printf("[CLOCK] CPU %llu Hz\n", (unsigned long long)cpu_hz);
                 }
                 if (g_fault_pending) {
@@ -6621,6 +6787,7 @@ check_irq_pending:
 
                             cpu.r[13] = mm_cpu_get_active_sp(&cpu);
 
+                            mm_signal_check_trigger(cpu.r[15] & ~1u);
                             (void)mm_tb_run(tb, &exec_ctx, &done, &tb_bkpt_hit, &tb_bkpt_imm, &ops_executed);
                             if (ops_executed != 0u) {
                                 cycles_since_poll += ops_executed;
@@ -6628,6 +6795,7 @@ check_irq_pending:
                                 vcycles += ops_executed;
                                 mm_scs_systick_advance(&scs, ops_executed);
                                 mm_timer_tick(&cfg, ops_executed);
+                                mm_signal_advance((mm_u64)ops_executed);
                             }
                             if (tb_bkpt_hit) {
                                 printf("[BKPT] imm=0x%02lx\n", (unsigned long)tb_bkpt_imm);
@@ -6746,6 +6914,8 @@ check_irq_pending:
                     vcycles += insn_cycles;
                     mm_scs_systick_advance(&scs, insn_cycles);
                     mm_timer_tick(&cfg, insn_cycles);
+                    mm_signal_check_trigger(cpu.r[15] & ~1u);
+                    mm_signal_advance((mm_u64)insn_cycles);
                     if (opt_gdb) {
                         mm_u8 i;
                         fault_clock_count = gdb.fault_clock_count;
