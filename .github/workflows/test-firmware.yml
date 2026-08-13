@@ -130,3 +130,60 @@ jobs:
             --quit-on-faults \
             tests/firmware/test-stm32u585-wolfssl-pka/app.bin | tee /tmp/m33mu-pka.log
           grep -q "PKA TEST SUCCESSFUL" /tmp/m33mu-pka.log
+      - name: Run GPIO signal-injection firmware tests
+        # Each firmware's --signal-master-trigger-addr is resolved fresh
+        # via `nm` rather than hardcoded, since the noinline marker
+        # function's address can shift by a byte or two across toolchain
+        # versions/optimization changes (see docs/signal-injection-gpio.md's
+        # note on trigger-symbol fragility) -- hardcoding it here would
+        # make this step silently start failing on an unrelated toolchain
+        # bump rather than a real regression.
+        run: |
+          set -euo pipefail
+          FW=tests/firmware
+          COMMON=$FW/_signal_common
+          run_signal_test() {
+            local dir="$1" fixture="$2"; shift 2
+            local addr
+            addr=$(arm-none-eabi-nm "$dir/app.elf" | grep ' signal_trigger_marker$' | awk '{print $1}')
+            if [ -z "$addr" ]; then
+              echo "::error::signal_trigger_marker not found in $dir/app.elf"
+              exit 1
+            fi
+            build/m33mu --cpu stm32h5f4 --dualbank --vdd_mv=3300 \
+              --signal-file="$fixture" \
+              --signal-master-trigger-addr="0x$addr" \
+              --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
+              "$@" \
+              "$dir/app.bin"
+          }
+          run_signal_test $FW/test-stm32h5f4-signal-gpio-basic $COMMON/fixture_oneshot.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-exti-rising $COMMON/fixture_4cross.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-exti-falling $COMMON/fixture_4cross.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-exti-both $COMMON/fixture_4cross.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-exti-masked $COMMON/fixture_1cross.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-hysteresis $COMMON/fixture_hysteresis.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-sharp-edge $COMMON/fixture_sharp_edge.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-nonuniform $COMMON/fixture_nonuniform.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-mode-guard $COMMON/fixture_mode_guard.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-trigger-oneshot $COMMON/fixture_oneshot.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-group-sync $COMMON/fixture_group_sync.sigc \
+            --signal-bind:trace=trace_a:target=PA5:role=gpio:group=0 \
+            --signal-bind:trace=trace_b:target=PB2:role=gpio:group=0
+          # Output tests need no --signal-file at all.
+          build/m33mu --cpu stm32h5f4 --dualbank \
+            --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
+            $FW/test-stm32h5f4-signal-output-loopback/app.bin
+          build/m33mu --cpu stm32h5f4 --dualbank \
+            --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
+            $FW/test-stm32h5f4-signal-output-timing/app.bin
