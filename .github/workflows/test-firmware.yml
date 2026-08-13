@@ -130,7 +130,7 @@ jobs:
             --quit-on-faults \
             tests/firmware/test-stm32u585-wolfssl-pka/app.bin | tee /tmp/m33mu-pka.log
           grep -q "PKA TEST SUCCESSFUL" /tmp/m33mu-pka.log
-      - name: Run GPIO signal-injection firmware tests
+      - name: Run STM32H5F4 GPIO signal-injection firmware tests
         # Each firmware's --signal-master-trigger-addr is resolved fresh
         # via `nm` rather than hardcoded, since the noinline marker
         # function's address can shift by a byte or two across toolchain
