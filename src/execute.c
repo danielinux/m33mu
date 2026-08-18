@@ -700,16 +700,15 @@ mm_u32 itstate_set(mm_u32 xpsr, mm_u8 itstate)
 
 mm_u8 itstate_advance(mm_u8 itstate)
 {
-    mm_u8 mask = (mm_u8)(itstate & 0x0fu);
-    if (mask == 0u) {
+    mm_u8 low5 = (mm_u8)(itstate & 0x1fu);
+    if ((itstate & 0x0fu) == 0u) {
         return 0u;
     }
-    mask = (mm_u8)(mask << 1);
-    itstate = (mm_u8)((itstate & 0xF0u) | (mask & 0x0fu));
-    if ((itstate & 0x0fu) == 0u) {
-        itstate = 0u;
+    low5 = (mm_u8)((low5 << 1) & 0x1fu);
+    if ((low5 & 0x0fu) == 0u) {
+        return 0u;
     }
-    return itstate;
+    return (mm_u8)((itstate & 0xe0u) | low5);
 }
 
 static void itstate_clear(mm_u32 *xpsr, mm_u8 *it_pattern, mm_u8 *it_remaining, mm_u8 *it_cond)
