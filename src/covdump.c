@@ -37,12 +37,96 @@ static void covdump_note(struct mm_covdump_region *r, mm_bool is_start,
     }
 }
 
+static mm_bool covdump_lookup_in_elf(Elf *elf, const char *sym_name,
+                                     mm_u32 *addr_out)
+{
+    Elf_Scn *scn = 0;
+    GElf_Shdr shdr;
+
+    while ((scn = elf_nextscn(elf, scn)) != 0) {
+        Elf_Data *data;
+        size_t nsym;
+        size_t s;
+
+        if (gelf_getshdr(scn, &shdr) == 0) {
+            continue;
+        }
+        if (shdr.sh_type != SHT_SYMTAB) {
+            continue;
+        }
+
+        data = elf_getdata(scn, NULL);
+        if (data == 0 || shdr.sh_entsize == 0) {
+            continue;
+        }
+
+        nsym = (size_t)(shdr.sh_size / shdr.sh_entsize);
+        for (s = 0; s < nsym; ++s) {
+            GElf_Sym sym;
+            const char *name;
+
+            if (gelf_getsym(data, (int)s, &sym) == 0) {
+                continue;
+            }
+            name = elf_strptr(elf, shdr.sh_link, sym.st_name);
+            if (name == 0) {
+                continue;
+            }
+            if (strcmp(name, sym_name) == 0) {
+                *addr_out = (mm_u32)sym.st_value;
+                return MM_TRUE;
+            }
+        }
+    }
+    return MM_FALSE;
+}
+
+mm_bool mm_elf_lookup_symbol(const char *elf_path, const char *sym_name,
+                             mm_u32 *addr_out, char *err, size_t errsz)
+{
+    Elf *elf = 0;
+    int fd = -1;
+    mm_bool found;
+
+    if (elf_path == 0 || sym_name == 0 || addr_out == 0) {
+        snprintf(err, errsz, "invalid arguments to mm_elf_lookup_symbol");
+        return MM_FALSE;
+    }
+    *addr_out = 0;
+
+    if (elf_version(EV_CURRENT) == EV_NONE) {
+        snprintf(err, errsz, "libelf version mismatch");
+        return MM_FALSE;
+    }
+
+    fd = open(elf_path, O_RDONLY);
+    if (fd < 0) {
+        snprintf(err, errsz, "cannot open %s", elf_path);
+        return MM_FALSE;
+    }
+
+    elf = elf_begin(fd, ELF_C_READ, NULL);
+    if (elf == 0) {
+        snprintf(err, errsz, "%s is not readable as ELF", elf_path);
+        close(fd);
+        return MM_FALSE;
+    }
+
+    found = covdump_lookup_in_elf(elf, sym_name, addr_out);
+
+    elf_end(elf);
+    close(fd);
+
+    if (!found) {
+        snprintf(err, errsz, "symbol '%s' not found in %s", sym_name, elf_path);
+    }
+    return found;
+}
+
 mm_bool mm_covdump_resolve(const char *elf_path, struct mm_covdump_info *out,
                            char *err, size_t errsz)
 {
     struct mm_covdump_sym wanted[8];
-    Elf_Scn *scn = 0;
-    GElf_Shdr shdr;
     Elf *elf = 0;
     int fd = -1;
     size_t i;
@@ -85,38 +169,12 @@ mm_bool mm_covdump_resolve(const char *elf_path, struct mm_covdump_info *out,
         return MM_FALSE;
     }
 
-    while ((scn = elf_nextscn(elf, scn)) != 0) {
-        Elf_Data *data;
-        size_t nsym;
-        size_t s;
-        if (gelf_getshdr(scn, &shdr) == 0) {
-            continue;
-        }
-        if (shdr.sh_type != SHT_SYMTAB) {
-            continue;
-        }
-        data = elf_getdata(scn, NULL);
-        if (data == 0 || shdr.sh_entsize == 0) {
-            continue;
-        }
-        nsym = (size_t)(shdr.sh_size / shdr.sh_entsize);
-        for (s = 0; s < nsym; ++s) {
-            GElf_Sym sym;
-            const char *name;
-            if (gelf_getsym(data, (int)s, &sym) == 0) {
-                continue;
-            }
-            name = elf_strptr(elf, shdr.sh_link, sym.st_name);
-            if (name == 0) {
-                continue;
-            }
-            for (i = 0; i < sizeof(wanted) / sizeof(wanted[0]); ++i) {
-                if (strcmp(name, wanted[i].name) == 0) {
-                    covdump_note(wanted[i].region, wanted[i].is_start,
-                                 (mm_u32)sym.st_value);
-                    wanted[i].region->present = MM_TRUE;
-                }
-            }
+    for (i = 0; i < sizeof(wanted) / sizeof(wanted[0]); ++i) {
+        mm_u32 addr;
+
+        if (covdump_lookup_in_elf(elf, wanted[i].name, &addr)) {
+            covdump_note(wanted[i].region, wanted[i].is_start, addr);
+            wanted[i].region->present = MM_TRUE;
         }
     }
 
@@ -136,6 +194,17 @@ mm_bool mm_covdump_resolve(const char *elf_path, struct mm_covdump_info *out,
 }
 
 #else /* !M33MU_HAS_LIBELF */
+
+mm_bool mm_elf_lookup_symbol(const char *elf_path, const char *sym_name,
+                             mm_u32 *addr_out, char *err, size_t errsz)
+{
+    (void)elf_path;
+    (void)sym_name;
+    (void)addr_out;
+    snprintf(err, errsz, "symbol lookup needs libelf, which was not "
+             "available at build time");
+    return MM_FALSE;
+}
 
 mm_bool mm_covdump_resolve(const char *elf_path, struct mm_covdump_info *out,
                            char *err, size_t errsz)
