@@ -131,31 +131,30 @@ jobs:
             tests/firmware/test-stm32u585-wolfssl-pka/app.bin | tee /tmp/m33mu-pka.log
           grep -q "PKA TEST SUCCESSFUL" /tmp/m33mu-pka.log
       - name: Run STM32H5F4 GPIO signal-injection firmware tests
-        # Each firmware's --signal-master-trigger-addr is resolved fresh
-        # via `nm` rather than hardcoded, since the noinline marker
-        # function's address can shift by a byte or two across toolchain
-        # versions/optimization changes (see docs/signal-injection-gpio.md's
-        # note on trigger-symbol fragility) -- hardcoding it here would
-        # make this step silently start failing on an unrelated toolchain
-        # bump rather than a real regression.
+        # --signal-sync=signal_trigger_marker resolves the trigger address
+        # itself, at run time, against the loaded ELF's own symtab (via
+        # mm_elf_lookup_symbol(), src/covdump.c) -- no external nm/readelf
+        # step needed here anymore. A symbol name only works when the
+        # execution image passed to m33mu is itself an ELF (a plain .bin
+        # has no symbol table to search), so these tests now load app.elf
+        # directly instead of app.bin. This also closes the trigger-symbol-
+        # fragility gap noted in docs/signal-injection-gpio.md: the symbol
+        # is looked up fresh from the actual built ELF on every run, so a
+        # marker address shifting by a byte or two across toolchain
+        # versions/optimization changes can no longer silently desync from
+        # a value hardcoded (or pre-resolved) here.
         run: |
           set -euo pipefail
           FW=tests/firmware
           COMMON=$FW/_signal_common
           run_signal_test() {
             local dir="$1" fixture="$2"; shift 2
-            local addr
-            addr=$(arm-none-eabi-nm "$dir/app.elf" | grep ' signal_trigger_marker$' | awk '{print $1}')
-            if [ -z "$addr" ]; then
-              echo "::error::signal_trigger_marker not found in $dir/app.elf"
-              exit 1
-            fi
             build/m33mu --cpu stm32h5f4 --dualbank --vdd_mv=3300 \
               --signal-file="$fixture" \
-              --signal-master-trigger-addr="0x$addr" \
+              --signal-sync=signal_trigger_marker \
               --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
               "$@" \
-              "$dir/app.bin"
+              "$dir/app.elf"
           }
           run_signal_test $FW/test-stm32h5f4-signal-gpio-basic $COMMON/fixture_oneshot.sigc \
             --signal-bind:trace=vin:target=PA5:role=gpio:group=0

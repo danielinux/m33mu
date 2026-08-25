@@ -4630,6 +4630,83 @@ static mm_bool signal_parse_gpio_name(const char *s, int *bank_out, int *pin_out
     return MM_TRUE;
 }
 
+/* Resolves the argument of --signal-sync=<symbol|address> into a Thumb-bit-
+ * masked PC value suitable for mm_signal_set_master_trigger(). Replaces the
+ * old --signal-master-trigger-addr=<hex> option: that one required the user
+ * to resolve the marker symbol's address themselves via an out-of-band
+ * `nm`/`readelf` call (see the CI step in .github/workflows/test-firmware.yml
+ * and the trigger-symbol-fragility note in docs/signal-injection-gpio.md --
+ * a noinline marker's address can shift by a byte or two across toolchain
+ * versions or optimization changes, silently breaking a hardcoded value).
+ * A symbol name is now resolved fresh, at run time, against the actual
+ * loaded ELF via mm_elf_lookup_symbol() (src/covdump.c), so it always
+ * matches the binary actually being emulated.
+ *
+ * Numeric form (0x.../decimal/octal, same as strtoul's base-0 rules) is
+ * always accepted, on any execution image. Symbol-name form additionally
+ * requires the loaded execution image to itself be an ELF (so its symtab
+ * is available to search); with a plain .bin image, a symbol name here is
+ * rejected -- there's simply no symbol table to resolve it against. */
+static mm_bool signal_resolve_trigger_addr(const char *spec,
+                                            const struct mm_image_spec *images,
+                                            int image_count,
+                                            mm_u32 *addr_out)
+{
+    char *endp;
+    unsigned long addr;
+    const char *elf_path = 0;
+    char err[MM_COVDUMP_ERRSZ];
+    int i;
+
+    if (spec == 0 || spec[0] == '\0' || addr_out == 0) {
+        fprintf(stderr, "invalid --signal-sync value\n");
+        return MM_FALSE;
+    }
+
+    addr = strtoul(spec, &endp, 0);
+    if (endp != spec && *endp == '\0') {
+        if (addr > 0xFFFFFFFFul) {
+            fprintf(stderr, "invalid --signal-sync address: %s\n", spec);
+            return MM_FALSE;
+        }
+        /* Thumb bit (bit 0) is masked here, once: cpu->r[15] as compared in
+         * mm_signal_check_trigger() never carries it (see main.c's
+         * consistent "& ~1u" convention on every other PC comparison). */
+        *addr_out = (mm_u32)addr & ~1u;
+        return MM_TRUE;
+    }
+
+    /* Not a bare number: treat it as a symbol name, resolved against the
+     * single loaded ELF image (mirrors the --covdump-elf auto-detection in
+     * the cleanup path's cov_elf resolution above). A plain .bin execution
+     * image has no symbol table, so a symbol name is simply rejected in
+     * that case -- --signal-sync then only accepts a raw address. */
+    for (i = 0; i < image_count; ++i) {
+        if (images[i].type == MM_IMAGE_ELF && images[i].path != 0) {
+            if (elf_path != 0) {
+                fprintf(stderr, "--signal-sync=%s: several ELF images are "
+                                "loaded; pass a raw address instead\n", spec);
+                return MM_FALSE;
+            }
+            elf_path = images[i].path;
+        }
+    }
+    if (elf_path == 0) {
+        fprintf(stderr, "--signal-sync=%s: a symbol name requires the "
+                        "execution image to be an ELF (a plain .bin has no "
+                        "symbol table); pass a raw address instead\n", spec);
+        return MM_FALSE;
+    }
+
+    err[0] = '\0';
+    if (!mm_elf_lookup_symbol(elf_path, spec, addr_out, err, sizeof(err))) {
+        fprintf(stderr, "--signal-sync=%s: %s\n", spec, err);
+        return MM_FALSE;
+    }
+    *addr_out &= ~1u;
+    return MM_TRUE;
+}
+
 int main(int argc, char **argv)
 {
     struct mm_image_spec images[16];
@@ -4725,9 +4802,12 @@ int main(int argc, char **argv)
     mm_i32 opt_vdd_mv = 3300;
     char opt_signal_file[512] = "";
     mm_bool has_signal_file = MM_FALSE;
-    mm_u32 opt_signal_trigger_addr = 0;
     mm_u32 opt_signal_trigger_group = MM_SIGNAL_MASTER_GROUP;
     mm_bool has_signal_trigger = MM_FALSE;
+    /* Raw --signal-sync argument: either a numeric address or a symbol
+     * name, disambiguated and resolved in signal_resolve_trigger_addr()
+     * once image parsing has completed (see the call site below). */
+    char opt_signal_sync[256] = "";
 #ifdef M33MU_HAS_RUST_PLUGINS
     struct mm_se050_cfg se050_cfgs[4];
     int se050_count = 0;
@@ -5219,20 +5299,19 @@ int main(int argc, char **argv)
         } else if (strncmp(argv[i], "--signal-file=", 14) == 0) {
             snprintf(opt_signal_file, sizeof(opt_signal_file), "%s", argv[i] + 14);
             has_signal_file = MM_TRUE;
-        } else if (strncmp(argv[i], "--signal-master-trigger-addr=", 29) == 0) {
-            char *endp;
-            unsigned long addr = strtoul(argv[i] + 29, &endp, 0);
-            if (*endp != '\0' || addr > 0xFFFFFFFFul) {
-                fprintf(stderr, "invalid --signal-master-trigger-addr value: %s\n", argv[i]);
+        } else if (strncmp(argv[i], "--signal-sync=", 14) == 0) {
+            /* Just captures the raw string here; parsing between "numeric
+             * address" and "symbol name" (and, for the latter, the actual
+             * ELF symbol lookup) is deferred to
+             * signal_resolve_trigger_addr(), called once image parsing has
+             * finished below -- a symbol needs the loaded ELF path, which
+             * isn't necessarily known yet at this point in the argv scan
+             * (image positional args can come before or after this flag). */
+            snprintf(opt_signal_sync, sizeof(opt_signal_sync), "%s", argv[i] + 14);
+            if (opt_signal_sync[0] == '\0') {
+                fprintf(stderr, "invalid --signal-sync value: %s\n", argv[i]);
                 return 1;
             }
-            /* Thumb bit (bit 0) is masked here, once, at parse time: cpu->r[15]
-             * as compared in mm_signal_tick() never carries it (see main.c's
-             * consistent "& ~1u" convention on every other PC comparison), so
-             * an address pasted straight from `nm` (which reports Thumb
-             * function symbols with bit 0 set) must be normalised before
-             * being stored, not left for the tick-site comparison to handle. */
-            opt_signal_trigger_addr = (mm_u32)addr & ~1u;
             has_signal_trigger = MM_TRUE;
         } else if (strncmp(argv[i], "--signal-bind:", 14) == 0) {
             char tmp[512];
@@ -5533,7 +5612,12 @@ int main(int argc, char **argv)
             }
         }
         if (has_signal_trigger) {
-            mm_signal_set_master_trigger(opt_signal_trigger_group, opt_signal_trigger_addr);
+            mm_u32 trig_addr;
+            if (!signal_resolve_trigger_addr(opt_signal_sync, images,
+                                              image_count, &trig_addr)) {
+                return 1;
+            }
+            mm_signal_set_master_trigger(opt_signal_trigger_group, trig_addr);
         }
     } else if (signal_bind_count > 0) {
         fprintf(stderr, "--signal-bind given without --signal-file\n");

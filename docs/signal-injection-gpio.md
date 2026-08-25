@@ -62,19 +62,20 @@ without re-deriving.
 
 **Implementation note (confirmed against the real codebase, not just assumed):** m33mu has two distinct execution paths that both need this check — a scalar per-instruction interpreter (used as a fallback and for a second CPU core on multi-core targets) and a translation-block (tb) fast path that executes a whole cached basic block per `mm_tb_run()` call, batching cycle/timer accounting (`mm_timer_tick(&cfg, ops_executed)`) once per block rather than per instruction. A plain "compare every instruction" implementation only works on the scalar path; on the tb path, PC is only observable at block-dispatch granularity. The trigger check must therefore run **before `mm_tb_run()`** using the same PC used for `mm_tb_lookup()`/`mm_tb_build()`, not inside a per-instruction tick. This is safe specifically because a translation block boundary is, by construction, a branch target (blocks end at branches and start at their destinations) — so a trigger address that is itself a function entry or other branch target (exactly what decision #9 already recommends) is always observed at a block boundary. A trigger address that only occurs *mid-block* would never fire under the tb path; this is a real constraint of the architecture, not a bug to work around. See the implementation's `mm_signal_check_trigger(pc)` (called once per dispatch, before execution) vs. `mm_signal_advance(cycles)` (called once per dispatch, after execution, with a possibly-batched cycle count) split in `signal.h`/`signal.c` for how this was actually implemented -- a single combined `mm_signal_tick(cycles, pc)` function, called after execution the same way `mm_timer_tick()` is, silently never observes any PC on the tb path (this exact bug was hit and fixed during implementation: the trigger simply never fired, with no error, until the check was moved before `mm_tb_run()`).
 | 10 | Trigger re-arming | **One-shot.** Fires once per emulator run, then permanently disarmed. | One test case = one fresh emulator invocation = one deterministic t=0. Matches desired CI isolation (no cross-test state); repeated-scenario needs are explicitly out of scope for this mechanism |
-| 11 | Trigger address resolution (v1 vs v2) | v1: resolve externally (`arm-none-eabi-nm firmware.elf \| grep <symbol>`), pass raw hex via CLI. v2 (future): m33mu's ELF loader parses `.symtab`/`.strtab` itself, accepts `--signal-master-trigger-symbol=<n>` directly | `load_elf_segments()` (`src/main.c` ~line 1720) currently only reads `PT_LOAD` segments — no symbol table parsing exists yet; v1 needs zero m33mu changes to start using this today |
+| 11 | Trigger address resolution (v1 vs v2) | ~~v1: resolve externally...~~ **Implemented (v2, superseding v1):** `--signal-sync=<symbol\|address>` accepts either a raw numeric address or a symbol name; a symbol name is resolved at run time against the loaded ELF via `mm_elf_lookup_symbol()` (`src/covdump.c`, a small libelf-backed symtab scan already used by `--covdump`) | No more external `nm`/`readelf` round-trip: the symbol is looked up fresh against the binary actually being emulated, closing the trigger-symbol-fragility gap noted below (§7) |
 
 **Resolved (verified empirically during implementation, not just discussed):**
 `arm-none-eabi-nm` and `arm-none-eabi-readelf` disagree on this in practice —
 tested against the real toolchain: `nm` reported a marker function's address
 with bit 0 clear (`0x0c00013a`), `readelf -s` reported the same symbol with
 bit 0 set (`0x0c00013b`), confirming the Thumb-bit ambiguity is real, not
-hypothetical. The fix: `--signal-master-trigger-addr=` parsing masks bit 0
-off exactly once, at CLI-parse time (`& ~1u`), matching the fact that
+hypothetical. The fix: `--signal-sync=` parsing masks bit 0
+off exactly once (whether the resolved address came from the numeric-literal
+branch or from `mm_elf_lookup_symbol()`'s `st_value`), matching the fact that
 `cpu->r[15]`/`cpu.r[15]` — compared against everywhere else in the codebase
 via the same `& ~1u` convention — never carries the Thumb bit when read.
-Either address pasted from either tool now resolves to the same, correct
-comparison value.
+Either address pasted from either tool, or a symbol name, now resolves to
+the same, correct comparison value.
 
 ### 2.2 GPIO-specific decisions
 
@@ -319,8 +320,10 @@ conflict; the setter no-ops if the pin's current mode isn't input.
 ```
 --vdd_mv=3300                                         # GPIO hysteresis thresholds: mid=vdd/2, ±125mV (250mV typ. hysteresis)
 --signal-file=board_stimulus.sigc
---signal-master-trigger-addr=0x08002104               # v1: resolved externally via nm
---signal-master-trigger-symbol=HAL_ADC_Start           # v2: once m33mu parses .symtab
+--signal-sync=0x08002104                               # raw address: works with any execution image (.bin, .elf, .hex, .uf2)
+--signal-sync=HAL_ADC_Start                            # symbol name: only valid when the loaded execution image is
+                                                        # itself an ELF (its own symtab is searched) -- a .bin has no
+                                                        # symbol table, so a symbol name is rejected in that case
 --signal-bind:trace=vin_adc0:target=PA5:role=gpio:group=g0
 ```
 
@@ -350,7 +353,11 @@ tackled in the follow-on phase.
      (~line 3580-3586), alongside `mm_timer_tick`.
    - `mm_signal_tick(cfg, insn_cycles)` call at the same site.
    - CLI parsing for `--vdd_mv`, `--signal-file`,
-     `--signal-master-trigger-addr`, `--signal-bind:...` (mirrors existing
+     `--signal-sync` (numeric address, valid with any execution image; or a
+     symbol name, valid only when the loaded execution image is itself an
+     ELF, resolved via `mm_elf_lookup_symbol()`, `src/covdump.c`, once
+     image parsing has finished — see `signal_resolve_trigger_addr()`),
+     `--signal-bind:...` (mirrors existing
      `--iotsafe-uart:addr:file=` parsing pattern already in the file).
    - `mm_signal_set_vdd_mv()` called before `mm_signal_load()`, so the GPIO
      crossing schedule is computed with the right threshold at load time;
@@ -420,8 +427,14 @@ validate.
 
 ## 7. Open items / deferred (GPIO phase)
 
-- **v2**: native `.symtab`/`.strtab` parsing in `load_elf_segments()` so
-  `--signal-master-trigger-symbol=<n>` works without an external `nm` step.
+- ~~**v2**: native `.symtab`/`.strtab` parsing...~~ **Implemented:**
+  `--signal-sync=<symbol|address>` resolves a symbol name against the loaded
+  ELF via `mm_elf_lookup_symbol()` (`src/covdump.c`), no external `nm` step
+  needed. A symbol name requires the execution image itself to be an ELF
+  (its symtab is what gets searched); with a plain `.bin` image,
+  `--signal-sync` only accepts a raw numeric address. Replaces the old
+  `--signal-master-trigger-addr=<hex>` option outright (not kept as an
+  alias).
 - **Fallback trigger source** (register-write watch instead of PC-watch) for
   binary-only firmware with no ELF symbols — noted as a fallback, not
   built unless a concrete need arises.
