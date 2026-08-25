@@ -179,7 +179,7 @@ jobs:
           run_signal_test $FW/test-stm32h5f4-signal-group-sync $COMMON/fixture_group_sync.sigc \
             --signal-bind:trace=trace_a:target=PA5:role=gpio:group=0 \
             --signal-bind:trace=trace_b:target=PB2:role=gpio:group=0
-          # Output tests need no --signal-file at all.
+          # Digital Output tests need no --signal-file at all.
           build/m33mu --cpu stm32h5f4 --dualbank \
             --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
             $FW/test-stm32h5f4-signal-output-loopback/app.bin
