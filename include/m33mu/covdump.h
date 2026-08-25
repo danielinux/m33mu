@@ -44,6 +44,12 @@ struct mm_covdump_info {
 mm_bool mm_covdump_resolve(const char *elf_path, struct mm_covdump_info *out,
                            char *err, size_t errsz);
 
+/* Look up a symbol by name in the ELF's symtab and return its address
+ * (st_value). Returns MM_FALSE if the symbol doesn't exist, or if
+ * libelf wasn't available at build time. */
+mm_bool mm_elf_lookup_symbol(const char *elf_path, const char *sym_name,
+                              mm_u32 *addr_out, char *err, size_t errsz);
+
 /* Read the counter and bitmap regions out of the emulated memory map and write
  * <prefix>.cnts.bin, <prefix>.bits.bin and <prefix>.json.
  * Returns MM_FALSE and fills err on an unmapped region or a write failure. */
