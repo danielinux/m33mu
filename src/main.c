@@ -4682,7 +4682,8 @@ static mm_bool signal_resolve_trigger_addr(const char *spec,
      * image has no symbol table, so a symbol name is simply rejected in
      * that case -- --signal-sync then only accepts a raw address. */
     for (i = 0; i < image_count; ++i) {
-        if (images[i].type == MM_IMAGE_ELF && images[i].path != 0) {
+        if (images[i].path != 0 &&
+            detect_image_type(images[i].path) == MM_IMAGE_ELF) {
             if (elf_path != 0) {
                 fprintf(stderr, "--signal-sync=%s: several ELF images are "
                                 "loaded; pass a raw address instead\n", spec);
