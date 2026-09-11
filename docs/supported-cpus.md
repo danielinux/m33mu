@@ -15,6 +15,7 @@ These values are accepted by `--cpu`:
 - `nrf54lm20`
 - `rp2350`
 - `pic32ck`
+- `m2354` — Nuvoton NuMicro M2354 (Cortex-M23, ARMv8-M Baseline)
 
 You can also print the list directly from the executable:
 

@@ -76,6 +76,10 @@
 #include "pic32ck/pic32ck_sercom.h"
 #include "pic32ck/pic32ck_timers.h"
 #include "pic32ck/cpu_config.h"
+#include "m2354/m2354_mmio.h"
+#include "m2354/m2354_uart.h"
+#include "m2354/m2354_timers.h"
+#include "m2354/cpu_config.h"
 #include "rw612/rw612_mmio.h"
 #include "rw612/rw612_flexcomm.h"
 #include "rw612/rw612_timers.h"
@@ -517,6 +521,42 @@ static const struct mm_cpu_entry cpu_table[] = {
             PIC32CK_TIMER_RESET,
             PIC32CK_TIMER_TICK,
             PIC32CK_TZ_ATTR
+        }
+    },
+    {
+        "m2354",
+        {
+            M2354_FLASH_BASE_S,
+            M2354_FLASH_SIZE,
+            M2354_FLASH_BASE_NS,
+            M2354_FLASH_SIZE,
+            M2354_RAM_BASE_S,
+            M2354_RAM_SIZE,
+            M2354_RAM_BASE_NS,
+            M2354_RAM_SIZE,
+            1,
+            M2354_RAM_REGIONS,
+            M2354_RAM_REGION_COUNT,
+            M2354_MPCBB_BLOCK_SIZE,
+            0,
+            M2354_FLAGS,
+            M2354_SOC_RESET,
+            M2354_SOC_REGISTER,
+            M2354_FLASH_BIND,
+            M2354_CLOCK_GET_HZ,
+            M2354_USART_INIT,
+            M2354_USART_RESET,
+            M2354_USART_POLL,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            M2354_TIMER_INIT,
+            M2354_TIMER_RESET,
+            M2354_TIMER_TICK,
+            M2354_TZ_ATTR
         }
     },
     {
