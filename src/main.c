@@ -5755,7 +5755,14 @@ int main(int argc, char **argv)
                     printf("[TZ] TrustZone disabled via --no-tz\n");
                 } else if (cfg.ram_base_s != cfg.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH) {
                     if (mm_vector_read(&map, MM_SECURE, boot_base_s, 0u, &initial_sp)) {
-                        if ((initial_sp & 0xF0000000u) == 0x20000000u) {
+                        /* An initial SP inside the non-secure RAM alias means
+                         * the image was linked for the non-secure world.  The
+                         * alias is not always 0x2xxxxxxx: on M2354 the secure
+                         * view is the base address and the non-secure alias is
+                         * base + 0x10000000, the opposite of the NXP and ST
+                         * parts. */
+                        if ((initial_sp & 0xF0000000u) ==
+                            (cfg.ram_base_ns & 0xF0000000u)) {
                             force_ns_boot = MM_TRUE;
                             cfg.mpcbb_block_secure = 0;
                             cfg.mpcbb_block_size = 0;
