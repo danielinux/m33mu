@@ -36,6 +36,22 @@
 #include <stdlib.h>
 #include <math.h>
 
+/*
+ * ALUWritePC (ARM ARM B1.4.2): MOV/ADD writing PC branch within Thumb state
+ * and ignore bit 0, unlike the BXWritePC of BX, BLX, POP{PC} and LDR to PC,
+ * which faults on an even target.  Thumb-1 switch dispatch is "mov pc, rN"
+ * through a table of even addresses, so ARMv8-M Baseline code hits this where
+ * a Thumb-2 compiler would emit TBB/TBH or BX.  EXC_RETURN magic values are
+ * left untouched so handle_pc_write() still recognises them.
+ */
+static mm_u32 alu_write_pc_value(mm_u32 value)
+{
+    if ((value & 0xffffff00u) != 0xffffff00u) {
+        value |= 1u;
+    }
+    return value;
+}
+
 static int g_stack_trace = -1;
 static int g_splim_trace = -1;
 static int g_pop_trace = -1;
@@ -2112,6 +2128,24 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                } else {
                                                    cpu.r[d.rd] = lhs + rhs;
                                                }
+                                               /* The 16-bit high-register form covers ADD SP, SP, Rm
+                                                * and ADD PC, Rm.  R13 here is only a mirror of the
+                                                * banked stack pointer, so it has to be pushed through
+                                                * the active-SP setter the way the wide ADD.W above
+                                                * does -- ARMv8-M Baseline has no wide SUB SP, #imm12,
+                                                * so Thumb-1 frames larger than 508 bytes are built
+                                                * with "ldr rN, =-size; add sp, rN" and would
+                                                * otherwise silently lose the allocation. */
+                                               if (d.rd == 13u) {
+                                                   EXEC_SET_SP(cpu.r[13]);
+                                               } else if (d.rd == 15u) {
+                                                   if (!handle_pc_write(&cpu, &map, &scs,
+                                                                        alu_write_pc_value(cpu.r[15]),
+                                                                        &it_pattern, &it_remaining,
+                                                                        &it_cond)) {
+                                                       done = MM_TRUE;
+                                                   }
+                                               }
                                            }
                                        }
                                        break;
@@ -3935,7 +3969,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                         break;
                         case MM_OP_MOV_REG:
                                         if (d.rd == 15u) {
-                                            if (!handle_pc_write(&cpu, &map, &scs, cpu.r[d.rm], &it_pattern, &it_remaining, &it_cond)) {
+                                            if (!handle_pc_write(&cpu, &map, &scs, alu_write_pc_value(cpu.r[d.rm]), &it_pattern, &it_remaining, &it_cond)) {
                                                 done = MM_TRUE;
                                             }
                                         } else if (d.rd == 13u) {
