@@ -577,6 +577,7 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-nrf54lm20 app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-pic32ck all
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-pic32ck-sdk clean all
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-m2354 clean all
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-fpu-instructions app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-lpc55s69 app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-rtos-exceptions app.bin
@@ -618,6 +619,12 @@ add_custom_target(test-firmware
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-tz-bxns-cmse-sau-mpu/build/secure.bin tests/firmware/test-tz-bxns-cmse-sau-mpu/build/nonsecure.bin:0x2000 || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> --cpu pic32ck tests/firmware/test-pic32ck-sdk/test_fcw.bin || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> --cpu pic32ck tests/firmware/test-pic32ck-sdk/test_idau.bin || true"
+  COMMAND $<TARGET_FILE:m33mu> --cpu m2354 tests/firmware/test-m2354/test_uart.bin
+          --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
+  COMMAND $<TARGET_FILE:m33mu> --cpu m2354 tests/firmware/test-m2354/test_fmc.bin
+          --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
+  COMMAND $<TARGET_FILE:m33mu> --cpu m2354 tests/firmware/test-m2354/test_scu.bin
+          --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
   DEPENDS m33mu firmware-build
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
