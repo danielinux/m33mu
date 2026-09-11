@@ -54,9 +54,31 @@ Notes:
 
 ## `--timeout`
 
-`--timeout <seconds>` installs a host-side execution timeout. If the timeout elapses, `m33mu` exits with code `127`.
+`--timeout <seconds>` installs a host-side execution timeout. If the timeout elapses, `m33mu` reports where the guest was and exits with code `127`.
 
 This protects CI jobs from hanging forever due to firmware deadlocks, infinite loops, or waiting for events that never arrive.
+
+The report goes to stderr, unbuffered, so it survives a `| tee` pipeline:
+
+```
+[TIMEOUT] wall-clock limit of 600 s reached; the guest was still running after 43773906 virtual cycles.
+[TIMEOUT cpu0] PC=0x300010ad LR=0x0c000437 SP=0x3001ff98 xpsr=0x21000000 mode=0 sec=1
+[TIMEOUT cpu0] r0=0xffffffff r1=0x0c100000 ...
+```
+
+PC and LR are usually enough to name the offending function in the firmware map file, which matters most for an intermittent hang: the job that caught it is the only chance to see it.
+
+## `--rng-seed`
+
+Every modeled RNG peripheral draws from one emulator-wide stream. `--rng-seed <n>` fixes that stream, so a failure that depends on particular random data can be replayed instead of chased by repetition.
+
+With no seed given, one is drawn from the host and announced:
+
+```
+[RNG] host seed 0x3f2a9c41 (replay with --rng-seed 0x3f2a9c41)
+```
+
+CI logs therefore record how to reproduce their own run. The generator is a plain xorshift64*, models a peripheral, and is not a CSPRNG.
 
 Example:
 

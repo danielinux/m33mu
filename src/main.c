@@ -72,6 +72,7 @@
 #include "m33mu/stsafe.h"
 #include "m33mu/tropic01.h"
 #endif
+#include "m33mu/host_rng.h"
 #include "tui.h"
 #include <string.h>
 #include <time.h>
@@ -5185,6 +5186,17 @@ int main(int argc, char **argv)
                 return 1;
             }
             opt_expect_bkpt = MM_TRUE;
+        } else if (strcmp(argv[i], "--rng-seed") == 0) {
+            unsigned long sd;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing rng seed value\n");
+                return 1;
+            }
+            sd = strtoul(argv[i + 1], 0, 0);
+            mm_host_rng_seed((mm_u32)sd);
+            fprintf(stderr, "[RNG] host seed 0x%08lx (from --rng-seed)\n",
+                    (unsigned long)mm_host_rng_get_seed());
+            i++;
         } else if (strcmp(argv[i], "--timeout") == 0) {
             unsigned long t;
             if (i + 1 >= argc) {

@@ -40,7 +40,8 @@ build/m33mu --gdb --gdb-symbols firmware.elf firmware.bin
 - `--record`: keep an in-memory execution trace for reverse/debug workflows
 - `--call-trace`: log calls, returns, interrupts, and TrustZone SG transitions
 - `--quit-on-faults`: terminate when the first fault is raised
-- `--timeout <seconds>`: force a host-side timeout
+- `--timeout <seconds>`: force a host-side timeout. On expiry the CPU state (PC, LR, SP, xPSR, mode, secure state and r0-r12) is written to stderr before exit, so a hang in an unattended run says where it hung.
+- `--rng-seed <n>`: fix the stream every modeled RNG peripheral draws from, making a run reproducible. Without it a seed is drawn from the host and announced on stderr, so any run can be replayed.
 - `--expect-bkpt <imm>`: turn a firmware BKPT into a pass/fail test signal
 - `--capstone`: cross-check decode/execute behavior against Capstone
 - `--fault-clock <NNN>`: skip the instruction fetched at virtual cycle `NNN`, for fault-injection testing. May be repeated up to 16 times; values must not be contiguous.

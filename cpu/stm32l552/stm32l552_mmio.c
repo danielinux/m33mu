@@ -39,6 +39,7 @@
 #include "m33mu/gpio.h"
 #include "m33mu/nvic.h"
 #include "m33mu/spi_bus.h"
+#include "m33mu/host_rng.h"
 #include "stm32_crypto.h"
 #include "stm32_gpio.h"
 
@@ -881,11 +882,8 @@ static mm_bool rng_requires_secure(const struct simple_blk *tzsc)
 
 static void rng_fill(struct rng_state *r)
 {
-    mm_u32 v = 0;
-    ssize_t n = getrandom(&v, sizeof(v), GRND_NONBLOCK);
-    if (n != (ssize_t)sizeof(v)) {
-        v = 0;
-    }
+    mm_u32 v = mm_host_rng_u32();
+
     r->dr = v;
     r->dr_valid = MM_TRUE;
     r->regs[RNG_SR_OFFSET / 4] |= 1u;

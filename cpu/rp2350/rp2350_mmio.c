@@ -13,6 +13,7 @@
 #include "rp2350/rp2350_bootrom.h"
 #include "m33mu/gpio.h"
 #include "m33mu/otp.h"
+#include "m33mu/host_rng.h"
 
 extern void mm_system_request_reset(void);
 
@@ -1722,12 +1723,8 @@ static mm_bool trng_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     (void)alias;
     /* EHR_DATA0-5: Return random data */
     if (base_off >= TRNG_EHR_DATA0 && base_off <= TRNG_EHR_DATA5 && size_bytes == 4u) {
-        mm_u32 rnd = 0;
-        ssize_t ret = getrandom(&rnd, sizeof(rnd), 0);
-        if (ret != sizeof(rnd)) {
-            /* Fallback to pseudo-random if getrandom fails */
-            rnd = (mm_u32)rand();
-        }
+        mm_u32 rnd = mm_host_rng_u32();
+
         *value_out = rnd;
         return MM_TRUE;
     }
