@@ -514,12 +514,6 @@ static mm_u32 cfg_total_ram(const struct mm_target_cfg *cfg)
     return cfg->ram_size_s;
 }
 
-static void handle_timeout_alarm(int sig)
-{
-    (void)sig;
-    _exit(127);
-}
-
 static void dump_cpu_regs(const struct mm_cpu *cpu, const char *tag)
 {
     if (cpu == 0 || tag == 0) {
@@ -1413,6 +1407,159 @@ static struct mm_cpu *g_cpu0 = 0;
 static struct mm_cpu *g_cpu1 = 0;
 static struct mm_nvic *g_nvic0 = 0;
 static struct mm_nvic *g_nvic1 = 0;
+
+/* --- Wall-clock timeout (--timeout) ------------------------------------
+ * The handler runs in signal context, so it may use only async-signal-safe
+ * calls: no printf, no malloc, no stdio at all. Everything below is
+ * formatted by hand into a stack buffer and handed to write(2) on stderr,
+ * which is unbuffered and survives a pipeline such as "| tee".
+ *
+ * Reporting the state matters more than it looks. A timeout is how an
+ * intermittent guest hang shows up in CI, and exiting silently discards the
+ * only evidence of where it hung: the run is over, the guest is gone, and
+ * the log simply ends. PC and LR are enough to find the offending function
+ * in the map file on the next occurrence. */
+static volatile sig_atomic_t g_timeout_secs = 0;
+static const volatile mm_u64 *g_cycle_total = 0;
+
+static void timeout_write(const char *s)
+{
+    size_t n = 0;
+    size_t off = 0;
+    ssize_t w;
+
+    while (s[n] != '\0') {
+        n++;
+    }
+    while (off < n) {
+        w = write(2, s + off, n - off);
+        if (w <= 0) {
+            return;
+        }
+        off += (size_t)w;
+    }
+}
+
+static char *timeout_str(char *p, const char *s)
+{
+    while (*s != '\0') {
+        *p = *s;
+        p++;
+        s++;
+    }
+    return p;
+}
+
+/* Writes exactly 8 hex digits and returns the position after them. */
+static char *timeout_hex32(char *p, mm_u32 v)
+{
+    static const char digits[] = "0123456789abcdef";
+    int i;
+
+    for (i = 7; i >= 0; i--) {
+        p[i] = digits[v & 0xFu];
+        v >>= 4;
+    }
+    return p + 8;
+}
+
+static char *timeout_dec(char *p, mm_u64 v)
+{
+    char tmp[24];
+    int n = 0;
+
+    if (v == 0u) {
+        *p = '0';
+        return p + 1;
+    }
+    while (v > 0u && n < (int)sizeof(tmp)) {
+        tmp[n] = (char)('0' + (int)(v % 10u));
+        v /= 10u;
+        n++;
+    }
+    while (n > 0) {
+        n--;
+        *p = tmp[n];
+        p++;
+    }
+    return p;
+}
+
+static void timeout_dump_cpu(const struct mm_cpu *cpu, const char *tag)
+{
+    char line[320];
+    char *p;
+    int i;
+
+    if (cpu == 0) {
+        return;
+    }
+
+    p = line;
+    *p = '[';
+    p++;
+    p = timeout_str(p, tag);
+    p = timeout_str(p, "] PC=0x");
+    p = timeout_hex32(p, cpu->r[15]);
+    p = timeout_str(p, " LR=0x");
+    p = timeout_hex32(p, cpu->r[14]);
+    p = timeout_str(p, " SP=0x");
+    p = timeout_hex32(p, cpu->r[13]);
+    p = timeout_str(p, " xpsr=0x");
+    p = timeout_hex32(p, cpu->xpsr);
+    p = timeout_str(p, " mode=");
+    p = timeout_dec(p, (mm_u64)(unsigned int)cpu->mode);
+    p = timeout_str(p, " sec=");
+    p = timeout_dec(p, (mm_u64)(unsigned int)cpu->sec_state);
+    *p = '\n';
+    p++;
+    *p = '\0';
+    timeout_write(line);
+
+    p = line;
+    *p = '[';
+    p++;
+    p = timeout_str(p, tag);
+    p = timeout_str(p, "]");
+    for (i = 0; i < 13; i++) {
+        p = timeout_str(p, " r");
+        p = timeout_dec(p, (mm_u64)(unsigned int)i);
+        p = timeout_str(p, "=0x");
+        p = timeout_hex32(p, cpu->r[i]);
+    }
+    *p = '\n';
+    p++;
+    *p = '\0';
+    timeout_write(line);
+}
+
+static void handle_timeout_alarm(int sig)
+{
+    char line[160];
+    char *p;
+
+    (void)sig;
+
+    p = line;
+    p = timeout_str(p, "[TIMEOUT] wall-clock limit of ");
+    p = timeout_dec(p, (mm_u64)(unsigned int)g_timeout_secs);
+    p = timeout_str(p, " s reached; the guest was still running");
+    if (g_cycle_total != 0) {
+        p = timeout_str(p, " after ");
+        p = timeout_dec(p, *g_cycle_total);
+        p = timeout_str(p, " virtual cycles");
+    }
+    *p = '.';
+    p++;
+    *p = '\n';
+    p++;
+    *p = '\0';
+    timeout_write(line);
+
+    timeout_dump_cpu(g_cpu0, "TIMEOUT cpu0");
+    timeout_dump_cpu(g_cpu1, "TIMEOUT cpu1");
+    _exit(127);
+}
 
 static struct mm_nvic *nvic_for_cpu(const struct mm_cpu *cpu)
 {
@@ -5324,6 +5471,7 @@ int main(int argc, char **argv)
         sa.sa_handler = handle_timeout_alarm;
         sigemptyset(&sa.sa_mask);
         (void)sigaction(SIGALRM, &sa, 0);
+        g_timeout_secs = (sig_atomic_t)opt_timeout;
         alarm(opt_timeout);
     }
     if (opt_puf_noise > 0u && !opt_puf_seed_set) {
@@ -6023,6 +6171,7 @@ int main(int argc, char **argv)
             }
             g_cpu0 = &cpu;
             g_nvic0 = &nvic;
+            g_cycle_total = &cycle_total;
             if (cfg.core_count > 1u) {
                 g_cpu1 = &cpu1;
                 g_nvic1 = &nvic1;
