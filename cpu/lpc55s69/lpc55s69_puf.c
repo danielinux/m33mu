@@ -391,7 +391,7 @@ static void puf_build_kc(struct lpc55s69_puf_state *s, mm_u32 idx,
     s->out[0] = (mm_u8)(idx == 0u ? 0u : 1u); /* 0=user, 1=intrinsic */
     s->out[1] = (mm_u8)idx;
     s->out[2] = 0;
-    s->out[3] = (mm_u8)key_words;
+    s->out[3] = (mm_u8)(key_bytes / 8u); /* NXP KEYSIZE = keySize>>3 */
     memcpy(s->out + 4u, tag, PUF_TAG_BYTES);
     memcpy(s->out + PUF_KC_HEADER_BYTES, key, key_bytes);
     s->out_pos   = 0;
@@ -437,7 +437,9 @@ static void puf_start_getkey(struct lpc55s69_puf_state *s)
     s->out_pos   = 0;
     s->out_words = 0;
     s->in_pos    = 0;
-    s->in_words  = 0; /* determined by the KC header word */
+    /* 1 word pending so puf_stat() asserts BUSY|CODEINREQ; the header word
+     * fixes the true total in puf_codeinput. */
+    s->in_words  = 1;
     s->out_is_key = MM_FALSE;
 }
 
@@ -457,6 +459,8 @@ static void puf_codeinput(struct lpc55s69_puf_state *s, mm_u32 word)
         if (s->in_pos == s->in_words) {
             if (memcmp(s->in, s->out, PUF_AC_BYTES) == 0) {
                 s->activated = MM_TRUE;
+                s->zeroized  = MM_FALSE;
+                s->error     = MM_FALSE;
             } else {
                 s->error = MM_TRUE;
             }
@@ -467,14 +471,14 @@ static void puf_codeinput(struct lpc55s69_puf_state *s, mm_u32 word)
 
     if (s->op == PUF_OP_GETKEY) {
         if (s->in_pos == 1u) {
-            /* header word 0: byte3 = key words */
-            mm_u32 key_words = (mm_u32)s->in[3] & 0xFu;
-            s->in_words = PUF_KC_HEADER_WORDS + key_words;
+            /* header word 0: byte3 = key bytes/8; total words = header + key/4 */
+            mm_u32 key_bytes = ((mm_u32)s->in[3] & 0xFu) * 8u;
+            s->in_words = PUF_KC_HEADER_WORDS + (key_bytes / 4u);
         }
         if (s->in_pos == s->in_words) {
             mm_u32 idx = (mm_u32)s->in[1] & 0xFu;
-            mm_u32 key_words = (mm_u32)s->in[3] & 0xFu;
-            mm_u32 key_bytes = key_words * 4u;
+            mm_u32 key_bytes = ((mm_u32)s->in[3] & 0xFu) * 8u;
+            mm_u32 key_words = key_bytes / 4u;
             const mm_u8 *key = s->in + PUF_KC_HEADER_BYTES;
             mm_u8 tag[PUF_TAG_BYTES];
             mm_bool ok;
@@ -486,18 +490,20 @@ static void puf_codeinput(struct lpc55s69_puf_state *s, mm_u32 word)
                     /* HW key: no KEYOUTPUT, update shift status */
                     s->shift_status =
                         (s->shift_status & ~0xFu) | (2u * key_words - 1u);
+                    puf_op_reset(s);
                 } else {
                     memcpy(s->out, key, key_bytes);
                     s->out_pos   = 0;
                     s->out_words = key_words;
                     s->keyout_idx = idx;
                     s->out_is_key = MM_TRUE;
+                    /* KC consumed; puf_stat() keeps BUSY|KEYOUTAVAIL until
+                     * the driver drains the key from KEYOUTPUT. */
                 }
             } else {
                 s->error = MM_TRUE;
+                puf_op_reset(s);
             }
-            /* input consumed; the key (if any) stays pending on
-             * KEYOUTPUT until the driver drains it */
             s->op = PUF_OP_NONE;
         }
     }
@@ -551,11 +557,17 @@ static void puf_ctrl_write(struct lpc55s69_puf_state *s, mm_u32 value)
     if (s->op != PUF_OP_NONE) {
         return;
     }
-    if (s->zeroized || s->error) {
-        return;
-    }
     if (value & PUF_CTRL_ZEROIZE) {
         puf_do_zeroize(s);
+        return;
+    }
+    /* After zeroize the PUF can be re-activated via START with the stored AC;
+     * all other commands stay blocked until a successful START clears the
+     * zeroized state. */
+    if (s->zeroized && (value & PUF_CTRL_START) == 0u) {
+        return;
+    }
+    if (s->error && (value & PUF_CTRL_START) == 0u) {
         return;
     }
     if (value & PUF_CTRL_ENROLL) {
