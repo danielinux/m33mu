@@ -8,6 +8,8 @@
 #include "lpc55s69/lpc55s69_romapi.h"
 #include "lpc55s69/lpc55s69_hashcrypt.h"
 #include "lpc55s69/lpc55s69_casper.h"
+#include "lpc55s69/lpc55s69_puf.h"
+#include "lpc55s69/lpc55s69_rng.h"
 #include "lpc55s69/cpu_config.h"
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
@@ -123,8 +125,10 @@ static mm_bool iocon_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                           mm_u32 *value_out)
 {
     (void)opaque;
-    if (value_out == 0 || size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > IOCON_SIZE) return MM_FALSE;
+    if (value_out == 0 || size_bytes == 0 || size_bytes > 4u)
+        return MM_FALSE;
+    if ((offset + size_bytes) > IOCON_SIZE)
+        return MM_FALSE;
     memcpy(value_out, (mm_u8 *)iocon_regs + offset, size_bytes);
     return MM_TRUE;
 }
@@ -133,8 +137,10 @@ static mm_bool iocon_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                            mm_u32 value)
 {
     (void)opaque;
-    if (size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > IOCON_SIZE) return MM_FALSE;
+    if (size_bytes == 0 || size_bytes > 4u)
+        return MM_FALSE;
+    if ((offset + size_bytes) > IOCON_SIZE)
+        return MM_FALSE;
     memcpy((mm_u8 *)iocon_regs + offset, &value, size_bytes);
     return MM_TRUE;
 }
@@ -226,22 +232,26 @@ static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
 
     /* Port-indexed registers */
     if (size_bytes == 4u) {
-        if (offset >= GPIO_OFF_DIR && offset < GPIO_OFF_DIR + GPIO_PORT_COUNT * 4u) {
+        if (offset >= GPIO_OFF_DIR && offset < GPIO_OFF_DIR + GPIO_PORT_COUNT *
+            4u) {
             port = (offset - GPIO_OFF_DIR) / 4u;
             *value_out = g->dir[port];
             return MM_TRUE;
         }
-        if (offset >= GPIO_OFF_MASK && offset < GPIO_OFF_MASK + GPIO_PORT_COUNT * 4u) {
+        if (offset >= GPIO_OFF_MASK && offset < GPIO_OFF_MASK + GPIO_PORT_COUNT
+            * 4u) {
             port = (offset - GPIO_OFF_MASK) / 4u;
             *value_out = g->mask[port];
             return MM_TRUE;
         }
-        if (offset >= GPIO_OFF_PIN && offset < GPIO_OFF_PIN + GPIO_PORT_COUNT * 4u) {
+        if (offset >= GPIO_OFF_PIN && offset < GPIO_OFF_PIN + GPIO_PORT_COUNT *
+            4u) {
             port = (offset - GPIO_OFF_PIN) / 4u;
             *value_out = g->pin[port];
             return MM_TRUE;
         }
-        if (offset >= GPIO_OFF_MPIN && offset < GPIO_OFF_MPIN + GPIO_PORT_COUNT * 4u) {
+        if (offset >= GPIO_OFF_MPIN && offset < GPIO_OFF_MPIN + GPIO_PORT_COUNT
+            * 4u) {
             port = (offset - GPIO_OFF_MPIN) / 4u;
             *value_out = g->pin[port] & ~g->mask[port];
             return MM_TRUE;
@@ -292,54 +302,66 @@ static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
         return MM_TRUE;
     }
 
-    if (size_bytes != 4u) return MM_TRUE;
+    if (size_bytes != 4u)
+        return MM_TRUE;
 
-    if (offset >= GPIO_OFF_DIR && offset < GPIO_OFF_DIR + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_DIR && offset < GPIO_OFF_DIR + GPIO_PORT_COUNT * 4u)
+    {
         port = (offset - GPIO_OFF_DIR) / 4u;
         g->dir[port] = value;
         return MM_TRUE;
     }
-    if (offset >= GPIO_OFF_MASK && offset < GPIO_OFF_MASK + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_MASK && offset < GPIO_OFF_MASK + GPIO_PORT_COUNT * 4u
+        ) {
         port = (offset - GPIO_OFF_MASK) / 4u;
         g->mask[port] = value;
         return MM_TRUE;
     }
-    if (offset >= GPIO_OFF_PIN && offset < GPIO_OFF_PIN + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_PIN && offset < GPIO_OFF_PIN + GPIO_PORT_COUNT * 4u)
+    {
         port = (offset - GPIO_OFF_PIN) / 4u;
         g->pin[port] = value;
         return MM_TRUE;
     }
-    if (offset >= GPIO_OFF_MPIN && offset < GPIO_OFF_MPIN + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_MPIN && offset < GPIO_OFF_MPIN + GPIO_PORT_COUNT * 4u
+        ) {
         port = (offset - GPIO_OFF_MPIN) / 4u;
-        g->pin[port] = (g->pin[port] & g->mask[port]) | (value & ~g->mask[port]);
+        g->pin[port] = (g->pin[port] & g->mask[port]) | (value & ~g->mask[port])
+        ;
         return MM_TRUE;
     }
-    if (offset >= GPIO_OFF_SET && offset < GPIO_OFF_SET + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_SET && offset < GPIO_OFF_SET + GPIO_PORT_COUNT * 4u)
+    {
         port = (offset - GPIO_OFF_SET) / 4u;
         g->pin[port] |= value;
         return MM_TRUE;
     }
-    if (offset >= GPIO_OFF_CLR && offset < GPIO_OFF_CLR + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_CLR && offset < GPIO_OFF_CLR + GPIO_PORT_COUNT * 4u)
+    {
         port = (offset - GPIO_OFF_CLR) / 4u;
         g->pin[port] &= ~value;
         return MM_TRUE;
     }
-    if (offset >= GPIO_OFF_NOT && offset < GPIO_OFF_NOT + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_NOT && offset < GPIO_OFF_NOT + GPIO_PORT_COUNT * 4u)
+    {
         port = (offset - GPIO_OFF_NOT) / 4u;
         g->pin[port] ^= value;
         return MM_TRUE;
     }
-    if (offset >= GPIO_OFF_DIRSET && offset < GPIO_OFF_DIRSET + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_DIRSET && offset < GPIO_OFF_DIRSET + GPIO_PORT_COUNT
+        * 4u) {
         port = (offset - GPIO_OFF_DIRSET) / 4u;
         g->dir[port] |= value;
         return MM_TRUE;
     }
-    if (offset >= GPIO_OFF_DIRCLR && offset < GPIO_OFF_DIRCLR + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_DIRCLR && offset < GPIO_OFF_DIRCLR + GPIO_PORT_COUNT
+        * 4u) {
         port = (offset - GPIO_OFF_DIRCLR) / 4u;
         g->dir[port] &= ~value;
         return MM_TRUE;
     }
-    if (offset >= GPIO_OFF_DIRNOT && offset < GPIO_OFF_DIRNOT + GPIO_PORT_COUNT * 4u) {
+    if (offset >= GPIO_OFF_DIRNOT && offset < GPIO_OFF_DIRNOT + GPIO_PORT_COUNT
+        * 4u) {
         port = (offset - GPIO_OFF_DIRNOT) / 4u;
         g->dir[port] ^= value;
         return MM_TRUE;
@@ -389,8 +411,10 @@ static mm_bool ahbsc_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                           mm_u32 *value_out)
 {
     (void)opaque;
-    if (value_out == 0 || size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > AHBSC_SIZE) return MM_FALSE;
+    if (value_out == 0 || size_bytes == 0 || size_bytes > 4u)
+        return MM_FALSE;
+    if ((offset + size_bytes) > AHBSC_SIZE)
+        return MM_FALSE;
     memcpy(value_out, (mm_u8 *)ahbsc_regs + offset, size_bytes);
     return MM_TRUE;
 }
@@ -399,8 +423,10 @@ static mm_bool ahbsc_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                            mm_u32 value)
 {
     (void)opaque;
-    if (size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > AHBSC_SIZE) return MM_FALSE;
+    if (size_bytes == 0 || size_bytes > 4u)
+        return MM_FALSE;
+    if ((offset + size_bytes) > AHBSC_SIZE)
+        return MM_FALSE;
     memcpy((mm_u8 *)ahbsc_regs + offset, &value, size_bytes);
     return MM_TRUE;
 }
@@ -475,7 +501,7 @@ static void flash_blank_set(mm_u32 word_idx)
 
 static void flash_blank_clear(mm_u32 word_idx)
 {
-    flash_blank_bits[word_idx / 8u] &= (mm_u8)~(1u << (word_idx % 8u));
+    flash_blank_bits[word_idx / 8u] &= (mm_u8) ~(1u << (word_idx % 8u));
 }
 
 static mm_bool flash_blank_get(mm_u32 word_idx)
@@ -495,7 +521,8 @@ static mm_u32 flash_word_idx(mm_u32 byte_offset)
 void mm_lpc55s69_flash_mark_blank(mm_u32 offset, mm_u32 len)
 {
     mm_u32 first = flash_word_idx(offset);
-    mm_u32 last  = flash_word_idx((offset + len - 1u > offset) ? offset + len - 1u : offset);
+    mm_u32 last  = flash_word_idx((offset + len - 1u > offset) ? offset + len -
+                                  1u : offset);
     mm_u32 i;
     for (i = first; i <= last; ++i) {
         if (i < (LPC55S69_FLASH_SIZE / FC_ECC_WORD_BYTES)) {
@@ -507,7 +534,8 @@ void mm_lpc55s69_flash_mark_blank(mm_u32 offset, mm_u32 len)
 void mm_lpc55s69_flash_mark_programmed(mm_u32 offset, mm_u32 len)
 {
     mm_u32 first = flash_word_idx(offset);
-    mm_u32 last  = flash_word_idx((offset + len - 1u > offset) ? offset + len - 1u : offset);
+    mm_u32 last  = flash_word_idx((offset + len - 1u > offset) ? offset + len -
+                                  1u : offset);
     mm_u32 i;
     for (i = first; i <= last; ++i) {
         if (i < (LPC55S69_FLASH_SIZE / FC_ECC_WORD_BYTES)) {
@@ -530,8 +558,10 @@ static void flash_ctrl_exec_cmd(mm_u32 cmd)
         flash_ctrl_regs[FC_OFF_INT_STATUS / 4u] |= FC_INT_DONE | FC_INT_FAIL;
         return;
     }
-    if (stopa < starta) stopa = starta;
-    if (stopa >= flash_size_words) stopa = flash_size_words - 1u;
+    if (stopa < starta)
+        stopa = starta;
+    if (stopa >= flash_size_words)
+        stopa = flash_size_words - 1u;
 
     switch (cmd) {
     case FC_CMD_BLANK_CHECK:
@@ -568,8 +598,10 @@ static void flash_ctrl_exec_cmd(mm_u32 cmd)
                 mm_u32 val = flash_ctrl_regs[(FC_OFF_DATAW0 / 4u) + w];
                 flash_buf[byte_off + w * 4u + 0u] = (mm_u8)(val & 0xffu);
                 flash_buf[byte_off + w * 4u + 1u] = (mm_u8)((val >> 8) & 0xffu);
-                flash_buf[byte_off + w * 4u + 2u] = (mm_u8)((val >> 16) & 0xffu);
-                flash_buf[byte_off + w * 4u + 3u] = (mm_u8)((val >> 24) & 0xffu);
+                flash_buf[byte_off + w * 4u + 2u] = (mm_u8)((val >> 16) & 0xffu)
+                ;
+                flash_buf[byte_off + w * 4u + 3u] = (mm_u8)((val >> 24) & 0xffu)
+                ;
             }
             flash_blank_clear(starta);
         }
@@ -587,8 +619,10 @@ static mm_bool flash_ctrl_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                                mm_u32 *value_out)
 {
     (void)opaque;
-    if (value_out == 0 || size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > FLASH_CTRL_SIZE) return MM_FALSE;
+    if (value_out == 0 || size_bytes == 0 || size_bytes > 4u)
+        return MM_FALSE;
+    if ((offset + size_bytes) > FLASH_CTRL_SIZE)
+        return MM_FALSE;
     /* MODULE_ID is read-only */
     if (offset == FC_OFF_MODULE_ID && size_bytes == 4u) {
         *value_out = 0xC40F0800u;
@@ -602,10 +636,13 @@ static mm_bool flash_ctrl_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                                 mm_u32 value)
 {
     (void)opaque;
-    if (size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > FLASH_CTRL_SIZE) return MM_FALSE;
+    if (size_bytes == 0 || size_bytes > 4u)
+        return MM_FALSE;
+    if ((offset + size_bytes) > FLASH_CTRL_SIZE)
+        return MM_FALSE;
     /* MODULE_ID is read-only */
-    if (offset == FC_OFF_MODULE_ID) return MM_TRUE;
+    if (offset == FC_OFF_MODULE_ID)
+        return MM_TRUE;
     /* INT_CLR_STATUS: write 1 to clear INT_STATUS bits */
     if (offset == FC_OFF_INT_CLR_ST && size_bytes == 4u) {
         flash_ctrl_regs[FC_OFF_INT_STATUS / 4u] &= ~value;
@@ -638,8 +675,10 @@ static mm_bool pmc_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                         mm_u32 *value_out)
 {
     (void)opaque;
-    if (value_out == 0 || size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > PMC_SIZE) return MM_FALSE;
+    if (value_out == 0 || size_bytes == 0 || size_bytes > 4u)
+        return MM_FALSE;
+    if ((offset + size_bytes) > PMC_SIZE)
+        return MM_FALSE;
     memcpy(value_out, (mm_u8 *)pmc_regs + offset, size_bytes);
     return MM_TRUE;
 }
@@ -648,8 +687,20 @@ static mm_bool pmc_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                          mm_u32 value)
 {
     (void)opaque;
-    if (size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > PMC_SIZE) return MM_FALSE;
+    if (size_bytes == 0 || size_bytes > 4u)
+        return MM_FALSE;
+    if ((offset + size_bytes) > PMC_SIZE)
+        return MM_FALSE;
+    /* PDRUNCFGSET0 @ 0xBC / PDRUNCFGCLR0 @ 0xC0 act on PDRUNCFG0 @ 0xB8
+     * (the fsl_rng driver clears PDEN_RNG via the CLR register). */
+    if (size_bytes == 4u && offset == 0xBCu) {
+        pmc_regs[0xB8u / 4u] |= value;
+        return MM_TRUE;
+    }
+    if (size_bytes == 4u && offset == 0xC0u) {
+        pmc_regs[0xB8u / 4u] &= ~value;
+        return MM_TRUE;
+    }
     memcpy((mm_u8 *)pmc_regs + offset, &value, size_bytes);
     return MM_TRUE;
 }
@@ -663,7 +714,7 @@ static mm_bool pmc_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
  * two-word wrapper.
  * ------------------------------------------------------------------------- */
 struct periph_stub {
-    mm_u32  size;      /* byte-size of the register space   */
+    mm_u32 size;       /* byte-size of the register space   */
     mm_u32 *regs;      /* pointer to the backing word array */
 };
 
@@ -673,7 +724,8 @@ static mm_bool stub_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     const struct periph_stub *ps = (const struct periph_stub *)opaque;
     if (ps == 0 || value_out == 0 || size_bytes == 0 || size_bytes > 4u)
         return MM_FALSE;
-    if ((offset + size_bytes) > ps->size) return MM_FALSE;
+    if ((offset + size_bytes) > ps->size)
+        return MM_FALSE;
     memcpy(value_out, (const mm_u8 *)ps->regs + offset, size_bytes);
     return MM_TRUE;
 }
@@ -682,8 +734,10 @@ static mm_bool stub_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                           mm_u32 value)
 {
     struct periph_stub *ps = (struct periph_stub *)opaque;
-    if (ps == 0 || size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > ps->size) return MM_FALSE;
+    if (ps == 0 || size_bytes == 0 || size_bytes > 4u)
+        return MM_FALSE;
+    if ((offset + size_bytes) > ps->size)
+        return MM_FALSE;
     memcpy((mm_u8 *)ps->regs + offset, &value, size_bytes);
     return MM_TRUE;
 }
@@ -710,9 +764,11 @@ static mm_bool stub_reg_pair(struct mmio_bus *bus,
     reg.read   = stub_read;
     reg.write  = stub_write;
     reg.base   = ns_base;
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, &reg))
+        return MM_FALSE;
     reg.base   = ns_base + 0x10000000u;
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, &reg))
+        return MM_FALSE;
     return MM_TRUE;
 }
 
@@ -797,24 +853,16 @@ DECL_STUB(usbphy, 0x110u);
 
 /* -------------------------------------------------------------------------
  * RNG  (0x4003A000) — True Random Number Generator  (size 0x1000)
- * MODULEID @ 0xFFC = 0xA0B83200 (read-only peripheral ID)
+ * Functional model in lpc55s69_rng.c: RANDOM_NUMBER draws from the
+ * replayable host RNG stream; chi-squared online-test registers follow
+ * the fsl_rng driver sequence.
  * ------------------------------------------------------------------------- */
-DECL_STUB(rng, 0x1000u);
-#define RNG_MODULEID 0xFFCu
 
 /* -------------------------------------------------------------------------
  * PUF  (0x4003B000) — Physical Unclonable Function  (size 0x260)
- * Various registers have non-zero reset values.
+ * Functional model in lpc55s69_puf.c: Enroll/Start/GenerateKey/SetKey/
+ * GetKey/Zeroize per the fsl_puf driver contract.
  * ------------------------------------------------------------------------- */
-DECL_STUB(puf, 0x260u);
-#define PUF_STAT      0x020u  /* reset 0x1  — PUF ready */
-#define PUF_PWRCTRL   0x108u  /* reset 0xF8               */
-#define PUF_KEYLOCK   0x200u  /* reset 0xAA               */
-#define PUF_KEYENABLE 0x204u  /* reset 0x55               */
-#define PUF_IDXBLK_L  0x20Cu  /* reset 0x8000AAAA         */
-#define PUF_IDXBLK_H_DP 0x210u /* reset 0xAAAA            */
-#define PUF_IDXBLK_H  0x254u  /* reset 0x8000AAAA         */
-#define PUF_IDXBLK_L_DP 0x258u /* reset 0xAAAA            */
 
 /* -------------------------------------------------------------------------
  * PLU  (0x4003D000) — Programmable Logic Unit  (size 0xC20)
@@ -890,45 +938,57 @@ static mm_u8 crc_bitrev8(mm_u8 b)
 static mm_u32 crc_bitrev16(mm_u32 v)
 {
     mm_u32 r = 0u, i;
-    for (i = 0u; i < 16u; ++i) { r = (r << 1u) | (v & 1u); v >>= 1u; }
+    for (i = 0u; i < 16u; ++i) {
+        r = (r << 1u) | (v & 1u); v >>= 1u;
+    }
     return r;
 }
 
 static mm_u32 crc_bitrev32(mm_u32 v)
 {
     mm_u32 r = 0u, i;
-    for (i = 0u; i < 32u; ++i) { r = (r << 1u) | (v & 1u); v >>= 1u; }
+    for (i = 0u; i < 32u; ++i) {
+        r = (r << 1u) | (v & 1u); v >>= 1u;
+    }
     return r;
 }
 
 static void crc_feed_byte(mm_u8 b)
 {
     mm_u32 poly, i;
-    if (crc_mode & CRC_MODE_BIT_RVS_WR) b = crc_bitrev8(b);
-    if (crc_mode & CRC_MODE_CMPL_WR)    b = (mm_u8)(~b);
+    if (crc_mode & CRC_MODE_BIT_RVS_WR)
+        b = crc_bitrev8(b);
+    if (crc_mode & CRC_MODE_CMPL_WR)
+        b = (mm_u8)(~b);
     switch (crc_mode & CRC_MODE_POLY_MASK) {
     case 0u: /* CRC-CCITT: 0x1021, 16-bit */
         poly = 0x1021u;
         crc_accum ^= ((mm_u32)b << 8u);
         for (i = 0u; i < 8u; ++i) {
-            if (crc_accum & 0x8000u) crc_accum = ((crc_accum << 1u) ^ poly) & 0xFFFFu;
-            else                     crc_accum = (crc_accum << 1u) & 0xFFFFu;
+            if (crc_accum & 0x8000u)
+                crc_accum = ((crc_accum << 1u) ^ poly) & 0xFFFFu;
+            else
+                crc_accum = (crc_accum << 1u) & 0xFFFFu;
         }
         break;
     case 1u: /* CRC-16: 0x8005, 16-bit */
         poly = 0x8005u;
         crc_accum ^= ((mm_u32)b << 8u);
         for (i = 0u; i < 8u; ++i) {
-            if (crc_accum & 0x8000u) crc_accum = ((crc_accum << 1u) ^ poly) & 0xFFFFu;
-            else                     crc_accum = (crc_accum << 1u) & 0xFFFFu;
+            if (crc_accum & 0x8000u)
+                crc_accum = ((crc_accum << 1u) ^ poly) & 0xFFFFu;
+            else
+                crc_accum = (crc_accum << 1u) & 0xFFFFu;
         }
         break;
     default: /* CRC-32: 0x04C11DB7, 32-bit */
         poly = 0x04C11DB7u;
         crc_accum ^= ((mm_u32)b << 24u);
         for (i = 0u; i < 8u; ++i) {
-            if (crc_accum & 0x80000000u) crc_accum = (crc_accum << 1u) ^ poly;
-            else                         crc_accum = (crc_accum << 1u);
+            if (crc_accum & 0x80000000u)
+                crc_accum = (crc_accum << 1u) ^ poly;
+            else
+                crc_accum = (crc_accum << 1u);
         }
         break;
     }
@@ -938,8 +998,10 @@ static mm_u32 crc_read_sum(void)
 {
     mm_u32 v = crc_accum;
     int is32 = ((crc_mode & CRC_MODE_POLY_MASK) >= 2u);
-    if (crc_mode & CRC_MODE_BIT_RVS_SUM) v = is32 ? crc_bitrev32(v) : crc_bitrev16(v);
-    if (crc_mode & CRC_MODE_CMPL_SUM)    v = is32 ? (~v) : ((~v) & 0xFFFFu);
+    if (crc_mode & CRC_MODE_BIT_RVS_SUM)
+        v = is32 ? crc_bitrev32(v) : crc_bitrev16(v);
+    if (crc_mode & CRC_MODE_CMPL_SUM)
+        v = is32 ? (~v) : ((~v) & 0xFFFFu);
     return v;
 }
 
@@ -947,7 +1009,8 @@ static mm_bool crc_engine_read(void *opaque, mm_u32 offset, mm_u32 size,
                                mm_u32 *value_out)
 {
     (void)opaque;
-    if (size == 0u || size > 4u || value_out == 0) return MM_FALSE;
+    if (size == 0u || size > 4u || value_out == 0)
+        return MM_FALSE;
     switch (offset) {
     case CRC_OFF_MODE: *value_out = crc_mode;     return MM_TRUE;
     case CRC_OFF_SEED: *value_out = crc_accum;    return MM_TRUE;
@@ -1032,16 +1095,20 @@ mm_bool mm_lpc55s69_syscon_periph_active(mm_u32 ahbclk_offset, mm_u32 bit)
     mm_u32 rst_reg;
     mm_u32 mask;
 
-    if (ahbclk_offset < SYSCON_AHBCLKCTRL_BASE) return MM_FALSE;
+    if (ahbclk_offset < SYSCON_AHBCLKCTRL_BASE)
+        return MM_FALSE;
     preset_offset = ahbclk_offset - 0x100u;  /* PRESETCTRLn at offset - 0x100 */
-    if ((ahbclk_offset + 4u) > SYSCON_SIZE) return MM_FALSE;
-    if ((preset_offset + 4u) > SYSCON_SIZE) return MM_FALSE;
+    if ((ahbclk_offset + 4u) > SYSCON_SIZE)
+        return MM_FALSE;
+    if ((preset_offset + 4u) > SYSCON_SIZE)
+        return MM_FALSE;
 
     clk_reg = syscon.regs[ahbclk_offset / 4u];
     rst_reg = syscon.regs[preset_offset / 4u];
     mask = (1u << bit);
     /* Clock bit must be set; reset bit must be CLEAR (0 = released from reset). */
-    return ((clk_reg & mask) != 0u && (rst_reg & mask) == 0u) ? MM_TRUE : MM_FALSE;
+    return ((clk_reg & mask) != 0u && (rst_reg & mask) == 0u) ? MM_TRUE :
+           MM_FALSE;
 }
 
 void mm_lpc55s69_mmio_reset(void)
@@ -1072,8 +1139,6 @@ void mm_lpc55s69_mmio_reset(void)
     memset(ostimer_regs,     0, sizeof(ostimer_regs));
     memset(prince_regs,      0, sizeof(prince_regs));
     memset(usbphy_regs,      0, sizeof(usbphy_regs));
-    memset(rng_regs,         0, sizeof(rng_regs));
-    memset(puf_regs,         0, sizeof(puf_regs));
     memset(plu_regs,         0, sizeof(plu_regs));
     memset(dma0_regs,        0, sizeof(dma0_regs));
     memset(dma1_regs,        0, sizeof(dma1_regs));
@@ -1108,18 +1173,9 @@ void mm_lpc55s69_mmio_reset(void)
     anactrl_regs[ANACTRL_RINGO2_CTRL         / 4u] = 0x40u;
     anactrl_regs[ANACTRL_USBHS_PHY_CTRL      / 4u] = 0x8u;
 
-    /* RNG peripheral ID */
-    rng_regs[RNG_MODULEID / 4u] = 0xA0B83200u;
-
-    /* PUF: enrolment-complete state and key-block configuration */
-    puf_regs[PUF_STAT        / 4u] = 0x1u;
-    puf_regs[PUF_PWRCTRL     / 4u] = 0xF8u;
-    puf_regs[PUF_KEYLOCK     / 4u] = 0xAAu;
-    puf_regs[PUF_KEYENABLE   / 4u] = 0x55u;
-    puf_regs[PUF_IDXBLK_L    / 4u] = 0x8000AAAAu;
-    puf_regs[PUF_IDXBLK_H_DP / 4u] = 0xAAAAu;
-    puf_regs[PUF_IDXBLK_H    / 4u] = 0x8000AAAAu;
-    puf_regs[PUF_IDXBLK_L_DP / 4u] = 0xAAAAu;
+    /* RNG + PUF functional models: reset handled by their own functions */
+    mm_lpc55s69_rng_reset();
+    mm_lpc55s69_puf_reset();
 
     /* PMC non-zero resets per SVD */
     pmc_regs[0x30u / 4u] = 0x47u;        /* BODVBAT */
@@ -1174,106 +1230,147 @@ static mm_bool reg_pair(struct mmio_bus *bus, struct mmio_region *r,
                         mm_u32 ns_base, mm_u32 s_base)
 {
     r->base = ns_base;
-    if (!mmio_bus_register_region(bus, r)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, r))
+        return MM_FALSE;
     r->base = s_base;
-    if (!mmio_bus_register_region(bus, r)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, r))
+        return MM_FALSE;
     return MM_TRUE;
 }
 
 mm_bool mm_lpc55s69_register_mmio(struct mmio_bus *bus)
 {
     struct mmio_region reg;
-    if (bus == 0) return MM_FALSE;
+    if (bus == 0)
+        return MM_FALSE;
 
     /* SYSCON */
     reg.size   = SYSCON_SIZE;
     reg.opaque = &syscon;
     reg.read   = syscon_read;
     reg.write  = syscon_write;
-    if (!reg_pair(bus, &reg, SYSCON_BASE, SYSCON_SEC_BASE)) return MM_FALSE;
+    if (!reg_pair(bus, &reg, SYSCON_BASE, SYSCON_SEC_BASE))
+        return MM_FALSE;
 
     /* IOCON */
     reg.size   = IOCON_SIZE;
     reg.opaque = iocon_regs;
     reg.read   = iocon_read;
     reg.write  = iocon_write;
-    if (!reg_pair(bus, &reg, IOCON_BASE, IOCON_SEC_BASE)) return MM_FALSE;
+    if (!reg_pair(bus, &reg, IOCON_BASE, IOCON_SEC_BASE))
+        return MM_FALSE;
 
     /* GPIO */
     reg.size   = GPIO_SIZE;
     reg.opaque = &gpio;
     reg.read   = gpio_read;
     reg.write  = gpio_write;
-    if (!reg_pair(bus, &reg, GPIO_BASE, GPIO_SEC_BASE)) return MM_FALSE;
+    if (!reg_pair(bus, &reg, GPIO_BASE, GPIO_SEC_BASE))
+        return MM_FALSE;
 
     /* SECGPIO (alias of GPIO for secure access) */
     reg.size   = GPIO_SIZE;
     reg.opaque = &gpio;
     reg.read   = gpio_read;
     reg.write  = gpio_write;
-    if (!reg_pair(bus, &reg, SECGPIO_BASE, SECGPIO_SEC_BASE)) return MM_FALSE;
+    if (!reg_pair(bus, &reg, SECGPIO_BASE, SECGPIO_SEC_BASE))
+        return MM_FALSE;
 
     /* AHB_SECURE_CTRL */
     reg.size   = AHBSC_SIZE;
     reg.opaque = ahbsc_regs;
     reg.read   = ahbsc_read;
     reg.write  = ahbsc_write;
-    if (!reg_pair(bus, &reg, AHBSC_BASE, AHBSC_SEC_BASE)) return MM_FALSE;
+    if (!reg_pair(bus, &reg, AHBSC_BASE, AHBSC_SEC_BASE))
+        return MM_FALSE;
 
     /* FLASH controller */
     reg.size   = FLASH_CTRL_SIZE;
     reg.opaque = flash_ctrl_regs;
     reg.read   = flash_ctrl_read;
     reg.write  = flash_ctrl_write;
-    if (!reg_pair(bus, &reg, FLASH_CTRL_BASE, FLASH_CTRL_SEC_BASE)) return MM_FALSE;
+    if (!reg_pair(bus, &reg, FLASH_CTRL_BASE, FLASH_CTRL_SEC_BASE))
+        return MM_FALSE;
 
     /* PMC */
     reg.size   = PMC_SIZE;
     reg.opaque = pmc_regs;
     reg.read   = pmc_read;
     reg.write  = pmc_write;
-    if (!reg_pair(bus, &reg, PMC_BASE, PMC_SEC_BASE)) return MM_FALSE;
+    if (!reg_pair(bus, &reg, PMC_BASE, PMC_SEC_BASE))
+        return MM_FALSE;
 
     /* --- Generic stubs (address order) --- */
-    if (!stub_reg_pair(bus, &gint0_stub,     0x40002000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &pint_stub,      0x40004000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &inputmux_stub,  0x40006000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &ctimer0_stub,   0x40008000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &ctimer1_stub,   0x40009000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &wwdt_stub,      0x4000C000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &utick0_stub,    0x4000E000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &anactrl_stub,   0x40013000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &sysctl_stub,    0x40023000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &ctimer2_stub,   0x40028000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &ctimer3_stub,   0x40029000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &ctimer4_stub,   0x4002A000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &rtc_stub,       0x4002C000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &ostimer_stub,   0x4002D000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &prince_stub,    0x40035000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &usbphy_stub,    0x40038000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &rng_stub,       0x4003A000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &puf_stub,       0x4003B000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &plu_stub,       0x4003D000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &dma0_stub,      0x40082000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &usb0_stub,      0x40084000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &sct0_stub,      0x40085000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &mailbox_stub,   0x4008B000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &usbhsd_stub,    0x40094000u)) return MM_FALSE;
+    if (!stub_reg_pair(bus, &gint0_stub,     0x40002000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &pint_stub,      0x40004000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &inputmux_stub,  0x40006000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &ctimer0_stub,   0x40008000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &ctimer1_stub,   0x40009000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &wwdt_stub,      0x4000C000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &utick0_stub,    0x4000E000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &anactrl_stub,   0x40013000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &sysctl_stub,    0x40023000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &ctimer2_stub,   0x40028000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &ctimer3_stub,   0x40029000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &ctimer4_stub,   0x4002A000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &rtc_stub,       0x4002C000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &ostimer_stub,   0x4002D000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &prince_stub,    0x40035000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &usbphy_stub,    0x40038000u))
+        return MM_FALSE;
+    if (!mm_lpc55s69_rng_register(bus))
+        return MM_FALSE;
+    if (!mm_lpc55s69_puf_register(bus))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &plu_stub,       0x4003D000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &dma0_stub,      0x40082000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &usb0_stub,      0x40084000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &sct0_stub,      0x40085000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &mailbox_stub,   0x4008B000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &usbhsd_stub,    0x40094000u))
+        return MM_FALSE;
     /* CRC_ENGINE — custom read/write handlers */
     crc_engine_ns_region.base   = 0x40095000u;
     crc_engine_ns_region.size   = 0xCu;
     crc_engine_ns_region.opaque = 0;
     crc_engine_ns_region.read   = crc_engine_read;
     crc_engine_ns_region.write  = crc_engine_write;
-    if (!mmio_bus_register_region(bus, &crc_engine_ns_region)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, &crc_engine_ns_region))
+        return MM_FALSE;
     crc_engine_s_region = crc_engine_ns_region;
     crc_engine_s_region.base    = 0x50095000u;
-    if (!mmio_bus_register_region(bus, &crc_engine_s_region)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &sdif_stub,      0x4009B000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &dbgmailbox_stub,0x4009C000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &adc0_stub,      0x400A0000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &usbfsh_stub,    0x400A2000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &usbhsh_stub,    0x400A3000u)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, &crc_engine_s_region))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &sdif_stub,      0x4009B000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &dbgmailbox_stub, 0x4009C000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &adc0_stub,      0x400A0000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &usbfsh_stub,    0x400A2000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &usbhsh_stub,    0x400A3000u))
+        return MM_FALSE;
     /* HASHCRYPT — proper peripheral model */
     mm_lpc55_hashcrypt_init(&hashcrypt_state, NULL); /* NVIC wired later by timers_init */
     hashcrypt_ns_region.base   = 0x400A4000u;
@@ -1282,10 +1379,12 @@ mm_bool mm_lpc55s69_register_mmio(struct mmio_bus *bus)
     hashcrypt_ns_region.read   = mm_lpc55_hashcrypt_read;
     hashcrypt_ns_region.write  = mm_lpc55_hashcrypt_write;
     hashcrypt_ns_region.name   = "hashcrypt";
-    if (!mmio_bus_register_region(bus, &hashcrypt_ns_region)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, &hashcrypt_ns_region))
+        return MM_FALSE;
     hashcrypt_s_region = hashcrypt_ns_region;
     hashcrypt_s_region.base = 0x500A4000u;
-    if (!mmio_bus_register_region(bus, &hashcrypt_s_region)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, &hashcrypt_s_region))
+        return MM_FALSE;
     /* CASPER — proper peripheral model */
     mm_lpc55_casper_init(&casper_state, NULL, NULL); /* NVIC/memmap wired later */
     mm_lpc55_casper_set_global(&casper_state);
@@ -1295,15 +1394,20 @@ mm_bool mm_lpc55s69_register_mmio(struct mmio_bus *bus)
     casper_ns_region.read   = mm_lpc55_casper_read;
     casper_ns_region.write  = mm_lpc55_casper_write;
     casper_ns_region.name   = "casper";
-    if (!mmio_bus_register_region(bus, &casper_ns_region)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, &casper_ns_region))
+        return MM_FALSE;
     casper_s_region = casper_ns_region;
     casper_s_region.base = 0x500A5000u;
-    if (!mmio_bus_register_region(bus, &casper_s_region)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &powerquad_stub, 0x400A6000u)) return MM_FALSE;
-    if (!stub_reg_pair(bus, &dma1_stub,      0x400A7000u)) return MM_FALSE;
+    if (!mmio_bus_register_region(bus, &casper_s_region))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &powerquad_stub, 0x400A6000u))
+        return MM_FALSE;
+    if (!stub_reg_pair(bus, &dma1_stub,      0x400A7000u))
+        return MM_FALSE;
 
     /* ROM API — bootloader tree and stub execution region */
-    if (!mm_lpc55s69_romapi_register_mmio(bus)) return MM_FALSE;
+    if (!mm_lpc55s69_romapi_register_mmio(bus))
+        return MM_FALSE;
 
     return MM_TRUE;
 }
@@ -1334,15 +1438,18 @@ mm_bool mm_lpc55s69_mpcbb_block_secure(int bank, mm_u32 block_index)
     mm_u32 reg_val;
     mm_u32 sec_bit;
 
-    if (bank != 0) return MM_FALSE;
+    if (bank != 0)
+        return MM_FALSE;
 
     /* 16 blocks per SRAM bank (except SRAM4 which has 4) */
     ram_bank      = block_index / 16u;
     block_in_bank = block_index % 16u;
 
-    if (ram_bank > 4u) return MM_FALSE;
+    if (ram_bank > 4u)
+        return MM_FALSE;
     /* SRAM4 has only 4 blocks (16 KB / 4 KB) */
-    if (ram_bank == 4u && block_in_bank >= 4u) return MM_FALSE;
+    if (ram_bank == 4u && block_in_bank >= 4u)
+        return MM_FALSE;
 
     rule_offset  = ahbsc_ram_rule_base[ram_bank] + (block_in_bank / 8u) * 4u;
     block_in_reg = block_in_bank % 8u;
