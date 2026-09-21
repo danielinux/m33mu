@@ -1134,6 +1134,10 @@ void mm_lpc55s69_mmio_reset(void)
     ahbsc_regs[0xC0u / 4u] = 0x33333333u; /* RAM3 */
     ahbsc_regs[0xC4u / 4u] = 0x33333333u;
     ahbsc_regs[0xE0u / 4u] = 0x33333333u; /* RAM4 */
+    /* APB_BRIDGE1_MEM_CTRL3 (0x11C): PUF_RULE[13:12], RNG_RULE[9:8].
+     * Boot ROM marks PUF/RNG secure+privileged before jumping to the app.
+     * ENUM_S_P = 3 for both. */
+    ahbsc_regs[0x11Cu / 4u] = (3u << 12) | (3u << 8); /* PUF | RNG = S_P */
 
     /* New peripheral stubs — clear all first, then set non-zero resets */
     memset(gint0_regs,       0, sizeof(gint0_regs));
