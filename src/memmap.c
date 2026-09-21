@@ -111,6 +111,18 @@ static mm_bool memmap_read_old_bytes(const struct mm_memmap *map, enum mm_sec_st
             offset = addr - base;
             return read_buf_bytes(map->flash.buffer, offset, size, out);
         }
+        /* Second secure alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) + size <= size_limit) {
+                offset = addr - base;
+                return read_buf_bytes(map->flash.buffer, offset, size, out);
+            }
+        }
         base = map->flash_base_ns;
         size_limit = map->flash_size_ns;
         if (size_limit == 0u && map->flash.length > 0u) {
@@ -360,6 +372,8 @@ mm_bool mm_memmap_configure_flash(struct mm_memmap *map, const struct mm_target_
     map->flash_base_ns = cfg->flash_base_ns;
     map->flash_size_s = cfg->flash_size_s;
     map->flash_size_ns = cfg->flash_size_ns;
+    map->flash_base_s2 = cfg->flash_base_s2;
+    map->flash_size_s2 = cfg->flash_size_s2;
     if (secure_view) {
         map->flash.length = cfg->flash_size_s;
         map->flash.base = cfg->flash_base_s;
@@ -443,6 +457,25 @@ mm_bool mm_memmap_read(const struct mm_memmap *map, enum mm_sec_state sec, mm_u3
                 return MM_FALSE;
             }
             if (read_buf_le(map->flash.buffer, offset, size, &tmp)) { *value_out = tmp; return MM_TRUE; }
+        }
+        /* Try second secure flash alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) + size <= size_limit) {
+                offset = addr - base;
+                if (flash_tz_rejects(map, addr, offset, MM_SECURE)) {
+                    *value_out = 0u;
+                    return MM_TRUE;
+                }
+                if (map->flash_ecc_check != 0 && !map->flash_ecc_check(map->flash_ecc_check_opaque, offset)) {
+                    return MM_FALSE;
+                }
+                if (read_buf_le(map->flash.buffer, offset, size, &tmp)) { *value_out = tmp; return MM_TRUE; }
+            }
         }
         /* Try non-secure flash window. */
         base = map->flash_base_ns;
@@ -549,6 +582,23 @@ mm_bool mm_memmap_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 add
             }
             return MM_FALSE;
         }
+        /* Second secure flash alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) + size <= size_limit) {
+                if (map->flash_write(map->flash_write_opaque, sec, addr, size, value)) {
+                    if (map->code_cache != 0) {
+                        mm_code_cache_note_write(map->code_cache, addr, size);
+                    }
+                    return MM_TRUE;
+                }
+                return MM_FALSE;
+            }
+        }
         base = map->flash_base_ns;
         size_limit = map->flash_size_ns;
         if (size_limit == 0u && map->flash.length > 0u) {
@@ -644,6 +694,23 @@ mm_bool mm_memmap_fetch_read16(const struct mm_memmap *map, enum mm_sec_state se
             return MM_FALSE;
         }
 
+        /* Second secure flash alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) + 2u <= size_limit) {
+                offset = addr - base;
+                if (map->flash_ecc_check != 0 && !map->flash_ecc_check(map->flash_ecc_check_opaque, offset)) {
+                    return MM_FALSE;
+                }
+                if (read_buf_le(map->flash.buffer, offset, 2u, &tmp)) { *value_out = tmp; return MM_TRUE; }
+                return MM_FALSE;
+            }
+        }
+
         base = map->flash_base_ns;
         size_limit = map->flash_size_ns;
         if (size_limit == 0u && map->flash.length > 0u) {
@@ -698,6 +765,26 @@ mm_bool mm_memmap_read8(const struct mm_memmap *map, enum mm_sec_state sec, mm_u
             }
             *value_out = map->flash.buffer[flash_off];
             return MM_TRUE;
+        }
+        /* Second secure flash alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) < size_limit) {
+                mm_u32 flash_off = addr - base;
+                if (flash_tz_rejects(map, addr, flash_off, MM_SECURE)) {
+                    *value_out = 0u;
+                    return MM_TRUE;
+                }
+                if (map->flash_ecc_check != 0 && !map->flash_ecc_check(map->flash_ecc_check_opaque, flash_off)) {
+                    return MM_FALSE;
+                }
+                *value_out = map->flash.buffer[flash_off];
+                return MM_TRUE;
+            }
         }
         base = map->flash_base_ns;
         size_limit = map->flash_size_ns;

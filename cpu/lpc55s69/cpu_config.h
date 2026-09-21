@@ -10,6 +10,7 @@
 
 /* LPC55S69 memory map (Secure / Non-secure aliases) */
 #define LPC55S69_FLASH_BASE_S   0x10000000u
+#define LPC55S69_FLASH_BASE_S2  0x0C000000u  /* alternate secure alias */
 #define LPC55S69_FLASH_BASE_NS  0x00000000u
 #define LPC55S69_FLASH_SIZE     0x000A0000u  /* 640 KB */
 

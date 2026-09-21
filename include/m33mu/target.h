@@ -42,6 +42,9 @@ struct mm_target_cfg {
     mm_u32 flash_size_s;
     mm_u32 flash_base_ns;
     mm_u32 flash_size_ns;
+    /* Optional second secure alias (e.g. LPC55S69 0x0C000000). 0 = unused. */
+    mm_u32 flash_base_s2;
+    mm_u32 flash_size_s2;
 
     mm_u32 ram_base_s;
     mm_u32 ram_size_s;
