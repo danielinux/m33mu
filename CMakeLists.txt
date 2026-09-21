@@ -530,6 +530,11 @@ if(M33MU_BUILD_TESTS)
     if("${test_name}" STREQUAL "tpm_nv_path_test" AND NOT M33MU_HAS_LIBTPMS)
       continue()
     endif()
+    # The PUF model derives keys and key-code tags with SHA-256, so it is
+    # inert without wolfSSL; nothing to assert in that build.
+    if("${test_name}" STREQUAL "lpc55s69_puf_rng_test" AND NOT M33MU_HAS_WOLFSSL)
+      continue()
+    endif()
     if(NOT M33MU_HAS_RUST_PLUGINS)
       if("${test_name}" STREQUAL "se050_parse_test")
         continue()

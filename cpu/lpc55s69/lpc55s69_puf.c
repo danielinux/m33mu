@@ -197,9 +197,10 @@ static void puf_stream(const mm_u8 *fp, const char *label, mm_u8 *out,
     }
 }
 
-static void puf_build_fp(struct lpc55s69_puf_state *s)
+/* MM_FALSE when the host has no SHA-256: see mm_lpc55s69_puf_reset(). */
+static mm_bool puf_build_fp(struct lpc55s69_puf_state *s)
 {
-    (void)mm_host_sha256(s->phys, PUF_AC_BYTES, s->fp);
+    return mm_host_sha256(s->phys, PUF_AC_BYTES, s->fp);
 }
 
 static void puf_tag(const mm_u8 *fp, mm_u32 idx, const mm_u8 *key,
@@ -291,7 +292,15 @@ void mm_lpc55s69_puf_reset(void)
     if (!puf.phys_init) {
         puf_seed_phys(&puf);
     }
-    puf_build_fp(&puf);
+    /*
+     * Fingerprint, activation code and key-code tags all come from SHA-256.
+     * Without a host hash there is nothing to model: leaving the block in
+     * error refuses every operation, rather than deriving from a constant
+     * digest and accepting any key code whose tag was never really checked.
+     */
+    if (!puf_build_fp(&puf)) {
+        puf.error = MM_TRUE;
+    }
 }
 
 static mm_u32 puf_allow(const struct lpc55s69_puf_state *s)
@@ -346,7 +355,10 @@ static void puf_do_zeroize(struct lpc55s69_puf_state *s)
 
 static void puf_start_enroll(struct lpc55s69_puf_state *s)
 {
-    puf_build_fp(s);
+    if (!puf_build_fp(s)) {
+        s->error = MM_TRUE;
+        return;
+    }
     puf_stream(s->fp, "ac", s->out, PUF_AC_BYTES);
     s->op        = PUF_OP_ENROLL;
     s->out_pos   = 0;
