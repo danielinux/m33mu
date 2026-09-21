@@ -13,7 +13,7 @@ These values are accepted by `--cpu`:
 - `rw612` — NXP RW612 (Cortex-M33 + ELS / PKA crypto offload)
 - `nrf5340`
 - `nrf54lm20`
-- `rp2350`
+- `rp2350` — Raspberry Pi RP2350 (dual Cortex-M33, three PIO blocks)
 - `pic32ck`
 - `m2354` — Nuvoton NuMicro M2354 (Cortex-M23, ARMv8-M Baseline)
 

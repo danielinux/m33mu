@@ -8,6 +8,7 @@
 #include <sys/random.h>
 #include "rp2350/cpu_config.h"
 #include "rp2350/rp2350_mmio.h"
+#include "rp2350/rp2350_pio.h"
 #include "rp2350/rp2350_usb.h"
 #include "rp2350/rp2350_coproc.h"
 #include "rp2350/rp2350_bootrom.h"
@@ -387,9 +388,6 @@ static struct bank_regs bootram;
 static struct bank_regs ticks;
 static struct bank_regs sysinfo;
 static struct bank_regs syscfg;
-static struct bank_regs pio0;
-static struct bank_regs pio1;
-static struct bank_regs pio2;
 static struct bank_regs trng;
 static struct rp2350_hstx_fifo hstx_fifo;
 static struct rp2350_qmi_fifo qmi_rx;
@@ -1187,10 +1185,38 @@ mm_bool mm_rp2350_active(void)
     return rp2350_active;
 }
 
+/* IO_BANK0 function select for a system GPIO (0x1f when out of range). */
+mm_u32 mm_rp2350_gpio_funcsel(mm_u32 pin)
+{
+    mm_u32 off;
+    if (pin >= 48u) return 0x1fu;
+    off = pin * 8u + 4u;
+    return io_bank0.regs[off / 4u] & 0x1fu;
+}
+
+/* Pads driven by SIO, for the PIO model to fold into its input view. */
+void mm_rp2350_sio_pad_state(mm_u32 *out_lo, mm_u32 *out_hi, mm_u32 *oe_lo, mm_u32 *oe_hi)
+{
+    if (out_lo != 0) *out_lo = sio.out_lo;
+    if (out_hi != 0) *out_hi = sio.out_hi;
+    if (oe_lo != 0) *oe_lo = sio.oe_lo;
+    if (oe_hi != 0) *oe_hi = sio.oe_hi;
+}
+
+/*
+ * Pads are shared between SIO and the PIO blocks: a PIO wins on any pin it
+ * drives and whose function select points at it.
+ */
 static void sio_sync_inputs(void)
 {
-    sio.in_lo = sio.out_lo;
-    sio.in_hi = sio.out_hi;
+    mm_u32 pio_lo = 0u;
+    mm_u32 pio_hi = 0u;
+    mm_u32 oe_lo = 0u;
+    mm_u32 oe_hi = 0u;
+
+    mm_rp2350_pio_pad_state(&pio_lo, &pio_hi, &oe_lo, &oe_hi);
+    sio.in_lo = (sio.out_lo & ~oe_lo) | (pio_lo & oe_lo);
+    sio.in_hi = (sio.out_hi & ~oe_hi) | (pio_hi & oe_hi);
 }
 
 static mm_bool resets_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
@@ -1635,64 +1661,6 @@ static mm_bool sysinfo_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_
     return MM_TRUE;
 }
 
-/* PIO: Programmable I/O (stub implementation) */
-#define PIO_CTRL      0x00u
-#define PIO_FSTAT     0x04u
-#define PIO_FDEBUG    0x08u
-#define PIO_FLEVEL    0x0Cu
-#define PIO_FSTAT_TXEMPTY_ALL 0x0F000000u
-#define PIO_FSTAT_RXEMPTY_ALL 0x00000F00u
-
-static mm_bool pio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
-{
-    struct bank_regs *b = (struct bank_regs *)opaque;
-    mm_u32 alias;
-    mm_u32 base_off;
-    mm_u32 val;
-    if (b == 0 || value_out == 0 || size_bytes == 0u || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > MMIO_ALIAS_SIZE) return MM_FALSE;
-    base_off = alias_base_offset(offset, &alias);
-    if ((base_off + size_bytes) > 0x1000u) return MM_FALSE;
-    (void)alias;
-    /* Special handling for FSTAT: all FIFOs empty */
-    if (base_off == PIO_FSTAT && size_bytes == 4u) {
-        *value_out = PIO_FSTAT_TXEMPTY_ALL | PIO_FSTAT_RXEMPTY_ALL;
-        return MM_TRUE;
-    }
-    /* FLEVEL: all FIFO levels zero */
-    if (base_off == PIO_FLEVEL && size_bytes == 4u) {
-        *value_out = 0u;
-        return MM_TRUE;
-    }
-    val = read_slice(b->regs[base_off / 4u], base_off & 3u, size_bytes);
-    *value_out = val;
-    return MM_TRUE;
-}
-
-static mm_bool pio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
-{
-    struct bank_regs *b = (struct bank_regs *)opaque;
-    mm_u32 alias;
-    mm_u32 base_off;
-    mm_u32 mask;
-    if (b == 0 || size_bytes == 0u || size_bytes > 4u) return MM_FALSE;
-    if ((offset + size_bytes) > MMIO_ALIAS_SIZE) return MM_FALSE;
-    base_off = alias_base_offset(offset, &alias);
-    if ((base_off + size_bytes) > 0x1000u) return MM_FALSE;
-    if (alias == 0u) {
-        b->regs[base_off / 4u] = apply_write(b->regs[base_off / 4u], base_off & 3u, size_bytes, value);
-        return MM_TRUE;
-    }
-    mask = alias_value(base_off & 3u, size_bytes, value);
-    switch (alias) {
-    case 1u: b->regs[base_off / 4u] ^= mask; break;
-    case 2u: b->regs[base_off / 4u] |= mask; break;
-    case 3u: b->regs[base_off / 4u] &= ~mask; break;
-    default: break;
-    }
-    return MM_TRUE;
-}
-
 /* TRNG: True Random Number Generator */
 #define TRNG_RNG_IMR          0x100u
 #define TRNG_RNG_ISR          0x104u
@@ -2031,6 +1999,14 @@ static void dma_do_transfer(void)
     if (map != 0) {
         for (i = 0; i < count; ++i) {
             value = 0u;
+            /*
+             * The channel model transfers in one go, so a PIO FIFO at either
+             * end is paced here: the state machine is run until the FIFO can
+             * take (or supply) the next word. Transfers that do not touch a
+             * PIO FIFO are unaffected.
+             */
+            (void)mm_rp2350_pio_dreq_wait(read_addr, MM_FALSE);
+            (void)mm_rp2350_pio_dreq_wait(write_addr, MM_TRUE);
             (void)mm_memmap_read(map, MM_NONSECURE, read_addr, step, &value);
             (void)mm_memmap_write(map, MM_NONSECURE, write_addr, step, value);
             if (incr_read) read_addr += step;
@@ -2251,15 +2227,36 @@ static mm_bool ticks_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u3
     return MM_TRUE;
 }
 
+/* Combined SIO + PIO pad view, split into the 16-pin banks of the viewer. */
+static void gpio_bank_pads(mm_u32 *out_lo, mm_u32 *out_hi, mm_u32 *oe_lo, mm_u32 *oe_hi)
+{
+    mm_u32 pio_lo = 0u;
+    mm_u32 pio_hi = 0u;
+    mm_u32 poe_lo = 0u;
+    mm_u32 poe_hi = 0u;
+
+    mm_rp2350_pio_pad_state(&pio_lo, &pio_hi, &poe_lo, &poe_hi);
+    *out_lo = (sio.out_lo & ~poe_lo) | (pio_lo & poe_lo);
+    *out_hi = (sio.out_hi & ~poe_hi) | (pio_hi & poe_hi);
+    *oe_lo = sio.oe_lo | poe_lo;
+    *oe_hi = sio.oe_hi | poe_hi;
+}
+
 static mm_u32 gpio_bank_out(int bank)
 {
     mm_u32 out = 0u;
+    mm_u32 out_lo;
+    mm_u32 out_hi;
+    mm_u32 oe_lo;
+    mm_u32 oe_hi;
+
+    gpio_bank_pads(&out_lo, &out_hi, &oe_lo, &oe_hi);
     if (bank == 0) {
-        out = sio.out_lo & 0x0000ffffu;
+        out = out_lo & 0x0000ffffu;
     } else if (bank == 1) {
-        out = (sio.out_lo >> 16) & 0x0000ffffu;
+        out = (out_lo >> 16) & 0x0000ffffu;
     } else if (bank == 2) {
-        out = sio.out_hi & 0x0000ffffu;
+        out = out_hi & 0x0000ffffu;
     }
     return out;
 }
@@ -2269,12 +2266,18 @@ static mm_u32 gpio_bank_moder(int bank)
     mm_u32 oe = 0u;
     mm_u32 moder = 0u;
     mm_u32 pin;
+    mm_u32 out_lo;
+    mm_u32 out_hi;
+    mm_u32 oe_lo;
+    mm_u32 oe_hi;
+
+    gpio_bank_pads(&out_lo, &out_hi, &oe_lo, &oe_hi);
     if (bank == 0) {
-        oe = sio.oe_lo & 0x0000ffffu;
+        oe = oe_lo & 0x0000ffffu;
     } else if (bank == 1) {
-        oe = (sio.oe_lo >> 16) & 0x0000ffffu;
+        oe = (oe_lo >> 16) & 0x0000ffffu;
     } else if (bank == 2) {
-        oe = sio.oe_hi & 0x0000ffffu;
+        oe = oe_hi & 0x0000ffffu;
     }
     for (pin = 0; pin < 16u; ++pin) {
         if ((oe >> pin) & 1u) {
@@ -2531,26 +2534,7 @@ mm_bool mm_rp2350_register_mmio(struct mmio_bus *bus)
     reg.write = bank_write;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
-    reg.size = MMIO_ALIAS_SIZE;
-    reg.base = PIO0_BASE;
-    reg.opaque = &pio0;
-    reg.read = pio_read;
-    reg.write = pio_write;
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
-
-    reg.size = MMIO_ALIAS_SIZE;
-    reg.base = PIO1_BASE;
-    reg.opaque = &pio1;
-    reg.read = pio_read;
-    reg.write = pio_write;
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
-
-    reg.size = MMIO_ALIAS_SIZE;
-    reg.base = PIO2_BASE;
-    reg.opaque = &pio2;
-    reg.read = pio_read;
-    reg.write = pio_write;
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    if (!mm_rp2350_pio_register(bus)) return MM_FALSE;
 
     reg.size = MMIO_ALIAS_SIZE;
     reg.base = TRNG_BASE;
@@ -2602,9 +2586,7 @@ void mm_rp2350_mmio_reset(void)
     memset(&ticks, 0, sizeof(ticks));
     memset(&sysinfo, 0, sizeof(sysinfo));
     memset(&syscfg, 0, sizeof(syscfg));
-    memset(&pio0, 0, sizeof(pio0));
-    memset(&pio1, 0, sizeof(pio1));
-    memset(&pio2, 0, sizeof(pio2));
+    mm_rp2350_pio_reset();
     memset(&trng, 0, sizeof(trng));
     /* Initialize SYSINFO: CHIP_ID = 0x2 (RP2350), PLATFORM = 0x1 (ASIC) */
     sysinfo.regs[SYSINFO_CHIP_ID / 4u] = 0x00000002u;

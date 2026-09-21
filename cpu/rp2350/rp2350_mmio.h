@@ -16,6 +16,9 @@
 #define RP2350_RESET_IO_QSPI   (1u << 7)
 #define RP2350_RESET_PADS_BANK0 (1u << 9)
 #define RP2350_RESET_PADS_QSPI (1u << 10)
+#define RP2350_RESET_PIO0      (1u << 11)
+#define RP2350_RESET_PIO1      (1u << 12)
+#define RP2350_RESET_PIO2      (1u << 13)
 #define RP2350_RESET_SPI0      (1u << 18)
 #define RP2350_RESET_SPI1      (1u << 19)
 #define RP2350_RESET_UART0     (1u << 26)
@@ -54,6 +57,8 @@ void mm_rp2350_flash_bind(struct mm_memmap *map,
                           mm_u32 flags);
 mm_u64 mm_rp2350_cpu_hz(void);
 mm_bool mm_rp2350_reset_asserted(mm_u32 mask);
+mm_u32 mm_rp2350_gpio_funcsel(mm_u32 pin);
+void mm_rp2350_sio_pad_state(mm_u32 *out_lo, mm_u32 *out_hi, mm_u32 *oe_lo, mm_u32 *oe_hi);
 mm_bool mm_rp2350_clock_peri_enabled(void);
 mm_bool mm_rp2350_active(void);
 mm_bool mm_rp2350_cp0_mcr(enum mm_sec_state sec, mm_u8 op1, mm_u8 crn, mm_u8 crm, mm_u8 op2, mm_u32 value);

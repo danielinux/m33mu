@@ -580,6 +580,7 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-m2354 clean all
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-fpu-instructions app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-lpc55s69 app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-rp2350-pio app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-rtos-exceptions app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-rw612-sdk all
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-se-suite app.bin
@@ -624,6 +625,8 @@ add_custom_target(test-firmware
   COMMAND $<TARGET_FILE:m33mu> --cpu m2354 tests/firmware/test-m2354/test_fmc.bin
           --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
   COMMAND $<TARGET_FILE:m33mu> --cpu m2354 tests/firmware/test-m2354/test_scu.bin
+          --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
+  COMMAND $<TARGET_FILE:m33mu> --cpu rp2350 tests/firmware/test-rp2350-pio/app.bin
           --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
   DEPENDS m33mu firmware-build
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
