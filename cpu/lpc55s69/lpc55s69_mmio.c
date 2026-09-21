@@ -691,14 +691,24 @@ static mm_bool pmc_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
         return MM_FALSE;
     if ((offset + size_bytes) > PMC_SIZE)
         return MM_FALSE;
-    /* PDRUNCFGSET0 @ 0xBC / PDRUNCFGCLR0 @ 0xC0 act on PDRUNCFG0 @ 0xB8
-     * (the fsl_rng driver clears PDEN_RNG via the CLR register). */
-    if (size_bytes == 4u && offset == 0xBCu) {
+    /* PDRUNCFGSET0 @ 0xC0 / PDRUNCFGSET1 @ 0xC4 / PDRUNCFGCLR0 @ 0xC8 /
+     * PDRUNCFGCLR1 @ 0xCC are write-only aliases that set or clear bits in
+     * PDRUNCFG0 @ 0xB8 and PDRUNCFG1 @ 0xBC (the fsl_rng driver powers the
+     * ring oscillator up by clearing PDEN_RNG via PDRUNCFGCLR0). */
+    if (size_bytes == 4u && offset == 0xC0u) {
         pmc_regs[0xB8u / 4u] |= value;
         return MM_TRUE;
     }
-    if (size_bytes == 4u && offset == 0xC0u) {
+    if (size_bytes == 4u && offset == 0xC4u) {
+        pmc_regs[0xBCu / 4u] |= value;
+        return MM_TRUE;
+    }
+    if (size_bytes == 4u && offset == 0xC8u) {
         pmc_regs[0xB8u / 4u] &= ~value;
+        return MM_TRUE;
+    }
+    if (size_bytes == 4u && offset == 0xCCu) {
+        pmc_regs[0xBCu / 4u] &= ~value;
         return MM_TRUE;
     }
     memcpy((mm_u8 *)pmc_regs + offset, &value, size_bytes);
