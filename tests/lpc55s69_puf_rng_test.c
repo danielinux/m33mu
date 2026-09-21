@@ -61,6 +61,7 @@
 #define PUF_AC_WORDS 298u
 #define PUF_KC_WORDS_32B 13u /* 20-byte header + 32-byte key */
 #define PUF_KEY_WORDS_32B 8u
+#define PUF_KEYSIZE_32B 4u /* KEYSIZE reg = key_bytes/8 */
 
 static void test_init_map(struct mm_memmap *map, struct mmio_region *regions,
                           size_t cap)
@@ -403,7 +404,7 @@ static int test_puf_genkey_getkey_dice(void)
     /* KC header: byte1 = index, byte3 = key words */
     if ((kc[1] & 0xFu) != 14u)
         return 10;
-    if (kc[3] != PUF_KEY_WORDS_32B)
+    if (kc[3] != PUF_KEYSIZE_32B)
         return 11;
 
     /* reboot, restart, GetKey */
