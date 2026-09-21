@@ -14,11 +14,15 @@
  *   0xFFC MODULEID        0xA0B83200
  *
  * The NXP fsl_rng driver (rng_1) relies on this sequence:
- *  - RNG_Init: activate the chi-squared test; at power-on the min value
- *    reads above the max, and after the first read it settles below.
- *  - rng_readEntropy: poll COUNTER_VAL until REFRESH_CNT reaches 31,
- *    read RANDOM_NUMBER (which resets the counter to 0), then require
+ *  - rng_accumulateEntropy: arm the chi-squared test, then poll
+ *    ONLINE_TEST_VAL until MIN_CHI_SQUARED < MAX_CHI_SQUARED.
+ *  - RNG_Init / rng_readEntropy: loop (re-accumulating) until
  *    MAX_CHI_SQUARED <= 4.
+ *  - rng_readEntropy: poll COUNTER_VAL until REFRESH_CNT reaches 31,
+ *    read RANDOM_NUMBER (which resets the counter to 0).
+ *
+ * The live chi-squared values converge over successive reads: at arm the
+ * min starts above the max (power-on), then both settle with the max at 4.
  */
 
 #include "lpc55s69/lpc55s69_mmio.h"
@@ -48,10 +52,9 @@ struct lpc55s69_rng_state {
     mm_u32 counter_cfg;
     mm_u32 online_test_cfg;
     /* model state */
-    mm_u32 ref_cnt; /* 5 bits, saturates at 31 */
+    mm_u32 ref_cnt;   /* 5 bits, saturates at 31 */
+    mm_u32 chi_step;  /* ONLINE_TEST_VAL reads since the last arm */
     mm_bool chi_armed;
-    mm_bool chi_converged;
-    mm_bool random_read;
 };
 
 static struct lpc55s69_rng_state rng;
@@ -61,25 +64,32 @@ void mm_lpc55s69_rng_reset(void)
     rng.counter_cfg     = 0;
     rng.online_test_cfg = 0;
     rng.ref_cnt         = 31u;
+    rng.chi_step        = 0u;
     rng.chi_armed       = MM_FALSE;
-    rng.chi_converged   = MM_FALSE;
-    rng.random_read     = MM_FALSE;
 }
 
 static mm_u32 rng_online_test_val(struct lpc55s69_rng_state *s)
 {
+    mm_u32 min_chi, max_chi;
+
     if (!s->chi_armed) {
         return 0;
     }
-    if (!s->chi_converged) {
-        /* first read after activation: min above max */
-        s->chi_converged = MM_TRUE;
-        return (15u << 4) | (0u << 8);
+    /* Converge over reads: power-on has min above max, then the max settles
+     * at 4. Satisfies the driver's min<max (accumulate) and max<=4
+     * (init/read) poll conditions within the first few reads. */
+    if (s->chi_step == 0u) {
+        min_chi = 15u;
+        max_chi = 8u;
+    } else if (s->chi_step == 1u) {
+        min_chi = 4u;
+        max_chi = 8u;
+    } else {
+        min_chi = 3u;
+        max_chi = 4u;
     }
-    if (!s->random_read) {
-        return (10u << 4) | (15u << 8);
-    }
-    return (10u << 4) | (4u << 8);
+    s->chi_step++;
+    return (min_chi << 4) | (max_chi << 8);
 }
 
 static mm_bool rng_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
@@ -101,9 +111,10 @@ static mm_bool rng_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     switch (offset) {
     case RNG_OFF_RANDOM_NUMBER:
         value = mm_host_rng_u32();
-        s->ref_cnt       = 0;
-        s->random_read   = MM_TRUE;
-        s->chi_converged = MM_TRUE;
+        s->ref_cnt  = 0;
+        /* Consuming entropy drives the chi-squared test to its converged
+         * state (MAX <= 4) for the next ONLINE_TEST_VAL read. */
+        s->chi_step = 2u;
         break;
     case RNG_OFF_COUNTER_VAL:
         value = 0x01u | ((s->ref_cnt & 0x1Fu) << 8);
@@ -153,9 +164,8 @@ static mm_bool rng_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     case RNG_OFF_ONLINE_TEST_CFG:
         s->online_test_cfg = value;
         if ((value & 0x1u) != 0u) {
-            s->chi_armed     = MM_TRUE;
-            s->chi_converged = MM_FALSE;
-            s->random_read   = MM_FALSE;
+            s->chi_armed = MM_TRUE;
+            s->chi_step  = 0u;
         } else {
             s->chi_armed = MM_FALSE;
         }

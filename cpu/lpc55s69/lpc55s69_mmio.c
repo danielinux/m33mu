@@ -1119,8 +1119,21 @@ void mm_lpc55s69_mmio_reset(void)
     memset(flash_ctrl_regs, 0, sizeof(flash_ctrl_regs));
     flash_ctrl_regs[FC_OFF_MODULE_ID / 4u] = 0xC40F0800u;
     memset(pmc_regs, 0, sizeof(pmc_regs));
-    /* AHB_SECURE_CTRL: reset value 0 per SVD (all blocks non-secure) */
+    /* AHB_SECURE_CTRL: SVD reset value is 0 (all blocks non-secure), but the
+     * boot ROM runs in the secure world and marks SRAM secure before jumping
+     * to the application, so a secure bootloader can use SRAM immediately.
+     * Emulate that end state: every SRAM block is secure + privileged
+     * (ENUM_S_P = 3, all 8 two-bit fields of each MEM_RULE register). */
     memset(ahbsc_regs, 0, sizeof(ahbsc_regs));
+    ahbsc_regs[0x60u / 4u] = 0x33333333u; /* RAM0 */
+    ahbsc_regs[0x64u / 4u] = 0x33333333u;
+    ahbsc_regs[0x80u / 4u] = 0x33333333u; /* RAM1 */
+    ahbsc_regs[0x84u / 4u] = 0x33333333u;
+    ahbsc_regs[0xA0u / 4u] = 0x33333333u; /* RAM2 */
+    ahbsc_regs[0xA4u / 4u] = 0x33333333u;
+    ahbsc_regs[0xC0u / 4u] = 0x33333333u; /* RAM3 */
+    ahbsc_regs[0xC4u / 4u] = 0x33333333u;
+    ahbsc_regs[0xE0u / 4u] = 0x33333333u; /* RAM4 */
 
     /* New peripheral stubs — clear all first, then set non-zero resets */
     memset(gint0_regs,       0, sizeof(gint0_regs));
@@ -1188,7 +1201,7 @@ void mm_lpc55s69_mmio_reset(void)
     /* SYSCON reset-state defaults per LPC55S69 SVD */
     syscon.regs[SYSCON_AHBCLKCTRL0 / 4u] = 0x00000180u;  /* FLASH + FMC */
     syscon.regs[SYSCON_AHBCLKCTRL1 / 4u] = 0x00000000u;
-    syscon.regs[SYSCON_AHBCLKCTRL2 / 4u] = 0x00000000u;
+    syscon.regs[SYSCON_AHBCLKCTRL2 / 4u] = 0x00800000u; /* PUF clock (bit 23): the boot ROM enables it before jumping to the app; m33mu boots the app directly, so emulate the ROM end state. wolfBoot never enables kCLOCK_Puf itself. */
     /* All resets asserted (0 = in reset) */
     syscon.regs[SYSCON_PRESETCTRL0 / 4u] = 0x00000000u;
     syscon.regs[SYSCON_PRESETCTRL1 / 4u] = 0x00000000u;

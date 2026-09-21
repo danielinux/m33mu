@@ -1406,6 +1406,7 @@ static void host_sync_if_needed(mm_u64 vcycles,
 
 static struct mm_cpu *g_cpu0 = 0;
 static struct mm_cpu *g_cpu1 = 0;
+static struct mm_memmap *g_timeout_map = 0;
 static struct mm_nvic *g_nvic0 = 0;
 static struct mm_nvic *g_nvic1 = 0;
 
@@ -1532,6 +1533,35 @@ static void timeout_dump_cpu(const struct mm_cpu *cpu, const char *tag)
     p++;
     *p = '\0';
     timeout_write(line);
+
+    if (g_timeout_map == 0) {
+        return;
+    }
+    {
+        mm_u32 cfsr = 0, hfsr = 0, bfar = 0, mmfar = 0, fault_pc = 0;
+        enum mm_sec_state sec = cpu->sec_state;
+        (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED28u, 4u, &cfsr);
+        (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED2Cu, 4u, &hfsr);
+        (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED38u, 4u, &bfar);
+        (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED34u, 4u, &mmfar);
+        (void)mm_memmap_read(g_timeout_map, sec, cpu->r[13] + 20u, 4u, &fault_pc);
+        p = line;
+        *p = '['; p++;
+        p = timeout_str(p, tag);
+        p = timeout_str(p, "] CFSR=0x");
+        p = timeout_hex32(p, cfsr);
+        p = timeout_str(p, " HFSR=0x");
+        p = timeout_hex32(p, hfsr);
+        p = timeout_str(p, " BFAR=0x");
+        p = timeout_hex32(p, bfar);
+        p = timeout_str(p, " MMFAR=0x");
+        p = timeout_hex32(p, mmfar);
+        p = timeout_str(p, " faultPC=0x");
+        p = timeout_hex32(p, fault_pc);
+        *p = '\n'; p++;
+        *p = '\0';
+        timeout_write(line);
+    }
 }
 
 static void handle_timeout_alarm(int sig)
@@ -5863,6 +5893,7 @@ int main(int argc, char **argv)
                 g_boot_override_pending = MM_FALSE;
             }
             mm_memmap_init(&map, regions, sizeof(regions) / sizeof(regions[0]));
+            g_timeout_map = &map;
             mm_target_soc_reset(&cfg);
             mm_timer_reset(&cfg);
             mm_spiflash_reset_all();

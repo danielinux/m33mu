@@ -608,7 +608,13 @@ static mm_bool puf_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
         return MM_FALSE;
     }
     if (!mm_lpc55s69_syscon_periph_active(PUF_AHBCLK_OFFSET, PUF_AHBCLK_BIT)) {
-        return MM_FALSE;
+        /* Peripheral clock-gated or in reset: the AHB transfer completes but
+         * the register is held in its reset state, so the read returns 0 and
+         * no live state is exposed. (Real HW acks the access; it does not
+         * bus-fault. The PUF driver Deinit asserts the reset, so a later
+         * Deinit's PWRCTRL write must be dropped, not faulted.) */
+        *value_out = 0;
+        return MM_TRUE;
     }
 
     switch (offset) {
@@ -710,7 +716,12 @@ static mm_bool puf_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
         return MM_FALSE;
     }
     if (!mm_lpc55s69_syscon_periph_active(PUF_AHBCLK_OFFSET, PUF_AHBCLK_BIT)) {
-        return MM_FALSE;
+        /* Peripheral clock-gated or in reset: the AHB transfer completes but
+         * the write is dropped (the register is held in its reset state).
+         * Real HW acks the access; it does not bus-fault. The PUF driver
+         * Deinit asserts the reset, so a later Deinit's PWRCTRL write must be
+         * dropped, not faulted. */
+        return MM_TRUE;
     }
 
     switch (offset) {
