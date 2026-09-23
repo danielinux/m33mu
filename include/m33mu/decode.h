@@ -388,6 +388,10 @@ enum mm_op_kind {
      */
     MM_OP_VCVT_FIXED,
 
+    /* ARMv8-M Security Extension FP context: VLSTM / VLLDM <Rn>. */
+    MM_OP_VLSTM,
+    MM_OP_VLLDM,
+
     MM_OP_MAX
 };
 

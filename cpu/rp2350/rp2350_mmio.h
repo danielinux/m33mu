@@ -6,6 +6,7 @@
 #define M33MU_CPU_RP2350_MMIO_H
 
 #include "m33mu/types.h"
+#include "m33mu/target.h"
 #include "m33mu/mmio.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
@@ -100,5 +101,6 @@ void mm_rp2350_bind_multicore(struct mm_cpu *core0,
 mm_bool mm_rp2350_core1_running(void);
 mm_bool mm_rp2350_core1_can_reset(void);
 mm_bool mm_rp2350_core1_take_launch(mm_u32 *vtor_out, mm_u32 *sp_out, mm_u32 *entry_out);
+extern const struct mm_target_mc_ops mm_rp2350_mc_ops;
 
 #endif /* M33MU_CPU_RP2350_MMIO_H */

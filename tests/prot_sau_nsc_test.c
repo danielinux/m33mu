@@ -140,6 +140,7 @@ static int test_secure_sram_alias_denied_when_mpcbb_marks_ns(void)
     ram_regions[0].base_ns = 0x20000000u;
     ram_regions[0].size = sizeof(ram);
     ram_regions[0].mpcbb_index = 0;
+    ram_regions[0].alias_of = 0u;
     cfg.ram_base_s = 0x30000000u;
     cfg.ram_size_s = sizeof(ram);
     cfg.ram_base_ns = 0x20000000u;

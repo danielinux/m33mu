@@ -22,6 +22,7 @@
 #define _XOPEN_SOURCE 600
 #include <fcntl.h>
 #include <unistd.h>
+#include <poll.h>
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <stdio.h>
@@ -279,7 +280,16 @@ mm_bool mm_uart_io_poll(struct mm_uart_io *io)
         } else {
             int rx_fd = io->stdout_only ? io->rx_fd : io->fd;
             ssize_t n;
+            struct pollfd pfd;
             if (rx_fd < 0) return MM_FALSE;
+            /* The stdin fallback may be a blocking pipe: never block the
+             * emulator waiting for guest input. */
+            pfd.fd = rx_fd;
+            pfd.events = POLLIN;
+            pfd.revents = 0;
+            if (poll(&pfd, 1, 0) <= 0 || (pfd.revents & POLLIN) == 0) {
+                return MM_FALSE;
+            }
             n = read(rx_fd, &b, 1);
             if (n == 1) {
                 io->rx_byte = b;

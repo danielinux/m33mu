@@ -528,7 +528,8 @@ mm_bool mm_prot_interceptor(void *opaque, enum mm_access_type type, enum mm_sec_
             addr_sec = (attr == MM_SAU_NONSECURE) ? MM_NONSECURE : MM_SECURE;
         }
         if (sec == MM_SECURE && mpcbb_hit && mpcbb_secure_alias &&
-            mpc_attr == MM_SAU_NONSECURE) {
+            mpc_attr == MM_SAU_NONSECURE &&
+            (ctx->cfg == 0 || (ctx->cfg->flags & MM_TARGET_FLAG_MPC_NONSTRICT) == 0u)) {
             memfault_reason(ctx, type, sec, addr, "mpcbb-secure-alias-ns",
                             attr, addr_sec, mpcbb_hit);
             record_memfault(ctx, sec, type, addr);

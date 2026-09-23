@@ -70,6 +70,10 @@
 #include "rp2350/rp2350_uart_spi.h"
 #include "rp2350/rp2350_timers.h"
 #include "rp2350/cpu_config.h"
+#include "imxrt700/imxrt700_mmio.h"
+#include "imxrt700/imxrt700_multicore.h"
+#include "imxrt700/imxrt700_secure.h"
+#include "imxrt700/cpu_config.h"
 #include "lpc55s69/lpc55s69_mmio.h"
 #include "lpc55s69/lpc55s69_flexcomm.h"
 #include "lpc55s69/lpc55s69_timers.h"
@@ -128,7 +132,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H563_TIMER_INIT,
             STM32H563_TIMER_RESET,
             STM32H563_TIMER_TICK,
-            STM32H563_TZ_ATTR
+            STM32H563_TZ_ATTR,
+            0,
+            0
         }
     },
     {
@@ -166,6 +172,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H533_TIMER_INIT,
             STM32H533_TIMER_RESET,
             STM32H533_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -204,7 +212,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H5F4_TIMER_INIT,
             STM32H5F4_TIMER_RESET,
             STM32H5F4_TIMER_TICK,
-            STM32H5F4_TZ_ATTR
+            STM32H5F4_TZ_ATTR,
+            0,
+            0
         }
     },
     {
@@ -242,6 +252,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32U585_TIMER_INIT,
             STM32U585_TIMER_RESET,
             STM32U585_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -280,6 +292,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32L552_TIMER_INIT,
             STM32L552_TIMER_RESET,
             STM32L552_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -318,6 +332,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             MCXW71C_TIMER_INIT,
             MCXW71C_TIMER_RESET,
             MCXW71C_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -356,6 +372,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             MCXN947_TIMER_INIT,
             MCXN947_TIMER_RESET,
             MCXN947_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -394,6 +412,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             NRF5340_TIMER_INIT,
             NRF5340_TIMER_RESET,
             NRF5340_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -432,6 +452,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             NRF54LM20_TIMER_INIT,
             NRF54LM20_TIMER_RESET,
             NRF54LM20_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -470,6 +492,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             RP2350_TIMER_INIT,
             RP2350_TIMER_RESET,
             RP2350_TIMER_TICK,
+            0,
+            &mm_rp2350_mc_ops,
             0
         }
     },
@@ -508,6 +532,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             LPC55S69_TIMER_INIT,
             LPC55S69_TIMER_RESET,
             LPC55S69_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -546,7 +572,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             PIC32CK_TIMER_INIT,
             PIC32CK_TIMER_RESET,
             PIC32CK_TIMER_TICK,
-            PIC32CK_TZ_ATTR
+            PIC32CK_TZ_ATTR,
+            0,
+            0
         }
     },
     {
@@ -584,7 +612,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             M2354_TIMER_INIT,
             M2354_TIMER_RESET,
             M2354_TIMER_TICK,
-            M2354_TZ_ATTR
+            M2354_TZ_ATTR,
+            0,
+            0
         }
     },
     {
@@ -622,7 +652,49 @@ static const struct mm_cpu_entry cpu_table[] = {
             RW612_TIMER_INIT,
             RW612_TIMER_RESET,
             RW612_TIMER_TICK,
+            0,
+            0,
             0
+        }
+    },
+    {
+        "imxrt700",
+        {
+            IMXRT700_FLASH_BASE_S,
+            IMXRT700_FLASH_SIZE,
+            IMXRT700_FLASH_BASE_NS,
+            IMXRT700_FLASH_SIZE,
+            0,
+            0,
+            IMXRT700_RAM_BASE_S,
+            IMXRT700_RAM_SIZE,
+            IMXRT700_RAM_BASE_NS,
+            IMXRT700_RAM_SIZE,
+            2,
+            IMXRT700_RAM_REGIONS,
+            IMXRT700_RAM_REGION_COUNT,
+            IMXRT700_MPCBB_BLOCK_SIZE,
+            IMXRT700_MPCBB_SECURE,
+            IMXRT700_FLAGS,
+            IMXRT700_SOC_RESET,
+            IMXRT700_SOC_REGISTER,
+            IMXRT700_FLASH_BIND,
+            IMXRT700_CLOCK_GET_HZ,
+            IMXRT700_USART_INIT,
+            IMXRT700_USART_RESET,
+            IMXRT700_USART_POLL,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            IMXRT700_TIMER_TICK,
+            0,
+            IMXRT700_MC_OPS,
+            IMXRT700_BOOT_RESOLVE
         }
     }
 };

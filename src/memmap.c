@@ -238,6 +238,31 @@ static mm_bool ram_offset_for_addr(const struct mm_memmap *map, mm_u32 addr, mm_
     return MM_FALSE;
 }
 
+/* Invalidate translated code for a RAM write.  When RAM regions alias each
+ * other, code may have been decoded through any alias of the written bytes. */
+static void ram_note_write(const struct mm_memmap *map, mm_u32 addr, mm_u32 offset, mm_u32 size)
+{
+    mm_u32 i;
+    if (map->code_cache == 0) {
+        return;
+    }
+    if (!map->ram_has_alias) {
+        mm_code_cache_note_write(map->code_cache, addr, size);
+        return;
+    }
+    for (i = 0; i < map->ram_region_count; ++i) {
+        const struct mm_ram_region *r = &map->ram_regions[i];
+        mm_u32 roff = map->ram_region_offsets[i];
+        if (offset < roff || offset - roff >= r->size) {
+            continue;
+        }
+        mm_code_cache_note_write(map->code_cache, r->base_s + (offset - roff), size);
+        if (r->base_ns != r->base_s) {
+            mm_code_cache_note_write(map->code_cache, r->base_ns + (offset - roff), size);
+        }
+    }
+}
+
 void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t region_capacity)
 {
     mmio_bus_init(&map->mmio, regions, region_capacity);
@@ -250,6 +275,7 @@ void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t r
     map->ram_region_count = 0;
     map->ram_region_last_hit = ~0u;
     map->ram_total_size = 0;
+    map->ram_has_alias = MM_FALSE;
     map->ram_region_offsets[0] = 0;
     map->ram_region_offsets[1] = 0;
     map->ram_region_offsets[2] = 0;
@@ -402,8 +428,15 @@ mm_bool mm_memmap_configure_ram(struct mm_memmap *map, const struct mm_target_cf
         if (map->ram_region_count > (sizeof(map->ram_regions) / sizeof(map->ram_regions[0]))) {
             map->ram_region_count = (mm_u32)(sizeof(map->ram_regions) / sizeof(map->ram_regions[0]));
         }
+        map->ram_has_alias = MM_FALSE;
         for (i = 0; i < map->ram_region_count; ++i) {
+            mm_u32 alias = cfg->ram_regions[i].alias_of;
             map->ram_regions[i] = cfg->ram_regions[i];
+            if (alias != 0u && alias <= i) {
+                map->ram_region_offsets[i] = map->ram_region_offsets[alias - 1u];
+                map->ram_has_alias = MM_TRUE;
+                continue;
+            }
             map->ram_region_offsets[i] = total;
             total += cfg->ram_regions[i].size;
         }
@@ -629,20 +662,20 @@ mm_bool mm_memmap_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 add
                 buf[offset + 2u] = (mm_u8)((value >> 16) & 0xffu);
                 buf[offset + 3u] = (mm_u8)((value >> 24) & 0xffu);
                 if (map->code_cache != 0) {
-                    mm_code_cache_note_write(map->code_cache, addr, size);
+                    ram_note_write(map, addr, offset, size);
                 }
                 return MM_TRUE;
             } else if (size == 2u) {
                 buf[offset] = (mm_u8)(value & 0xffu);
                 buf[offset + 1u] = (mm_u8)((value >> 8) & 0xffu);
                 if (map->code_cache != 0) {
-                    mm_code_cache_note_write(map->code_cache, addr, size);
+                    ram_note_write(map, addr, offset, size);
                 }
                 return MM_TRUE;
             } else if (size == 1u) {
                 buf[offset] = (mm_u8)(value & 0xffu);
                 if (map->code_cache != 0) {
-                    mm_code_cache_note_write(map->code_cache, addr, size);
+                    ram_note_write(map, addr, offset, size);
                 }
                 return MM_TRUE;
             }
@@ -845,7 +878,7 @@ mm_bool mm_memmap_write8(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 ad
             buf = (mm_u8 *)map->ram.buffer;
             buf[offset] = value;
             if (map->code_cache != 0) {
-                mm_code_cache_note_write(map->code_cache, addr, 1u);
+                ram_note_write(map, addr, offset, 1u);
             }
             return MM_TRUE;
         }
@@ -886,7 +919,7 @@ mm_bool mm_memmap_write_ram_raw(struct mm_memmap *map, mm_u32 addr, mm_u32 size,
         return MM_FALSE;
     }
     if (map->code_cache != 0) {
-        mm_code_cache_note_write(map->code_cache, addr, size);
+        ram_note_write(map, addr, offset, size);
     }
     return MM_TRUE;
 }

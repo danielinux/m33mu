@@ -3091,3 +3091,22 @@ mm_bool mm_rp2350_core1_take_launch(mm_u32 *vtor_out, mm_u32 *sp_out, mm_u32 *en
     if (entry_out) *entry_out = rp2350_mc.launch_entry;
     return MM_TRUE;
 }
+
+static void rp2350_mc_bind(struct mm_cpu *core0,
+                           struct mm_cpu *core1,
+                           struct mm_nvic *nvic0,
+                           struct mm_nvic *nvic1,
+                           mm_u32 *active_core,
+                           struct mm_memmap *map)
+{
+    (void)map;
+    mm_rp2350_bind_multicore(core0, core1, nvic0, nvic1, active_core);
+}
+
+const struct mm_target_mc_ops mm_rp2350_mc_ops = {
+    rp2350_mc_bind,
+    mm_rp2350_set_active_core,
+    mm_rp2350_core1_running,
+    mm_rp2350_core1_can_reset,
+    mm_rp2350_core1_take_launch
+};

@@ -43,6 +43,8 @@
 #include "mcxn947/mcxn947_romapi.h"
 #include "lpc55s69/lpc55s69_romapi.h"
 #include "rw612/rw612_romapi.h"
+#include "imxrt700/imxrt700_romapi.h"
+#include "imxrt700/cpu_config.h"
 #include "rp2350/rp2350_mmio.h"
 #include "stm32h533/stm32h533_mmio.h"
 #include "stm32h563/stm32h563_mmio.h"
@@ -486,6 +488,9 @@ static mm_bool mm_bootapi_handle(struct mm_cpu *cpu, struct mm_memmap *map)
     if (mm_rw612_romapi_handle(cpu, map)) {
         return MM_TRUE;
     }
+    if (mm_imxrt700_romapi_handle(cpu, map)) {
+        return MM_TRUE;
+    }
     return MM_FALSE;
 }
 
@@ -501,6 +506,26 @@ static void finish_trace_step_if_started(mm_bool trace_started,
     record_window_step(cpu, map);
 }
 
+/*
+ * i.MX RT700: boot ROM (both aliases) and secure views of the non-secure
+ * XSPI0 and SRAM aliases.  SDK images link at the non-secure alias and run
+ * secure while the SAU is still disabled, which attributes everything Secure.
+ */
+static void add_imxrt700_prot_regions(struct mm_prot_ctx *p, const struct mm_target_cfg *cfg)
+{
+    mm_u32 ri;
+    mm_prot_add_region(p, IMXRT700_ROM_BASE_S, IMXRT700_ROM_SIZE, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+    mm_prot_add_region(p, IMXRT700_ROM_BASE_NS, IMXRT700_ROM_SIZE, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+    mm_prot_add_region(p, IMXRT700_ROM_BASE_NS, IMXRT700_ROM_SIZE, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
+    mm_prot_add_region(p, cfg->flash_base_ns, cfg->flash_size_ns,
+                       MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+    for (ri = 0; ri < cfg->ram_region_count; ++ri) {
+        const struct mm_ram_region *r = &cfg->ram_regions[ri];
+        mm_prot_add_region(p, r->base_ns, r->size,
+                           MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+    }
+}
+
 static mm_u32 cfg_total_ram(const struct mm_target_cfg *cfg)
 {
     mm_u32 total = 0;
@@ -508,6 +533,9 @@ static mm_u32 cfg_total_ram(const struct mm_target_cfg *cfg)
     if (cfg == 0) return 0;
     if (cfg->ram_regions != 0 && cfg->ram_region_count > 0u) {
         for (i = 0; i < cfg->ram_region_count; ++i) {
+            if (cfg->ram_regions[i].alias_of != 0u) {
+                continue;
+            }
             total += cfg->ram_regions[i].size;
         }
         return total;
@@ -2884,8 +2912,8 @@ static mm_bool allow_system_reset(const struct mm_target_cfg *cfg, const char *c
     if (cfg == 0 || cpu_name == 0) {
         return MM_TRUE;
     }
-    if (cfg->core_count > 1u && strcmp(cpu_name, "rp2350") == 0) {
-        return mm_rp2350_core1_can_reset();
+    if (cfg->core_count > 1u && cfg->mc_ops != 0 && cfg->mc_ops->core1_can_reset != 0) {
+        return cfg->mc_ops->core1_can_reset();
     }
     return MM_TRUE;
 }
@@ -3674,6 +3702,10 @@ static mm_bool step_core_simple(struct mm_cpu *cpu,
             wake = MM_TRUE;
         } else if (cpu->sleep_wfe && mm_nvic_any_pending(nvic)) {
             wake = MM_TRUE;
+        } else if (!cpu->sleep_wfe && mm_nvic_any_pending_enabled(nvic)) {
+            /* WFI wakes on an interrupt that would preempt with PRIMASK
+             * clear, so "cpsid i; wfi; cpsie i" idle loops work. */
+            wake = MM_TRUE;
         }
         if (!wake) {
             return MM_FALSE;
@@ -3944,6 +3976,23 @@ static mm_bool handle_pc_write(struct mm_cpu *cpu,
         if (!raise_usage_fault(cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr, (1u << 16))) {
             return MM_FALSE;
         }
+        return MM_TRUE;
+    }
+    if (value == MM_TZ_FNC_RETURN && cpu->sec_state == MM_NONSECURE && cpu->tz_depth > 0) {
+        /* Non-secure branch to FNC_RETURN (BX Rm, POP {pc}, LDR pc, ...):
+         * return from the Secure BLXNS that called this function. */
+        mm_u32 secure_sp;
+        cpu->tz_depth--;
+        cpu->sec_state = cpu->tz_ret_sec[cpu->tz_depth];
+        cpu->mode = cpu->tz_ret_mode[cpu->tz_depth];
+        secure_sp = mm_cpu_get_active_sp(cpu);
+        mm_cpu_set_active_sp(cpu, secure_sp + 8u);
+        cpu->r[13] = mm_cpu_get_active_sp(cpu);
+        cpu->r[15] = cpu->tz_ret_pc[cpu->tz_depth] | 1u;
+        cpu->xpsr = itstate_set(cpu->xpsr, 0u);
+        if (it_pattern) *it_pattern = 0;
+        if (it_remaining) *it_remaining = 0;
+        if (it_cond) *it_cond = 0;
         return MM_TRUE;
     }
     if ((value & 0xffffff00u) == 0xffffff00u) {
@@ -5869,6 +5918,7 @@ int main(int argc, char **argv)
             mm_u32 boot_offset_local = 0;
             mm_u32 boot_base_s = 0;
             mm_u32 boot_base_ns = 0;
+            mm_bool boot_resolved = MM_FALSE;
             enum mm_boot_mode boot_mode_local = boot_mode;
             const mm_u64 poll_granularity = DEFAULT_BATCH_CYCLES;
             mm_u64 sync_granularity = DEFAULT_SYNC_GRANULARITY;
@@ -5936,6 +5986,15 @@ int main(int argc, char **argv)
                     boot_base_s = cfg.flash_base_s + boot_offset_local;
                     boot_base_ns = cfg.flash_base_ns + boot_offset_local;
                 }
+                boot_resolved = MM_FALSE;
+                if (!opt_boot_offset && boot_mode_local == MM_BOOT_FLASH && cfg.boot_resolve != 0) {
+                    mm_u32 vtor = 0;
+                    if (cfg.boot_resolve(&map, flash, cfg.flash_size_s, &vtor)) {
+                        boot_base_s = vtor;
+                        boot_base_ns = vtor;
+                        boot_resolved = MM_TRUE;
+                    }
+                }
                 if (opt_no_tz) {
                     cfg.mpcbb_block_secure = 0;
                     cfg.mpcbb_block_size = 0;
@@ -5979,9 +6038,19 @@ int main(int argc, char **argv)
                     map.flash.base = cfg.flash_base_ns;
                     map.flash.length = cfg.flash_size_ns;
                     map.ram.base = cfg.ram_base_ns;
-                    if (boot_mode_local == MM_BOOT_FLASH) {
+                    if (boot_mode_local == MM_BOOT_FLASH && !boot_resolved) {
                         boot_base_s = cfg.flash_base_ns + boot_offset_local;
                         boot_base_ns = cfg.flash_base_ns + boot_offset_local;
+                    } else if (boot_resolved) {
+                        /* The boot hook reports secure-alias addresses. */
+                        mm_u32 v = boot_base_s;
+                        if (v >= cfg.flash_base_s && v - cfg.flash_base_s < cfg.flash_size_s) {
+                            v = cfg.flash_base_ns + (v - cfg.flash_base_s);
+                        } else if (v >= cfg.ram_base_s && v - cfg.ram_base_s < cfg.ram_size_s) {
+                            v = cfg.ram_base_ns + (v - cfg.ram_base_s);
+                        }
+                        boot_base_s = v;
+                        boot_base_ns = v;
                     }
                 } else {
                     map.flash.base = cfg.flash_base_s;
@@ -6141,6 +6210,9 @@ int main(int argc, char **argv)
                 mm_prot_add_region(&prot, 0x00000000u, cfg.flash_size_ns,
                                    MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
             }
+            if (cpu_name != 0 && strcmp(cpu_name, "imxrt700") == 0) {
+                add_imxrt700_prot_regions(&prot, &cfg);
+            }
             if (cfg.ram_regions != 0 && cfg.ram_region_count > 0u) {
                 mm_u32 ri;
                 for (ri = 0; ri < cfg.ram_region_count; ++ri) {
@@ -6179,6 +6251,9 @@ int main(int argc, char **argv)
                     (strcmp(cpu_name, "stm32u585") == 0 || strcmp(cpu_name, "stm32l552") == 0)) {
                     mm_prot_add_region(&prot1, 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
                     mm_prot_add_region(&prot1, 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                }
+                if (cpu_name != 0 && strcmp(cpu_name, "imxrt700") == 0) {
+                    add_imxrt700_prot_regions(&prot1, &cfg);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "nrf5340") == 0) {
                     mm_prot_add_region(&prot1, 0x00000000u, cfg.flash_size_ns,
@@ -6230,8 +6305,8 @@ int main(int argc, char **argv)
                     }
                 }
             }
-            if (cfg.core_count > 1u && cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                mm_rp2350_bind_multicore(&cpu, &cpu1, &nvic, &nvic1, &active_core);
+            if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->bind != 0) {
+                cfg.mc_ops->bind(&cpu, &cpu1, &nvic, &nvic1, &active_core, &map);
             }
 
             /* Reset CPU state */
@@ -6307,8 +6382,8 @@ int main(int argc, char **argv)
             enum mm_sec_state boot_sec = force_ns_boot ? MM_NONSECURE : MM_SECURE;
             active_core = 0;
                 g_active_prot_ctx = &prot;
-                if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                    mm_rp2350_set_active_core(0);
+                if (cfg.mc_ops != 0 && cfg.mc_ops->set_active_core != 0) {
+                    cfg.mc_ops->set_active_core(0u);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
                     scs.sau_ctrl = 0x1u | 0x2u;
@@ -6387,11 +6462,11 @@ int main(int argc, char **argv)
                     mm_system_clear_reset();
                     break;
                 }
-                if (cfg.core_count > 1u && cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
+                if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->core1_take_launch != 0) {
                     mm_u32 launch_vtor = 0;
                     mm_u32 launch_sp = 0;
                     mm_u32 launch_entry = 0;
-                    if (mm_rp2350_core1_take_launch(&launch_vtor, &launch_sp, &launch_entry)) {
+                    if (cfg.mc_ops->core1_take_launch(&launch_vtor, &launch_sp, &launch_entry)) {
                         int r;
                         for (r = 0; r < 16; ++r) cpu1.r[r] = 0;
                         cpu1.xpsr = 0x01000000u;
@@ -6493,15 +6568,17 @@ int main(int argc, char **argv)
                     last_running = running_now;
                 }
 
-                if (running_now && cfg.core_count > 1u && cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0 &&
-                    mm_rp2350_core1_running()) {
+                if (running_now && cfg.core_count > 1u && cfg.mc_ops != 0 &&
+                    cfg.mc_ops->core1_running != 0 && cfg.mc_ops->core1_running()) {
                     const mm_u32 core1_epoch_steps = 64u;
                     mm_u32 core1_step;
                     active_core = 1u;
                     g_active_prot_ctx = &prot1;
-                    mm_rp2350_set_active_core(1u);
+                    if (cfg.mc_ops->set_active_core != 0) {
+                        cfg.mc_ops->set_active_core(1u);
+                    }
                     for (core1_step = 0; core1_step < core1_epoch_steps; ++core1_step) {
-                        if (!mm_rp2350_core1_running()) {
+                        if (!cfg.mc_ops->core1_running()) {
                             break;
                         }
                         if (opt_gdb) {
@@ -6525,7 +6602,9 @@ int main(int argc, char **argv)
                     }
                     active_core = 0u;
                     g_active_prot_ctx = &prot;
-                    mm_rp2350_set_active_core(0u);
+                    if (cfg.mc_ops->set_active_core != 0) {
+                        cfg.mc_ops->set_active_core(0u);
+                    }
                     if (done) {
                         continue;
                     }
@@ -6616,6 +6695,10 @@ int main(int argc, char **argv)
                         wake = MM_TRUE;
                     } else if (mm_nvic_select_ex(&nvic, &cpu, &scs) >= 0) {
                         wake = MM_TRUE;
+                    } else if (!cpu.sleep_wfe && mm_nvic_any_pending_enabled(&nvic)) {
+                        /* WFI wakes on an interrupt that would preempt with
+                         * PRIMASK clear ("cpsid i; wfi; cpsie i" idle loops). */
+                        wake = MM_TRUE;
                     } else if (cpu.sleep_wfe && mm_nvic_any_pending(&nvic)) {
                         if (getenv("M33MU_SLEEP_TRACE")) {
                             printf("[SLEEP_WAKE] wfe pending irq (primask_s=%lu primask_ns=%lu)\n",
@@ -6628,6 +6711,10 @@ int main(int argc, char **argv)
                         cpu.sleeping = MM_FALSE;
                         cpu.sleep_wfe = MM_FALSE;
                         cpu.event_reg = MM_FALSE;
+                    } else if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->core1_running != 0 &&
+                               cfg.mc_ops->core1_running() && !cpu1.sleeping) {
+                        /* Core1 still has work: keep scheduling it rather than idling the host. */
+                        continue;
                     } else {
                         mm_u64 delta = mm_scs_systick_cycles_until_fire(&scs);
                         if (delta == (mm_u64)-1) {
@@ -6660,7 +6747,8 @@ int main(int argc, char **argv)
                                 continue;
                             }
                             if (systick_pending_select(&cpu, &scs, &systick_sec) || scs.pend_sv || mm_nvic_select_ex(&nvic, &cpu, &scs) >= 0 ||
-                                (cpu.sleep_wfe && mm_nvic_any_pending(&nvic))) {
+                                (cpu.sleep_wfe && mm_nvic_any_pending(&nvic)) ||
+                                (!cpu.sleep_wfe && mm_nvic_any_pending_enabled(&nvic))) {
                                 cpu.sleeping = MM_FALSE;
                                 cpu.sleep_wfe = MM_FALSE;
                                 cpu.event_reg = MM_FALSE;
@@ -6895,6 +6983,13 @@ check_irq_pending:
                                 break;
                             }
                             if (it_remaining != 0u) {
+                                break;
+                            }
+                            /* Leave the chain as soon as an interrupt can be taken
+                             * (e.g. right after CPSIE), or a "cpsie; ...; cpsid; wfi"
+                             * idle loop never lets it in. */
+                            if (mm_nvic_any_pending_enabled(&nvic) &&
+                                mm_nvic_select_ex(&nvic, &cpu, &scs) >= 0) {
                                 break;
                             }
                             fast_fpu_ok = fpu_access_allowed(&cpu, &scs) ? MM_TRUE : MM_FALSE;

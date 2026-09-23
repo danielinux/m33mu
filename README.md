@@ -18,7 +18,7 @@ It can run as:
 - Supports debugging through a built-in GDB remote server
 - Can load multiple images, including Secure and Non-secure firmware combinations
 - Exposes UART, SPI flash, TPM, TA-100, ATECC608A, SE050, STSAFE-A120, and IoTSAFE modem+SIM secure-element paths, plus USB, Ethernet, and other target-specific peripherals
-- Ships SoC profiles for STM32H5/U5/L5, NXP LPC55S69, MCXW71C, MCXN947, RW612 (with ELS/PKA crypto offload), Nordic nRF5340 / nRF54LM20, RP2350, and Microchip PIC32CK — see [supported CPUs](docs/supported-cpus.md) for the full list
+- Ships SoC profiles for STM32H5/U5/L5, NXP LPC55S69, MCXW71C, MCXN947, RW612 (with ELS/PKA crypto offload), Nordic nRF5340 / nRF54LM20, RP2350, Microchip PIC32CK, Nuvoton M2354, and NXP i.MX RT700 (dual core) — see [supported CPUs](docs/supported-cpus.md) for the full list
 
 > **Note:** ATECC608A, SE050, and STSAFE-A120 simulation requires `cargo` (Rust toolchain) at build time.
 > These features are automatically disabled if `cargo` is not found.

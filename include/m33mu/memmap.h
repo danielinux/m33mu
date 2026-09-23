@@ -97,6 +97,7 @@ struct mm_memmap {
     mm_u32 ram_region_last_hit;
     mm_u32 ram_total_size;
     mm_u32 ram_region_offsets[8];
+    mm_bool ram_has_alias;
     mm_u32 flash_base_s;
     mm_u32 flash_size_s;
     mm_u32 flash_base_ns;

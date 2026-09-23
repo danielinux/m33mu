@@ -2765,6 +2765,14 @@ static struct mm_decoded decode_32(mm_u32 insn)
         }
     }
 
+    /* VLSTM / VLLDM <Rn> (T1): 1110 1100 001L Rn 0000 1010 0000 0000. */
+    if ((insn & 0xffe0ffffu) == 0xec200a00u) {
+        d.kind = ((insn >> 20) & 1u) ? MM_OP_VLLDM : MM_OP_VLSTM;
+        d.rn = (mm_u8)((insn >> 16) & 0x0fu);
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
     /* VFP load/store multiple (VLDM/VSTM). */
     if ((insn & 0xfe000f00u) == 0xec000a00u || (insn & 0xfe000f00u) == 0xec000b00u) {
         mm_bool load = ((insn >> 20) & 1u) != 0u;

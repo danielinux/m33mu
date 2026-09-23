@@ -29,12 +29,33 @@
 struct mmio_bus;
 struct mm_nvic;
 struct mm_memmap;
+struct mm_cpu;
+
+/* Multicore glue for SoCs with a second Cortex-M core (core_count > 1).
+ * The SoC model owns core1's run state and release mechanism; the main loop
+ * asks it whether core1 runs and picks up launch requests. */
+struct mm_target_mc_ops {
+    void (*bind)(struct mm_cpu *core0,
+                 struct mm_cpu *core1,
+                 struct mm_nvic *nvic0,
+                 struct mm_nvic *nvic1,
+                 mm_u32 *active_core,
+                 struct mm_memmap *map);
+    void (*set_active_core)(mm_u32 core_id);
+    mm_bool (*core1_running)(void);
+    mm_bool (*core1_can_reset)(void);
+    mm_bool (*core1_take_launch)(mm_u32 *vtor_out, mm_u32 *sp_out, mm_u32 *entry_out);
+};
 
 struct mm_ram_region {
     mm_u32 base_s;
     mm_u32 base_ns;
     mm_u32 size;
     int mpcbb_index; /* -1 if no MPCBB protection */
+    /* 1-based index of the region whose backing store this one aliases
+     * (e.g. RT700 SRAM code-bus alias at 0x0 vs system-bus 0x20000000).
+     * 0 = region has its own backing. */
+    mm_u32 alias_of;
 };
 
 struct mm_target_cfg {
@@ -87,6 +108,17 @@ struct mm_target_cfg {
     mm_bool (*tz_attr_for_addr)(mm_u32 addr,
                                 enum mm_sau_attr *attr_out,
                                 mm_u32 *region_out);
+
+    const struct mm_target_mc_ops *mc_ops;
+
+    /* Optional boot-ROM model: pick the boot vector table from the loaded
+     * flash image (e.g. skip an FCB, copy a load-to-RAM image).  Called only
+     * when no --boot-offset was given.  Returns MM_TRUE and the vector table
+     * address in *vtor_out when it resolved the boot image. */
+    mm_bool (*boot_resolve)(struct mm_memmap *map,
+                            const mm_u8 *flash,
+                            mm_u32 flash_size,
+                            mm_u32 *vtor_out);
 };
 
 #define MM_TARGET_FLAG_NVM_WRITEONCE (1u << 0)
@@ -94,5 +126,8 @@ struct mm_target_cfg {
 #define MM_TARGET_FLAG_DUALBANK (1u << 2)
 /* Set for LPC55S69: enables CP=1 MCR/MRC dispatch to CASPER peripheral. */
 #define MM_TARGET_FLAG_CASPER_CP (1u << 3)
+/* NXP AHB secure controller semantics for the MPCBB hook: a Secure access to
+ * a block ruled Non-secure is allowed (non-strict mode), unlike STM32 GTZC. */
+#define MM_TARGET_FLAG_MPC_NONSTRICT (1u << 4)
 
 #endif /* M33MU_TARGET_H */

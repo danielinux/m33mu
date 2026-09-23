@@ -38,7 +38,7 @@
 #define M2354_PERIPH_SIZE       0x10000000u
 
 static const struct mm_ram_region M2354_RAM_REGIONS[] = {
-    { M2354_RAM_BASE_S, M2354_RAM_BASE_NS, M2354_RAM_SIZE, -1 }
+    { M2354_RAM_BASE_S, M2354_RAM_BASE_NS, M2354_RAM_SIZE, -1, 0u }
 };
 
 #define M2354_RAM_REGION_COUNT \

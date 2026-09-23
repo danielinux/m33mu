@@ -59,6 +59,11 @@ int main(void)
     if (run_decode_check(0xed2d0b08u, MM_OP_VSTM, "dec_vpush_d")) return 1;
     /* vpop {s0-s7} → 0xecbd0a08 */
     if (run_decode_check(0xecbd0a08u, MM_OP_VLDM, "dec_vpop_s")) return 1;
+    /* vlstm r0 / vlldm ip (arm-none-eabi-as -march=armv8-m.main+fp): the
+     * zero-count VSTM/VLDM space holds the Secure FP context instructions. */
+    if (run_decode_check(0xec200a00u, MM_OP_VLSTM, "dec_vlstm_r0")) return 1;
+    if (run_decode_check(0xec2d0a00u, MM_OP_VLSTM, "dec_vlstm_sp")) return 1;
+    if (run_decode_check(0xec3c0a00u, MM_OP_VLLDM, "dec_vlldm_ip")) return 1;
     /* vpop {d0-d3} → 0xecbd0b08 */
     if (run_decode_check(0xecbd0b08u, MM_OP_VLDM, "dec_vpop_d")) return 1;
 

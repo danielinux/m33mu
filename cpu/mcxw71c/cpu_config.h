@@ -11,8 +11,8 @@
 #define MCXW71C_RAM_SIZE       0x0001C000u  /* 112 KB (STCM) */
 
 static const struct mm_ram_region MCXW71C_RAM_REGIONS[] = {
-    { 0x30000000u, 0x20000000u, 0x0001C000u, -1 }, /* 112 KB STCM */
-    { 0x14000000u, 0x14000000u, 0x00004000u, -1 } /* 16 KB CTCM */
+    { 0x30000000u, 0x20000000u, 0x0001C000u, -1, 0u }, /* 112 KB STCM */
+    { 0x14000000u, 0x14000000u, 0x00004000u, -1, 0u } /* 16 KB CTCM */
 };
 
 #define MCXW71C_PERIPH_BASE_S  0x50000000u

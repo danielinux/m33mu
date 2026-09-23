@@ -146,3 +146,18 @@ jobs:
               tests/firmware/test-m2354/$t.bin | tee /tmp/m33mu-m2354-$t.log
             grep -q "ALL PASS" /tmp/m33mu-m2354-$t.log
           done
+      - name: Run i.MX RT700 firmware tests (dual Cortex-M33, TrustZone)
+        # Booted like the ROM does: FCB + XIP image, and a load-to-RAM image.
+        # No --quit-on-faults: the AHBSC check provokes a non-secure fault on
+        # purpose and recovers from it.
+        run: |
+          set -euo pipefail
+          for t in app app-ramload; do
+            build/m33mu \
+              --cpu imxrt700 \
+              --uart-stdout \
+              --expect-bkpt 0x7f \
+              --timeout 60 \
+              tests/firmware/test-imxrt700/$t.bin < /dev/null | tee /tmp/m33mu-imxrt700-$t.log
+            grep -q "ALL PASS" /tmp/m33mu-imxrt700-$t.log
+          done

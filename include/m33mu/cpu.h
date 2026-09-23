@@ -139,6 +139,10 @@ struct mm_cpu {
     enum mm_sec_state excl_sec;
     mm_u32 excl_addr;
     mm_u32 excl_size;
+
+    /* One bit per nested VLSTM: 1 when it saved (and cleared) the Secure
+     * FP context, so the matching VLLDM knows whether to restore it. */
+    mm_u32 vlstm_stack;
 };
 
 /* Accessors for banked SP and SPLIM based on mode and security. */
