@@ -43,14 +43,6 @@ static mm_u32 rd32le(const mm_u8 *p)
     return (mm_u32)p[0] | ((mm_u32)p[1] << 8) | ((mm_u32)p[2] << 16) | ((mm_u32)p[3] << 24);
 }
 
-static void wr32le(mm_u8 *p, mm_u32 v)
-{
-    p[0] = (mm_u8)v;
-    p[1] = (mm_u8)(v >> 8);
-    p[2] = (mm_u8)(v >> 16);
-    p[3] = (mm_u8)(v >> 24);
-}
-
 /* ------------------------------------------------------------------------ */
 /* GLIKEY                                                                   */
 /* ------------------------------------------------------------------------ */
@@ -528,21 +520,6 @@ static mm_u8 device_key[32];
 static mm_u8 puf_secret[32];
 static mm_bool puf_enrolled;
 
-static mm_bool mem_get(mm_u32 addr, mm_u8 *buf, mm_u32 len)
-{
-    struct mm_memmap *map = mm_imxrt700_memmap();
-    mm_u32 i;
-    if (map == 0 || len > SEC_MAX_BUF) {
-        return MM_FALSE;
-    }
-    for (i = 0; i < len; ++i) {
-        if (!mm_memmap_read8(map, MM_SECURE, addr + i, &buf[i])) {
-            return MM_FALSE;
-        }
-    }
-    return MM_TRUE;
-}
-
 static mm_bool mem_put(mm_u32 addr, const mm_u8 *buf, mm_u32 len)
 {
     struct mm_memmap *map = mm_imxrt700_memmap();
@@ -577,6 +554,30 @@ static void regs_put32(struct sec_regs *r, const mm_u8 v[32])
     }
 }
 
+#ifdef M33MU_HAS_WOLFSSL
+static void wr32le(mm_u8 *p, mm_u32 v)
+{
+    p[0] = (mm_u8)v;
+    p[1] = (mm_u8)(v >> 8);
+    p[2] = (mm_u8)(v >> 16);
+    p[3] = (mm_u8)(v >> 24);
+}
+
+static mm_bool mem_get(mm_u32 addr, mm_u8 *buf, mm_u32 len)
+{
+    struct mm_memmap *map = mm_imxrt700_memmap();
+    mm_u32 i;
+    if (map == 0 || len > SEC_MAX_BUF) {
+        return MM_FALSE;
+    }
+    for (i = 0; i < len; ++i) {
+        if (!mm_memmap_read8(map, MM_SECURE, addr + i, &buf[i])) {
+            return MM_FALSE;
+        }
+    }
+    return MM_TRUE;
+}
+
 static void keyin_bytes(const struct sec_regs *r, mm_u8 out[16])
 {
     mm_u32 i;
@@ -585,7 +586,11 @@ static void keyin_bytes(const struct sec_regs *r, mm_u8 out[16])
     }
 }
 
-#ifdef M33MU_HAS_WOLFSSL
+static mm_bool slot_ok(mm_u32 slot)
+{
+    return slot < ELS_SLOTS ? MM_TRUE : MM_FALSE;
+}
+
 static mm_bool hmac256(const mm_u8 *key, mm_u32 key_len, const mm_u8 *in, mm_u32 in_len, mm_u8 out[32])
 {
     Hmac h;
@@ -653,14 +658,7 @@ static mm_bool modop(mm_u32 op, const mm_u8 *a, const mm_u8 *b, const mm_u8 *m, 
     mp_clear(&Z);
     return rc == 0 ? MM_TRUE : MM_FALSE;
 }
-#endif /* M33MU_HAS_WOLFSSL */
 
-static mm_bool slot_ok(mm_u32 slot)
-{
-    return slot < ELS_SLOTS ? MM_TRUE : MM_FALSE;
-}
-
-#ifdef M33MU_HAS_WOLFSSL
 static mm_bool els_mac(const struct sec_regs *r, mm_u8 mac[32])
 {
     static mm_u8 buf[SEC_MAX_BUF];
