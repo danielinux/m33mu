@@ -29,6 +29,7 @@
 #include "imxrt700/imxrt700_multicore.h"
 #include "imxrt700/imxrt700_secure.h"
 #include "imxrt700/imxrt700_romapi.h"
+#include "imxrt700/imxrt700_xspi.h"
 #include "imxrt700/cpu_config.h"
 
 #define PERIPH_WINDOW_SIZE 0x10000000u
@@ -663,6 +664,7 @@ void mm_imxrt700_mmio_reset(void)
     mm_imxrt700_mc_reset();
     mm_imxrt700_secure_reset();
     mm_imxrt700_romapi_reset();
+    mm_imxrt700_xspi_reset();
 }
 
 static void attach_status_hooks(void)
@@ -696,6 +698,7 @@ mm_bool mm_imxrt700_register_mmio(struct mmio_bus *bus)
     mm_imxrt700_timers_attach();
     mm_imxrt700_mc_attach();
     mm_imxrt700_secure_attach();
+    mm_imxrt700_xspi_attach();
 
     memset(&reg, 0, sizeof(reg));
     reg.base = IMXRT700_PERIPH_BASE_NS;
@@ -720,11 +723,11 @@ void mm_imxrt700_flash_bind(struct mm_memmap *map,
                             const struct mm_flash_persist *persist,
                             mm_u32 flags)
 {
-    (void)persist;
     (void)flags;
     bound_map = map;
     bound_flash = flash;
     bound_flash_size = flash_size;
+    mm_imxrt700_xspi_bind(flash, flash_size, persist);
     mm_imxrt700_secure_flash_bind(flash, flash_size);
 }
 

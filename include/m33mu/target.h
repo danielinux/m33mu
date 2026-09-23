@@ -129,5 +129,9 @@ struct mm_target_cfg {
 /* NXP AHB secure controller semantics for the MPCBB hook: a Secure access to
  * a block ruled Non-secure is allowed (non-strict mode), unlike STM32 GTZC. */
 #define MM_TARGET_FLAG_MPC_NONSTRICT (1u << 4)
+/* The boot ROM always starts the core Secure and TrustZone cannot be fused
+ * off (i.MX RT700): images linked at the non-secure aliases still run Secure,
+ * so neither --no-tz nor the non-secure-stack heuristic demotes the core. */
+#define MM_TARGET_FLAG_SECURE_BOOT (1u << 5)
 
 #endif /* M33MU_TARGET_H */

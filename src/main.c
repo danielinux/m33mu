@@ -6009,11 +6009,13 @@ int main(int argc, char **argv)
                      * view and have to keep running there; with no SAU
                      * programmed that is already what a part with TrustZone
                      * disabled looks like. */
-                    if (cfg.ram_base_ns <= cfg.ram_base_s) {
+                    if (cfg.ram_base_ns <= cfg.ram_base_s &&
+                        (cfg.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
                         force_ns_boot = MM_TRUE;
                     }
                     printf("[TZ] TrustZone disabled via --no-tz\n");
-                } else if (cfg.ram_base_s != cfg.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH) {
+                } else if (cfg.ram_base_s != cfg.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH &&
+                           (cfg.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
                     if (mm_vector_read(&map, MM_SECURE, boot_base_s, 0u, &initial_sp)) {
                         /* An initial SP inside the non-secure RAM alias means
                          * the image was linked for the non-secure world.  The

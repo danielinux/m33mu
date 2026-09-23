@@ -21,7 +21,8 @@
 
 /* i.MX RT700 model: register-file SET/CLR semantics, GLIKEY write-enable
  * FSM, AHBSC SRAM rules as MPCBB attribution, the CPU1 release sequence,
- * MU1 messaging and the boot ROM image-header handling. */
+ * MU1 messaging, the boot ROM image-header handling and the XSPI0 flash
+ * controller (IP program/erase through the LUT, FRAD protection). */
 
 #include <stdio.h>
 #include <string.h>
@@ -47,10 +48,11 @@
 #define AHBSC0 0x4017C000u
 #define MU1_A 0x40202000u
 #define MU1_B 0x40203000u
+#define XSPI0 0x40184000u
 
 static struct mm_memmap map;
 static struct mmio_region regions[32];
-static mm_u8 flash[0x8000];
+static mm_u8 flash[0x20000];
 static mm_u8 ram[IMXRT700_RAM_SIZE];
 static struct mm_target_cfg cfg;
 
@@ -272,6 +274,86 @@ static void test_boot_resolve(void)
     CHECK(!mm_imxrt700_boot_resolve(&map, flash, sizeof(flash), &vtor));
 }
 
+/* LUT sequence word: two instructions (instr[15:10] pad[9:8] operand[7:0]). */
+#define LUT(i0, o0, i1, o1) \
+    ((((mm_u32)(i0)) << 10) | 0x300u | (o0) | ((((mm_u32)(i1)) << 10 | 0x300u | (o1)) << 16))
+
+static mm_u32 xspi_ip(mm_u32 addr, mm_u32 seq, mm_u32 size)
+{
+    wr(XSPI0 + 0x938u, rd(XSPI0 + 0x938u));          /* ERRSTAT w1c */
+    wr(XSPI0 + 0x95Cu, addr);                        /* SFP_TG_SFAR */
+    wr(XSPI0 + 0x958u, (seq << 24) | size);          /* SFP_TG_IPCR */
+    return rd(XSPI0 + 0x938u);
+}
+
+static void test_xspi(void)
+{
+    mm_u32 i;
+    mm_u32 err;
+    memset(flash, 0x5A, sizeof(flash));
+    /* MGC resets with the SFP globally valid and no descriptor: every IP
+     * program/erase is refused until XSPI_Init() clears it, as here. */
+    CHECK(rd(XSPI0 + 0x920u) == 0xA8000000u);
+    wr(XSPI0 + 0x920u, 0u);
+    /* The flash controller is up: DLL locked, TX buffer lock open. */
+    CHECK((rd(XSPI0 + 0x12Cu) & 0xC000u) == 0xC000u);
+    CHECK(rd(XSPI0 + 0x930u) == 0x80000001u);
+    /* Octal DTR LUT as wolfBoot programs it: 4 WREN, 7 page program,
+     * 8 sector erase, 2 read status. */
+    wr(XSPI0 + 0x310u + 4u * 5u * 4u, LUT(0x11, 0x06, 0x11, 0xF9));
+    wr(XSPI0 + 0x310u + 4u * 5u * 7u, LUT(0x11, 0x12, 0x11, 0xED));
+    wr(XSPI0 + 0x310u + 4u * (5u * 7u + 1u), LUT(0x0A, 0x20, 0x0F, 0x08));
+    wr(XSPI0 + 0x310u + 4u * 5u * 8u, LUT(0x11, 0x21, 0x11, 0xDE));
+    wr(XSPI0 + 0x310u + 4u * (5u * 8u + 1u), LUT(0x0A, 0x20, 0, 0));
+    wr(XSPI0 + 0x310u + 4u * 5u * 2u, LUT(0x11, 0x05, 0x11, 0xFA));
+    wr(XSPI0 + 0x310u + 4u * (5u * 2u + 1u), LUT(0x0A, 0x20, 0x03, 0x04));
+    wr(XSPI0 + 0x310u + 4u * (5u * 2u + 2u), LUT(0x0E, 0x08, 0, 0));
+
+    /* Erase without write enable is ignored; with it the sector is blank. */
+    err = xspi_ip(0x28001000u, 8u, 0u);
+    CHECK((err & (1u << 28)) != 0u); /* arbitration won */
+    CHECK(flash[0x1000] == 0x5Au);
+    xspi_ip(0x28001000u, 4u, 0u);
+    wr(XSPI0 + 0x110u, 0u);                          /* RX watermark: 1 word */
+    xspi_ip(0x28000000u, 2u, 2u);                    /* RDSR */
+    CHECK((rd(XSPI0 + 0x15Cu) & (1u << 16)) != 0u);  /* SR.RXWE */
+    CHECK((rd(XSPI0 + 0x200u) & 0x02u) != 0u);       /* WEL */
+    wr(XSPI0 + 0x000u, rd(XSPI0 + 0x000u) | (1u << 10)); /* CLR_RXF */
+    xspi_ip(0x28001000u, 8u, 0u);
+    CHECK(flash[0x1000] == 0xFFu && flash[0x1FFF] == 0xFFu && flash[0x2000] == 0x5Au);
+    /* Page program through the TX buffer. */
+    xspi_ip(0x28001100u, 4u, 0u);
+    xspi_ip(0x28001100u, 7u, 256u);
+    for (i = 0; i < 64u; ++i) {
+        wr(XSPI0 + 0x154u, 0x03020100u + i * 0x04040404u);
+    }
+    CHECK(flash[0x1100] == 0x00u && flash[0x11FF] == 0xFFu && flash[0x1101] == 0x01u);
+    CHECK(flash[0x1200] == 0xFFu);
+
+    /* FRAD0 over the first 64 KB with no access: program/erase refused. */
+    wr(S(XSPI0) + 0x800u, 0x28000000u);
+    wr(S(XSPI0) + 0x804u, 0x2800FFFFu);
+    wr(S(XSPI0) + 0x808u, 0u);
+    wr(S(XSPI0) + 0x80Cu, (1u << 31) | (1u << 29));  /* VLD, locked till reset */
+    wr(S(XSPI0) + 0x820u, 0x28010000u);
+    wr(S(XSPI0) + 0x824u, 0x2BFFFFFFu);
+    wr(S(XSPI0) + 0x828u, 7u);
+    wr(S(XSPI0) + 0x82Cu, 1u << 31);
+    wr(S(XSPI0) + 0x920u, (1u << 27) | (1u << 31) | (1u << 10)); /* GVLDFRAD, GVLD, GCLCK */
+    xspi_ip(0x28001000u, 4u, 0u);
+    err = xspi_ip(0x28001000u, 8u, 0u);
+    CHECK((err & (1u << 1)) != 0u);                  /* FRAD0ACC */
+    CHECK(flash[0x1100] == 0x00u);
+    xspi_ip(0x28011000u, 4u, 0u);
+    err = xspi_ip(0x28011000u, 8u, 0u);
+    CHECK((err & 0x1FFu) == 0u && flash[0x11000] == 0xFFu);
+    /* Locked descriptor and global configuration ignore writes. */
+    wr(S(XSPI0) + 0x808u, 7u);
+    CHECK(rd(S(XSPI0) + 0x808u) == 0u);
+    wr(S(XSPI0) + 0x920u, 0u);
+    CHECK((rd(S(XSPI0) + 0x920u) & (1u << 27)) != 0u);
+}
+
 int main(void)
 {
     setup();
@@ -280,6 +362,7 @@ int main(void)
     test_ahbsc();
     test_cpu1_release_and_mu();
     test_boot_resolve();
+    test_xspi();
     if (failures != 0) {
         printf("imxrt700_security_test: %d failure(s)\n", failures);
         return 1;
