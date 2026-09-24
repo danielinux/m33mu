@@ -177,6 +177,85 @@ static int test_secure_sram_alias_denied_when_mpcbb_marks_ns(void)
     return 0;
 }
 
+/* A Secure block refuses Non-secure transactions but keeps an SAU NSC region
+ * fetchable: a fetch from NSC memory is a Secure transaction. */
+static int test_nsc_in_secure_mpcbb_block_stays_callable(void)
+{
+    struct mm_memmap map;
+    struct mmio_region regions[4];
+    struct mm_target_cfg cfg;
+    struct mm_scs scs;
+    struct mm_prot_ctx prot;
+    struct mm_ram_region ram_regions[1];
+    mm_u8 ram[0x400];
+    mm_u32 v;
+
+    memset(&cfg, 0, sizeof(cfg));
+    memset(ram, 0, sizeof(ram));
+    ram[0x200] = 0x7Fu;
+    ram[0x201] = 0xE9u;
+    ram[0x202] = 0x7Fu;
+    ram[0x203] = 0xE9u; /* SG (0xE97FE97F) at the start of block 1 */
+    ram_regions[0].base_s = 0x30000000u;
+    ram_regions[0].base_ns = 0x20000000u;
+    ram_regions[0].size = sizeof(ram);
+    ram_regions[0].mpcbb_index = 0;
+    ram_regions[0].alias_of = 0u;
+    cfg.ram_base_s = 0x30000000u;
+    cfg.ram_size_s = sizeof(ram);
+    cfg.ram_base_ns = 0x20000000u;
+    cfg.ram_size_ns = sizeof(ram);
+    cfg.ram_regions = ram_regions;
+    cfg.ram_region_count = 1u;
+    cfg.mpcbb_block_size = 512u;
+    cfg.mpcbb_block_secure = test_mpcbb_block_secure;
+
+    mm_memmap_init(&map, regions, 4);
+    if (!mm_memmap_configure_ram(&map, &cfg, ram, MM_TRUE)) return 1;
+
+    mm_scs_init(&scs, 0);
+    scs.sau_ctrl = 0x1u;
+    /* Region 0: the whole NS alias is SAU Non-secure. */
+    scs.sau_rbar[0] = 0x20000000u;
+    scs.sau_rlar[0] = 0x200003E0u | 0x1u;
+    /* Region 1: block 1 through the Secure alias is NSC. */
+    scs.sau_rbar[1] = 0x30000200u;
+    scs.sau_rlar[1] = 0x300003E0u | 0x3u;
+
+    mm_prot_init(&prot, &scs, &cfg, 0);
+    mm_memmap_set_interceptor(&map, mm_prot_interceptor, &prot);
+    mm_prot_add_region(&prot, 0x30000000u, sizeof(ram),
+                       MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC,
+                       MM_SECURE);
+    mm_prot_add_region(&prot, 0x20000000u, sizeof(ram),
+                       MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+
+    /* Non-secure read of the Non-secure block lands. */
+    if (!mm_memmap_read(&map, MM_NONSECURE, 0x20000000u, 4u, &v)) return 1;
+    if (scs.securefault_pending) return 1;
+
+    /* Non-secure read of the Secure block through the NS alias is refused. */
+    if (mm_memmap_read(&map, MM_NONSECURE, 0x20000200u, 4u, &v)) return 1;
+    if (!scs.securefault_pending) return 1;
+    scs.securefault_pending = MM_FALSE;
+    scs.sau_sfsr = 0;
+    scs.sau_sfar = 0;
+
+    /* Both halfwords of the SG in the NSC part of the Secure block fetch. */
+    if (!mm_memmap_fetch_read16(&map, MM_NONSECURE, 0x30000200u, &v)) return 1;
+    if (v != 0xE97Fu) return 1;
+    if (!mm_memmap_fetch_read16(&map, MM_NONSECURE, 0x30000202u, &v)) return 1;
+    if (v != 0xE97Fu) return 1;
+    if (scs.securefault_pending) return 1;
+
+    /* A Non-secure data access to that NSC region is still refused. */
+    if (mm_memmap_read(&map, MM_NONSECURE, 0x30000200u, 4u, &v)) return 1;
+    if (!scs.securefault_pending) return 1;
+    if ((scs.sau_sfsr & (1u << 3)) == 0u) return 1; /* AUVIOL */
+
+    return 0;
+}
+
 static int test_secure_data_read_can_access_ns_window_even_if_sau_disabled(void)
 {
     struct mm_memmap map;
@@ -303,6 +382,7 @@ int main(void)
     struct { const char *name; int (*fn)(void); } tests[] = {
         { "nsc_exec_allowed_data_denied", test_nsc_exec_allowed_data_denied },
         { "secure_sram_alias_denied_when_mpcbb_marks_ns", test_secure_sram_alias_denied_when_mpcbb_marks_ns },
+        { "nsc_in_secure_mpcbb_block_stays_callable", test_nsc_in_secure_mpcbb_block_stays_callable },
         { "secure_data_read_can_access_ns_window_even_if_sau_disabled", test_secure_data_read_can_access_ns_window_even_if_sau_disabled },
         { "stm32h563_tzsc_denies_ns_usart_when_secure", test_stm32h563_tzsc_denies_ns_usart_when_secure },
         { "stm32h563_usart_rcc_gate_is_alias_shared", test_stm32h563_usart_rcc_gate_is_alias_shared },
