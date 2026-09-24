@@ -453,6 +453,7 @@ mm_bool mm_prot_interceptor(void *opaque, enum mm_access_type type, enum mm_sec_
     mm_bool ignore_addr_sec;
     mm_bool privileged = MM_TRUE;
     mm_bool mpcbb_hit = MM_FALSE;
+    mm_bool mpcbb_decided = MM_FALSE;
     mm_bool mpcbb_secure_alias = MM_FALSE;
     mm_u32 needed = 0;
     size_t i;
@@ -514,16 +515,14 @@ mm_bool mm_prot_interceptor(void *opaque, enum mm_access_type type, enum mm_sec_
             sau_attr = mm_sau_attr_for_addr(ctx->scs, addr);
             mpcbb_hit = mpcbb_attr_for_addr(ctx, addr, &mpc_attr, &mpc_addr_sec,
                                             &mpcbb_secure_alias);
-            if (mpcbb_hit) {
-                /* For SRAM on STM32H5, MPCBB (IDAU) and SAU both apply.
-                 * Treat the most restrictive attribution as effective. */
-                if (mpc_attr == MM_SAU_SECURE) {
-                    attr = MM_SAU_SECURE;
-                } else {
-                    attr = sau_attr;
-                }
-            } else {
-                attr = sau_attr;
+            /* The block controller checks the transaction: a Secure block
+             * refuses a Non-secure one, but an SG fetch from an SAU NSC
+             * region is a Secure transaction, so NSC stays callable. */
+            attr = sau_attr;
+            if (mpcbb_hit && mpc_attr == MM_SAU_SECURE &&
+                sau_attr == MM_SAU_NONSECURE) {
+                attr = MM_SAU_SECURE;
+                mpcbb_decided = MM_TRUE;
             }
             addr_sec = (attr == MM_SAU_NONSECURE) ? MM_NONSECURE : MM_SECURE;
         }
@@ -537,7 +536,8 @@ mm_bool mm_prot_interceptor(void *opaque, enum mm_access_type type, enum mm_sec_
         }
         if (sec == MM_NONSECURE) {
             if (attr == MM_SAU_SECURE) {
-                memfault_reason(ctx, type, sec, addr, "secure-attr", attr, addr_sec, mpcbb_hit);
+                memfault_reason(ctx, type, sec, addr, "secure-attr", attr, addr_sec,
+                                mpcbb_decided);
                 record_securefault(ctx, type, addr);
                 /* Also raise a non-secure fault so NS firmware can handle it
                  * (HardFault/MemManage depending on SHCSR settings). */
@@ -546,7 +546,8 @@ mm_bool mm_prot_interceptor(void *opaque, enum mm_access_type type, enum mm_sec_
             }
             if (attr == MM_SAU_NSC) {
                 if (type != MM_ACCESS_EXEC) {
-                    memfault_reason(ctx, type, sec, addr, "nsc-data", attr, addr_sec, mpcbb_hit);
+                    memfault_reason(ctx, type, sec, addr, "nsc-data", attr, addr_sec,
+                                    mpcbb_decided);
                     record_securefault(ctx, type, addr);
                     record_memfault(ctx, sec, type, addr);
                     return MM_FALSE;
