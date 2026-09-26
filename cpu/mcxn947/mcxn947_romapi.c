@@ -824,7 +824,9 @@ mm_bool mm_mcxn947_romapi_handle(struct mm_cpu *cpu, struct mm_memmap *map)
     if (!romapi_active || cpu == 0 || map == 0) return MM_FALSE;
     pc = cpu->r[15] & ~1u;
     name = romapi_stub_name(pc);
-    if (romapi_trace && name != 0) {
+    if (name == 0)
+        return MM_FALSE;
+    if (romapi_trace) {
         printf("[ROMAPI] call pc=0x%08lx fn=%s r0=0x%08lx r1=0x%08lx r2=0x%08lx r3=0x%08lx\n",
                (unsigned long)pc,
                name,
