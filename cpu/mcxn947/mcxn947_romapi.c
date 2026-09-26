@@ -447,6 +447,32 @@ static mm_u32 romapi_flash_read(struct mm_cpu *cpu, struct mm_memmap *map)
     return ROMAPI_STATUS_FLASH_SUCCESS;
 }
 
+/* --persist backing for flash modified through the ROM API: the flash array is
+ * written in place, then the touched range is flushed to the image file. */
+static struct mm_flash_persist *romapi_persist = 0;
+
+/* With TrustZone disabled the whole part behaves as Secure, as a real MCXN947
+ * does when no SAU/TRDC configuration is applied, so ROM API calls made from
+ * a TZEN=0 image are allowed even though m33mu runs that image non-secure. */
+static mm_bool romapi_tz_disabled = MM_FALSE;
+
+void mm_mcxn947_romapi_set_tz_disabled(mm_bool disabled)
+{
+    romapi_tz_disabled = disabled;
+}
+
+void mm_mcxn947_romapi_set_persist(const struct mm_flash_persist *persist)
+{
+    romapi_persist = (struct mm_flash_persist *)persist;
+}
+
+static void romapi_persist_flush(mm_u32 flash_off, mm_u32 len)
+{
+    if (romapi_persist != 0) {
+        mm_flash_persist_flush(romapi_persist, flash_off, len);
+    }
+}
+
 static mm_u32 romapi_flash_program(struct mm_cpu *cpu, struct mm_memmap *map)
 {
     mm_u32 start;
@@ -464,6 +490,7 @@ static mm_u32 romapi_flash_program(struct mm_cpu *cpu, struct mm_memmap *map)
     if (!romapi_memcpy_from_map(map, cpu->sec_state, start, src, len, map)) {
         return ROMAPI_STATUS_FLASH_ACCESS_ERROR;
     }
+    romapi_persist_flush(flash_off, len);
     return ROMAPI_STATUS_FLASH_SUCCESS;
 }
 
@@ -485,6 +512,7 @@ static mm_u32 romapi_flash_erase(struct mm_cpu *cpu, struct mm_memmap *map)
     if (!romapi_memset_map(map, cpu->sec_state, start, 0xffu, len)) {
         return ROMAPI_STATUS_FLASH_ACCESS_ERROR;
     }
+    romapi_persist_flush(flash_off, len);
     return ROMAPI_STATUS_FLASH_SUCCESS;
 }
 
@@ -835,7 +863,7 @@ mm_bool mm_mcxn947_romapi_handle(struct mm_cpu *cpu, struct mm_memmap *map)
                (unsigned long)cpu->r[2],
                (unsigned long)cpu->r[3]);
     }
-    if (!mm_mcxn947_secure_rom_call_allowed(cpu->sec_state)) {
+    if (!romapi_tz_disabled && !mm_mcxn947_secure_rom_call_allowed(cpu->sec_state)) {
         cpu->r[0] = romapi_secure_violation_status(pc);
         romapi_return(cpu);
         return MM_TRUE;

@@ -918,6 +918,7 @@ void mm_mcxn947_flash_bind(struct mm_memmap *map,
                            const struct mm_flash_persist *persist,
                            mm_u32 flags)
 {
+    mm_mcxn947_romapi_set_persist(persist);
     mm_mcxn947_secure_flash_bind(map, flash, flash_size, persist, flags);
 }
 

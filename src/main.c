@@ -6013,6 +6013,7 @@ int main(int argc, char **argv)
                         (cfg.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
                         force_ns_boot = MM_TRUE;
                     }
+                    mm_mcxn947_romapi_set_tz_disabled(MM_TRUE);
                     printf("[TZ] TrustZone disabled via --no-tz\n");
                 } else if (cfg.ram_base_s != cfg.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH &&
                            (cfg.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
@@ -6031,6 +6032,7 @@ int main(int argc, char **argv)
                             /* No TrustZone: the target IDAU attribution must
                              * not fault accesses either. */
                             cfg.tz_attr_for_addr = 0;
+                            mm_mcxn947_romapi_set_tz_disabled(MM_TRUE);
                             printf("[TZ] Non-secure boot detected (SP=0x%08lx); TrustZone disabled\n",
                                    (unsigned long)initial_sp);
                         }
