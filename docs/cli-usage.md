@@ -175,5 +175,6 @@ Only one Ethernet backend can be selected at a time.
 - `M33MU_SYSTICK_TRACE=1`
 - `M33MU_SLEEP_TRACE=1`
 - `M33MU_PROT_TRACE=1..3`
+- `M33MU_STM32H5_IDCODE=<hex|decimal>`: replace the STM32H5 DBGMCU_IDCODE value (e.g. `0x10016484`)
 
 See [m33mu.1](/home/dan/src/m33mu/m33mu.1) for full descriptions and examples.
