@@ -19,6 +19,8 @@
  *
  */
 
+#include <ctype.h>
+#include <errno.h>
 #include <string.h>
 #include <sys/random.h>
 #include <stdlib.h>
@@ -478,6 +480,7 @@ static struct simple_blk ucpd1_sec;
 static struct simple_blk crs;
 static struct simple_blk crs_sec;
 static struct simple_blk dbgmcu;
+static mm_u32 dbgmcu_idcode;
 static struct simple_blk icache;
 static struct simple_blk dcache;
 static struct ucpd_state ucpd1_state;
@@ -688,6 +691,41 @@ static mm_bool stm32h5_gpio_bank_info(void *opaque, int bank, char *name_out, si
     return MM_TRUE;
 }
 
+static mm_bool stm32h5_parse_u32(const char *text, mm_u32 *out)
+{
+    const char *digits = text;
+    char *end = 0;
+    unsigned long parsed;
+    int base = 10;
+
+    if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) {
+        digits = text + 2;
+        base = 16;
+    }
+    if (base == 16 ? !isxdigit((unsigned char)digits[0]) : !isdigit((unsigned char)digits[0])) {
+        return MM_FALSE;
+    }
+    errno = 0;
+    parsed = strtoul(digits, &end, base);
+    if (*end != '\0' || errno != 0 || parsed > 0xFFFFFFFFul) return MM_FALSE;
+    *out = (mm_u32)parsed;
+    return MM_TRUE;
+}
+
+/* M33MU_STM32H5_IDCODE presents another silicon revision, e.g. to test firmware revision checks. */
+static mm_u32 stm32h5_dbgmcu_idcode(void)
+{
+    const char *env = getenv("M33MU_STM32H5_IDCODE");
+    mm_u32 value;
+
+    if (env == 0 || env[0] == '\0') return V->dbgmcu_idcode;
+    if (!stm32h5_parse_u32(env, &value)) {
+        fprintf(stderr, "[DBGMCU] ignoring invalid M33MU_STM32H5_IDCODE '%s'\n", env);
+        return V->dbgmcu_idcode;
+    }
+    return value;
+}
+
 static void stm32h5_mmio_reset_impl(void)
 {
     size_t i;
@@ -716,7 +754,8 @@ static void stm32h5_mmio_reset_impl(void)
     memset(&crs, 0, sizeof(crs));
     memset(&crs_sec, 0, sizeof(crs_sec));
     memset(&dbgmcu, 0, sizeof(dbgmcu));
-    dbgmcu.regs[DBGMCU_IDCODE_OFFSET / 4u] = V->dbgmcu_idcode;
+    dbgmcu_idcode = stm32h5_dbgmcu_idcode();
+    dbgmcu.regs[DBGMCU_IDCODE_OFFSET / 4u] = dbgmcu_idcode;
     memset(&icache, 0, sizeof(icache));
     memset(&dcache, 0, sizeof(dcache));
     memset(&rng, 0, sizeof(rng));
@@ -1883,7 +1922,7 @@ static mm_bool dbgmcu_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u
 {
     struct simple_blk *b = (struct simple_blk *)opaque;
     if (!simple_blk_write(opaque, offset, size_bytes, value)) return MM_FALSE;
-    b->regs[DBGMCU_IDCODE_OFFSET / 4u] = V->dbgmcu_idcode;
+    b->regs[DBGMCU_IDCODE_OFFSET / 4u] = dbgmcu_idcode;
     return MM_TRUE;
 }
 
@@ -2754,7 +2793,8 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* DBGMCU */
-    dbgmcu.regs[DBGMCU_IDCODE_OFFSET / 4u] = V->dbgmcu_idcode;
+    dbgmcu_idcode = stm32h5_dbgmcu_idcode();
+    dbgmcu.regs[DBGMCU_IDCODE_OFFSET / 4u] = dbgmcu_idcode;
     reg.base = DBGMCU_BASE;
     reg.size = DBGMCU_SIZE;
     reg.opaque = &dbgmcu;
