@@ -149,6 +149,7 @@ extern void mm_system_request_reset(void);
 /* DBGMCU base address */
 #define DBGMCU_BASE   0x44024000u
 #define DBGMCU_SIZE   0x1000u
+#define DBGMCU_IDCODE_OFFSET 0x0u
 
 /* IWDG/WWDG base addresses */
 #define IWDG_BASE     0x40003000u
@@ -715,6 +716,7 @@ static void stm32h5_mmio_reset_impl(void)
     memset(&crs, 0, sizeof(crs));
     memset(&crs_sec, 0, sizeof(crs_sec));
     memset(&dbgmcu, 0, sizeof(dbgmcu));
+    dbgmcu.regs[DBGMCU_IDCODE_OFFSET / 4u] = V->dbgmcu_idcode;
     memset(&icache, 0, sizeof(icache));
     memset(&dcache, 0, sizeof(dcache));
     memset(&rng, 0, sizeof(rng));
@@ -1877,6 +1879,14 @@ static mm_bool simple_blk_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, 
     return MM_TRUE;
 }
 
+static mm_bool dbgmcu_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    struct simple_blk *b = (struct simple_blk *)opaque;
+    if (!simple_blk_write(opaque, offset, size_bytes, value)) return MM_FALSE;
+    b->regs[DBGMCU_IDCODE_OFFSET / 4u] = V->dbgmcu_idcode;
+    return MM_TRUE;
+}
+
 static mm_bool mpcbb_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
 {
     struct mpcbb_state *b = (struct mpcbb_state *)opaque;
@@ -2744,11 +2754,12 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* DBGMCU */
+    dbgmcu.regs[DBGMCU_IDCODE_OFFSET / 4u] = V->dbgmcu_idcode;
     reg.base = DBGMCU_BASE;
     reg.size = DBGMCU_SIZE;
     reg.opaque = &dbgmcu;
     reg.read = simple_blk_read;
-    reg.write = simple_blk_write;
+    reg.write = dbgmcu_write;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* IWDG (non-secure and secure aliases) */
