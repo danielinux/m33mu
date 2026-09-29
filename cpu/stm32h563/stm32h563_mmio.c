@@ -56,7 +56,9 @@ static const struct stm32h5_mmio_variant g_variant = {
     0xC0000000u, /* ahb2enr_reset */
 
     mm_stm32h563_usb_register_mmio,
-    mm_stm32h563_usb_reset
+    mm_stm32h563_usb_reset,
+
+    0x100F6484u  /* dbgmcu_idcode: DEV_ID 0x484, revision W (ES0565 Table 2) */
 };
 
 mm_bool mm_stm32h563_register_mmio(struct mmio_bus *bus)
