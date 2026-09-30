@@ -174,6 +174,7 @@ mm_bool mm_uart_io_open(struct mm_uart_io *io, mm_u32 base)
 void mm_uart_io_close(struct mm_uart_io *io)
 {
     if (io == 0) return;
+    (void)mm_uart_io_flush(io);
     if (io->backend_ops != 0 && io->backend_ops->close != 0) {
         io->backend_ops->close(io->backend_opaque);
     }
@@ -189,6 +190,7 @@ void mm_uart_io_close(struct mm_uart_io *io)
          * again (e.g. across a secure/non-secure handover) must keep its
          * console on stdout instead of being demoted to a fresh PTY. */
         g_uart_stdout = MM_TRUE;
+        io->fd = -1;
     }
     io->rx_fd = -1;
     io->rx_pending = MM_FALSE;
@@ -204,10 +206,36 @@ void mm_uart_io_queue_tx(struct mm_uart_io *io, mm_u8 byte)
     if (io == 0) return;
     next_tail = (io->tx_tail + 1u) % sizeof(io->tx_buf);
     if (next_tail == io->tx_head) {
+        /* A batch larger than the ring (a DMA transfer queued whole) must
+         * reach the console before it can be overwritten. */
+        (void)mm_uart_io_flush(io);
+        next_tail = (io->tx_tail + 1u) % sizeof(io->tx_buf);
+    }
+    if (next_tail == io->tx_head) {
         io->tx_head = (io->tx_head + 1u) % sizeof(io->tx_buf);
     }
     io->tx_buf[io->tx_tail] = byte;
     io->tx_tail = next_tail;
+}
+
+/* Emulator messages go through stdio while the console bytes bypass it, so
+ * what was printed before them is pushed out first to keep the order. On a
+ * non-blocking fd the flush is attempted once space is reported; stdio owns
+ * whatever a short write leaves behind, as it does for its own flushes. */
+static void console_flush_stdio(int fd)
+{
+    int fl = fcntl(fd, F_GETFL, 0);
+    if (fl >= 0 && (fl & O_NONBLOCK) != 0) {
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        pfd.revents = 0;
+        while (poll(&pfd, 1, -1) < 0 && errno == EINTR) {
+        }
+    }
+    while (fflush(stdout) != 0 && errno == EINTR) {
+    }
+    clearerr(stdout);
 }
 
 mm_bool mm_uart_io_flush(struct mm_uart_io *io)
@@ -238,6 +266,9 @@ mm_bool mm_uart_io_flush(struct mm_uart_io *io)
         return MM_TRUE;
     }
     if (io->fd < 0) return MM_FALSE;
+    if (io->stdout_only && io->tx_head != io->tx_tail) {
+        console_flush_stdio(io->fd);
+    }
     while (io->tx_head != io->tx_tail) {
         size_t first_chunk;
         size_t to_write;
@@ -249,8 +280,27 @@ mm_bool mm_uart_io_flush(struct mm_uart_io *io)
         n = write(io->fd, &io->tx_buf[io->tx_head], to_write);
         if (n > 0) {
             io->tx_head = (io->tx_head + (size_t)n) % sizeof(io->tx_buf);
+        } else if (n < 0 && errno == EINTR) {
+            continue;
         } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            return MM_FALSE;
+            struct pollfd pfd;
+            int rc;
+            if (!io->stdout_only) {
+                return MM_FALSE;
+            }
+            /* The console the user asked for has a reader that is only
+             * slow: wait for it instead of dropping guest output. */
+            pfd.fd = io->fd;
+            pfd.events = POLLOUT;
+            pfd.revents = 0;
+            rc = poll(&pfd, 1, -1);
+            if (rc < 0 && errno == EINTR) {
+                continue;
+            }
+            if (rc <= 0 || (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+                io->tx_head = io->tx_tail = 0;
+                return MM_FALSE;
+            }
         } else {
             io->tx_head = io->tx_tail = 0;
             return MM_FALSE;

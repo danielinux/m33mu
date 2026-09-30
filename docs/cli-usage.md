@@ -35,7 +35,7 @@ build/m33mu --gdb --gdb-symbols firmware.elf firmware.bin
 - `--gdb`: expose a GDB remote server on port `1234`
 - `--port <n>`: override the GDB port
 - `--gdb-symbols <elf>`: load debug symbols from one or more ELFs
-- `--uart-stdout`: send UART output to stdout instead of PTYs
+- `--uart-stdout`: send UART output to stdout instead of PTYs. Guest bytes are never dropped: a host that drains stdout slowly stalls the emulator instead of losing output, and what the guest sees at the UART registers does not depend on the host side. The emulator's own messages keep their place relative to guest bytes on a blocking stdout, which is what a shell pipe, file or terminal provides. A PTY, by contrast, is best effort: with no reader or a slow one the oldest queued bytes are dropped, so use `--uart-stdout` when a complete transcript matters.
 - `--dump`: print instruction/decode tracing
 - `--record`: keep an in-memory execution trace for reverse/debug workflows
 - `--call-trace`: log calls, returns, interrupts, and TrustZone SG transitions
