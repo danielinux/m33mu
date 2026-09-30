@@ -286,6 +286,8 @@ Route UART output to stdout instead of a PTY device.
 
 This is the preferred mode for CI and shell scripts because logs become visible directly in process output and can be piped, grepped, or archived.
 
+Guest bytes are never dropped: a host that drains stdout slowly stalls the emulator instead of losing output, and the UART registers the guest sees do not depend on the host side. The emulator's own messages keep their place relative to guest bytes on a blocking stdout, which is what a shell pipe, file or terminal provides. A PTY, by contrast, is best effort: with no reader or a slow one the oldest queued bytes are dropped, so use this option when a complete transcript matters.
+
 When the TUI is active, stdout UART routing is disabled.
 
 Example:
