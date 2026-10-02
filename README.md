@@ -53,7 +53,7 @@ handshake.
 
 ## Screenshots for TUI mode
 
-#### m33mu TUI, stopped, stepping with GDB:
+#### m33mu TUI, stopped, stepping:
 
 ![m33mu TUI, stopped, stepping with GDB](png/screen01.png)
 

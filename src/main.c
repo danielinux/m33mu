@@ -76,6 +76,7 @@
 #endif
 #include "m33mu/host_rng.h"
 #include "tui.h"
+#include "debugger.h"
 #include <string.h>
 #include <time.h>
 #include <stdlib.h>
@@ -867,50 +868,6 @@ static void apply_target_boot_seed_regs(struct mm_cpu *cpu, const char *cpu_name
     }
 }
 
-static void launch_gdb_tui(const struct mm_tui *tui)
-{
-    char elf_path[512];
-    char cmd[1024];
-    const char *elf = 0;
-    int port;
-    size_t len;
-    if (tui == 0) return;
-    port = tui->gdb_port != 0 ? tui->gdb_port : 1234;
-    if (tui->image0_path[0] != '\0') {
-        len = strlen(tui->image0_path);
-        if (len > 4 && strcmp(tui->image0_path + len - 4, ".bin") == 0) {
-            snprintf(elf_path, sizeof(elf_path), "%.*s.elf", (int)(len - 4), tui->image0_path);
-            if (access(elf_path, R_OK) == 0) {
-                elf = elf_path;
-            }
-        }
-    }
-    if (elf != 0) {
-        snprintf(cmd, sizeof(cmd),
-                 "exec arm-none-eabi-gdb -n -q -ex \"file %s\" -ex \"tar rem:%d\" -ex \"tui enable\" -ex \"focus cmd\"",
-                 elf, port);
-    } else {
-        snprintf(cmd, sizeof(cmd),
-                 "exec arm-none-eabi-gdb -n -q -ex \"tar rem:%d\" -ex \"tui enable\" -ex \"focus cmd\"",
-                 port);
-    }
-    printf("GDB launch command: %s\n", cmd);
-    {
-        pid_t pid = fork();
-        if (pid < 0) {
-            perror("fork");
-            return;
-        }
-        if (pid == 0) {
-            execl("/usr/bin/x-terminal-emulator", "/usr/bin/x-terminal-emulator",
-                  "-e", "/bin/sh", "-c", cmd, (char *)0);
-            perror("execl(/usr/bin/x-terminal-emulator)");
-            _exit(127);
-        }
-    }
-    return;
-}
-
 #ifdef M33MU_HAS_LIBDW
 struct mm_symbol_ctx {
     Dwfl *dwfl;
@@ -975,30 +932,13 @@ static mm_bool symbol_ctx_build(const char **elf_paths, size_t count)
 static mm_bool symbol_lookup_name(mm_u32 pc, char *out, size_t out_len)
 {
 #ifdef M33MU_HAS_LIBDW
-    Dwfl_Module *mod;
-    const char *name;
-    mm_u32 addr;
-    size_t len;
+    char *offset;
     if (out == 0 || out_len == 0) return MM_FALSE;
     out[0] = '\0';
-    if (!g_symbol_ctx.ready || g_symbol_ctx.dwfl == 0) {
-        return MM_FALSE;
-    }
-    addr = pc & ~1u;
-    mod = dwfl_addrmodule(g_symbol_ctx.dwfl, addr);
-    if (mod == 0) {
-        return MM_FALSE;
-    }
-    name = dwfl_module_addrname(mod, addr);
-    if (name == 0 || name[0] == '\0' || name[0] == '?') {
-        return MM_FALSE;
-    }
-    len = strlen(name);
-    if (len >= out_len) {
-        len = out_len - 1u;
-    }
-    memcpy(out, name, len);
-    out[len] = '\0';
+    if (!g_symbol_ctx.ready ||
+        !mm_tui_format_dwfl_addr(g_symbol_ctx.dwfl, pc, out, out_len)) return MM_FALSE;
+    offset = strstr(out, "+0x");
+    if (offset != 0) *offset = '\0';
     return MM_TRUE;
 #else
     (void)pc;
@@ -1008,8 +948,118 @@ static mm_bool symbol_lookup_name(mm_u32 pc, char *out, size_t out_len)
 #endif
 }
 
+static mm_bool symbol_format_address(mm_u32 addr, char *out, size_t out_len)
+{
 #ifdef M33MU_HAS_LIBDW
+    return mm_tui_format_dwfl_addr(g_symbol_ctx.ready ? g_symbol_ctx.dwfl : 0,
+                                    addr, out, out_len);
+#else
+    return mm_tui_format_dwfl_addr(0, addr, out, out_len);
 #endif
+}
+
+static void tui_symbolize_text(struct mm_tui *tui)
+{
+    int base;
+    int i;
+    if (tui == 0 || !tui->debugger_view ||
+        (tui->debugger_text_symbols_ready &&
+         tui->debugger_text_symbol_base == tui->debugger_text_addr)) return;
+    tui->debugger_text_symbol_base = tui->debugger_text_addr;
+    tui->debugger_text_symbols_ready = MM_TRUE;
+    for (i = 0; i < TUI_DEBUG_BYTES / 2; ++i) {
+        tui->debugger_text_symbols[i][0] = '\0';
+        tui->debugger_text_targets[i][0] = '\0';
+    }
+    for (base = 0; base + 1 < TUI_DEBUG_BYTES; ) {
+        struct mm_fetch_result fetch;
+        struct mm_decoded decoded;
+        mm_u16 hw;
+        mm_u32 target;
+        i = base / 2;
+        (void)symbol_format_address(tui->debugger_text_addr + (mm_u32)base,
+                                    tui->debugger_text_symbols[i],
+                                    sizeof(tui->debugger_text_symbols[i]));
+        if (!tui->debugger_text_valid[base] || !tui->debugger_text_valid[base + 1]) {
+            base += 2;
+            continue;
+        }
+        hw = (mm_u16)(tui->debugger_text[base] |
+                      ((mm_u16)tui->debugger_text[base + 1] << 8));
+        memset(&fetch, 0, sizeof(fetch));
+        fetch.pc_fetch = tui->debugger_text_addr + (mm_u32)base;
+        fetch.len = 2u;
+        fetch.insn = hw;
+        if (t32_is_32bit_prefix(hw) && base + 3 < TUI_DEBUG_BYTES &&
+            tui->debugger_text_valid[base + 2] &&
+            tui->debugger_text_valid[base + 3]) {
+            fetch.len = 4u;
+            fetch.insn = ((mm_u32)hw << 16) |
+                         (mm_u32)(tui->debugger_text[base + 2] |
+                                  ((mm_u16)tui->debugger_text[base + 3] << 8));
+        }
+        decoded = mm_decode_t32(&fetch);
+        switch (decoded.kind) {
+        case MM_OP_B_COND:
+        case MM_OP_B_UNCOND:
+        case MM_OP_B_COND_WIDE:
+        case MM_OP_B_UNCOND_WIDE:
+        case MM_OP_BL:
+        case MM_OP_CBZ:
+        case MM_OP_CBNZ:
+            target = fetch.pc_fetch + 4u + decoded.imm;
+            (void)symbol_format_address(target, tui->debugger_text_targets[i],
+                                        sizeof(tui->debugger_text_targets[i]));
+            break;
+        default:
+            break;
+        }
+        base += fetch.len;
+    }
+}
+
+static void tui_load_source(struct mm_tui *tui, mm_u32 pc)
+{
+    if (tui == 0) return;
+    tui->debugger_source_valid = MM_FALSE;
+#ifdef M33MU_HAS_LIBDW
+    if (g_symbol_ctx.ready && g_symbol_ctx.dwfl != 0) {
+        Dwfl_Line *line = dwfl_getsrc(g_symbol_ctx.dwfl, pc | 1u);
+        int number = 0;
+        const char *path = line ? dwfl_lineinfo(line, 0, &number, 0, 0, 0) : 0;
+        FILE *file;
+        char *text_line = 0;
+        size_t cap = 0;
+        int current = 0;
+        int first = number - 5 + tui->debugger_code_scroll;
+        if (first < 1) first = 1;
+        tui->debugger_source_pc = pc;
+        if (path == 0 || number < 1 || (file = fopen(path, "r")) == 0) return;
+        tui->debugger_source_line = number;
+        tui->debugger_source_start = first;
+        tui->debugger_source_count = 0;
+        snprintf(tui->debugger_source_path, sizeof(tui->debugger_source_path), "%s", path);
+        while (tui->debugger_source_count < (int)(sizeof(tui->debugger_source) /
+                                                  sizeof(tui->debugger_source[0])) &&
+               getline(&text_line, &cap, file) >= 0) {
+            size_t len;
+            ++current;
+            if (current < first) continue;
+            len = strlen(text_line);
+            while (len > 0 && (text_line[len - 1] == '\n' || text_line[len - 1] == '\r'))
+                text_line[--len] = '\0';
+            snprintf(tui->debugger_source[tui->debugger_source_count],
+                     sizeof(tui->debugger_source[0]), "%s", text_line);
+            tui->debugger_source_count++;
+        }
+        free(text_line);
+        fclose(file);
+        tui->debugger_source_valid = tui->debugger_source_count > 0 ? MM_TRUE : MM_FALSE;
+    }
+#else
+    (void)pc;
+#endif
+}
 
 static const char *path_basename(const char *path)
 {
@@ -1265,6 +1315,21 @@ static mm_bool handle_tui(struct mm_tui *tui,
     if (!opt_tui || tui == 0) {
         return MM_FALSE;
     }
+    tui->debugger_resolve_symbol = mm_tui_resolve_dwfl;
+    tui->debugger_monitor_opaque = gdb;
+#ifdef M33MU_HAS_LIBDW
+    tui->debugger_resolve_opaque = g_symbol_ctx.ready ? g_symbol_ctx.dwfl : 0;
+#else
+    tui->debugger_resolve_opaque = 0;
+#endif
+#ifdef M33MU_USE_LIBCAPSTONE
+    if (tui->debugger_view && !tui->debugger_disasm_ready) {
+        if (capstone_init()) {
+            if (opt_capstone != 0 && !*opt_capstone) (void)capstone_set_enabled(MM_FALSE);
+            tui->debugger_disasm_ready = MM_TRUE;
+        }
+    }
+#endif
     running = target_should_run((opt_gdb != 0 ? *opt_gdb : MM_FALSE), gdb,
                                 (tui_paused != 0 ? *tui_paused : MM_FALSE),
                                 (tui_step != 0 ? *tui_step : MM_FALSE));
@@ -1306,21 +1371,43 @@ static mm_bool handle_tui(struct mm_tui *tui,
             } else {
                 mm_tui_set_function(tui, func_pc, 0);
             }
+            tui_load_source(tui, func_pc);
+        }
+        if (tui->debugger_view) {
+            mm_u32 source_pc = tui->debugger_frame_selected < tui->debugger_frame_count ?
+                               tui->debugger_frame_pc[tui->debugger_frame_selected] : func_pc;
+            int wanted = tui->debugger_source_line - 5 + tui->debugger_code_scroll;
+            if (tui->debugger_frame_selected > 0u && source_pc >= 2u)
+                source_pc -= 2u;
+            if (wanted < 1) wanted = 1;
+            if (source_pc != tui->debugger_source_pc ||
+                (tui->debugger_source_valid && wanted != tui->debugger_source_start))
+                tui_load_source(tui, source_pc);
         }
     } else if (tui->func_valid) {
         mm_tui_set_function(tui, 0u, 0);
+    }
+    if (running) {
+        tui->debugger_source_valid = MM_FALSE;
+        tui->func_pc = 0u;
     }
     if (cpu_name != 0) {
         mm_tui_set_cpu_name(tui, cpu_name);
     }
     if (map != 0) {
         mm_tui_set_memory_map(tui, map);
+        mm_memmap_set_write_observer(map, mm_tui_debug_observe_write, tui);
+    }
+    if (cpu != 0 && map != 0) {
+        mm_tui_debug_snapshot(tui, cpu, map);
+        tui_symbolize_text(tui);
     }
     actions = mm_tui_take_actions(tui);
     if ((actions & MM_TUI_ACTION_QUIT) != 0u) {
         return MM_TRUE;
     }
     if ((actions & MM_TUI_ACTION_RESET) != 0u) {
+        tui->debugger_next_pending = MM_FALSE;
         apply_reset_view(tui, cpu, map, cycle_total, steps_offset, steps_latched);
     }
     if ((actions & MM_TUI_ACTION_RELOAD) != 0u) {
@@ -1329,6 +1416,8 @@ static mm_bool handle_tui(struct mm_tui *tui,
         }
     }
     if ((actions & MM_TUI_ACTION_PAUSE) != 0u) {
+        tui->debugger_next_pending = MM_FALSE;
+        if (tui_step != 0) *tui_step = MM_FALSE;
         if (opt_gdb != 0 && *opt_gdb && gdb != 0) {
             gdb->running = MM_FALSE;
             mm_gdb_stub_notify_stop(gdb, 5);
@@ -1337,6 +1426,7 @@ static mm_bool handle_tui(struct mm_tui *tui,
         }
     }
     if ((actions & MM_TUI_ACTION_CONTINUE) != 0u) {
+        tui->debugger_next_pending = MM_FALSE;
         if (opt_gdb != 0 && *opt_gdb && gdb != 0) {
             gdb->running = MM_TRUE;
         } else if (tui_paused != 0) {
@@ -1344,12 +1434,14 @@ static mm_bool handle_tui(struct mm_tui *tui,
         }
     }
     if ((actions & MM_TUI_ACTION_STEP) != 0u) {
+        tui->debugger_next_pending = MM_FALSE;
         if (opt_gdb != 0 && *opt_gdb && gdb != 0) {
             gdb->step_pending = MM_TRUE;
             gdb->running = MM_TRUE;
         } else {
             if (tui_step != 0) *tui_step = MM_TRUE;
             if (tui_paused != 0) *tui_paused = MM_FALSE;
+            tui->debugger_step_cycle = cycle_total;
         }
     }
     if ((actions & MM_TUI_ACTION_TOGGLE_CAPSTONE) != 0u) {
@@ -1375,23 +1467,16 @@ static mm_bool handle_tui(struct mm_tui *tui,
         (void)opt_capstone;
 #endif
     }
-    if ((actions & MM_TUI_ACTION_LAUNCH_GDB) != 0u) {
-        if (gdb_port <= 0 || gdb_port > 65535) {
-            fprintf(stderr, "invalid gdb port: %d\n", gdb_port);
+    if ((actions & MM_TUI_ACTION_DEBUG_COMMAND) != 0u && cpu != 0 && map != 0) {
+        if (opt_gdb != 0 && *opt_gdb) {
+            snprintf(tui->debugger_message, sizeof(tui->debugger_message),
+                     "External GDB controls this session");
+            tui->debugger_command_ready = MM_FALSE;
         } else {
-            if (gdb != 0 && *opt_gdb) {
-                mm_gdb_stub_close(gdb);
-                *opt_gdb = MM_FALSE;
-            }
-            mm_gdb_stub_set_cpu_name(gdb, cpu_name);
-            printf("Starting GDB server on port %d...\n", gdb_port);
-            if (mm_gdb_stub_start(gdb, gdb_port)) {
-                *opt_gdb = MM_TRUE;
-                (void)launch_gdb_tui(tui);
-                printf("Waiting for GDB connection in background...\n");
-            } else {
-                fprintf(stderr, "Failed to start GDB server\n");
-            }
+            mm_tui_debug_command(tui, cpu, map, tui_paused, tui_step);
+            if (tui_step != 0 && *tui_step) tui->debugger_step_cycle = cycle_total;
+            mm_tui_debug_snapshot(tui, cpu, map);
+            tui_symbolize_text(tui);
         }
     }
     return MM_FALSE;
@@ -4925,6 +5010,7 @@ int main(int argc, char **argv)
     mm_u8 it_cond1 = 0;
     mm_bool tui_paused = MM_FALSE;
     mm_bool tui_step = MM_FALSE;
+    mm_bool tui_debug_skip_break = MM_FALSE;
     mm_bool reload_pending = MM_FALSE;
     mm_u64 tui_steps_offset = 0;
     mm_u64 tui_steps_latched = 0;
@@ -6549,6 +6635,20 @@ int main(int argc, char **argv)
                     }
                 }
 
+                if (opt_tui && !opt_gdb && tui_step &&
+                    cycle_total > tui.debugger_step_cycle) {
+                    tui_step = MM_FALSE;
+                    tui_paused = MM_TRUE;
+                }
+                if (opt_tui && !opt_gdb &&
+                    mm_tui_debug_next_reached(&tui, &cpu)) {
+                    tui.debugger_next_pending = MM_FALSE;
+                    tui_paused = MM_TRUE;
+                    snprintf(tui.debugger_message, sizeof(tui.debugger_message),
+                             "Next stopped at 0x%08lx", (unsigned long)(cpu.r[15] & ~1u));
+                    tui.input_dirty = MM_TRUE;
+                }
+
                 running_now = target_should_run(opt_gdb, &gdb, tui_paused, tui_step);
                 if (running_now != last_running) {
                     mm_u64 steps_now = 0;
@@ -6572,7 +6672,7 @@ int main(int argc, char **argv)
                     last_running = running_now;
                 }
 
-                if (running_now && cfg.core_count > 1u && cfg.mc_ops != 0 &&
+                if (running_now && !tui_step && cfg.core_count > 1u && cfg.mc_ops != 0 &&
                     cfg.mc_ops->core1_running != 0 && cfg.mc_ops->core1_running()) {
                     const mm_u32 core1_epoch_steps = 64u;
                     mm_u32 core1_step;
@@ -6585,7 +6685,7 @@ int main(int argc, char **argv)
                         if (!cfg.mc_ops->core1_running()) {
                             break;
                         }
-                        if (opt_gdb) {
+                        if (opt_gdb || opt_tui) {
                             mm_u8 i;
                             fault_clock_count = gdb.fault_clock_count;
                             if (fault_clock_count > (mm_u8)(sizeof(fault_clocks) / sizeof(fault_clocks[0]))) {
@@ -6647,6 +6747,13 @@ int main(int argc, char **argv)
                         mm_gdb_stub_notify_stop(&gdb, 5);
                         continue;
                     }
+                }
+                if (opt_tui && !opt_gdb && mm_tui_debug_has_slots(&tui) &&
+                    mm_tui_debug_check(&tui, &cpu, &map, &tui_debug_skip_break)) {
+                    tui_paused = MM_TRUE;
+                    tui_step = MM_FALSE;
+                    tui.debugger_next_pending = MM_FALSE;
+                    continue;
                 }
 
                 if (!opt_gdb && reload_pending && tui_paused) {
@@ -6898,7 +7005,8 @@ check_irq_pending:
                     mm_u32 tb_bkpt_imm = 0;
                     mm_u32 ops_executed = 0;
                     mm_u32 target_idx = 0;
-                    if (opt_gdb || opt_capstone || mm_trace_enabled() || g_call_trace) {
+                    if (opt_gdb || opt_capstone || mm_trace_enabled() || g_call_trace ||
+                        (opt_tui && mm_tui_debug_has_slots(&tui))) {
                         fast_mode = MM_FALSE;
                     }
                     if (it_remaining != 0u) {
@@ -7095,7 +7203,7 @@ check_irq_pending:
                     vcycles += insn_cycles;
                     mm_scs_systick_advance(&scs, insn_cycles);
                     mm_timer_tick(&cfg, insn_cycles);
-                    if (opt_gdb) {
+                    if (opt_gdb || opt_tui) {
                         mm_u8 i;
                         fault_clock_count = gdb.fault_clock_count;
                         if (fault_clock_count > (mm_u8)(sizeof(fault_clocks) / sizeof(fault_clocks[0]))) {
@@ -7375,6 +7483,7 @@ check_irq_pending:
                             done = MM_FALSE;
                             tui_paused = MM_TRUE;
                             tui_step = MM_FALSE;
+                            tui.debugger_next_pending = MM_FALSE;
                         }
                     }
                     if (trace_started) {

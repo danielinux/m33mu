@@ -31,10 +31,11 @@ build/m33mu --gdb --gdb-symbols firmware.elf firmware.bin
 ## Frequently Used Options
 
 - `--cpu <cpu>`: select the MCU/SoC profile
-- `--tui`: start the interactive ncurses UI
+- `--tui`: start the interactive ncurses UI. Press F9 to switch between the emulator and built-in debugger views.
 - `--gdb`: expose a GDB remote server on port `1234`
 - `--port <n>`: override the GDB port
 - `--gdb-symbols <elf>`: load debug symbols from one or more ELFs
+
 - `--uart-stdout`: send UART output to stdout instead of PTYs. Guest bytes are never dropped: a host that drains stdout slowly stalls the emulator instead of losing output, and what the guest sees at the UART registers does not depend on the host side. The emulator's own messages keep their place relative to guest bytes on a blocking stdout, which is what a shell pipe, file or terminal provides. A PTY, by contrast, is best effort: with no reader or a slow one the oldest queued bytes are dropped, so use `--uart-stdout` when a complete transcript matters.
 - `--dump`: print instruction/decode tracing
 - `--record`: keep an in-memory execution trace for reverse/debug workflows
@@ -45,6 +46,8 @@ build/m33mu --gdb --gdb-symbols firmware.elf firmware.bin
 - `--expect-bkpt <imm>`: turn a firmware BKPT into a pass/fail test signal
 - `--capstone`: cross-check decode/execute behavior against Capstone
 - `--fault-clock <NNN>`: skip the instruction fetched at virtual cycle `NNN`, for fault-injection testing. May be repeated up to 16 times; values must not be contiguous.
+
+In the TUI debugger, Tab cycles through the command, code, text, and data panes; the selected pane title is black on white. Up/Down scroll the focused pane by one row; Left/Right and Page Up/Page Down scroll by eight rows. Typing in the text/data panes edits their start address fields; Enter pins the address. Text follows PC and data centers on SP by default; `text auto` and `data auto` restore following. Continue (`c` or F2) clears manual scrolling and makes all three panes follow PC and SP again. An empty Return in the command pane repeats its last command. The command line accepts `help`, `c`, `s`, `si` (step one instruction), `n`/`next` (step over a call), `b symbol_name`, `b *0xADDRESS`, `watch ADDRESS [1|2|4]`, `delete SLOT`, `info registers`, `x ADDRESS`, `disassemble ADDRESS`, `bt`, `up`, `down`, and `mon`. `bt` shows the current frame, the LR return address, and candidate return addresses found on the stack; stack candidates are approximate. `up` and `down` select a frame for the code pane. `mon` supports `info`, `reset`, `quit`, `capstone on/off`, and `fault-clock [N|clear]`. ELF symbols are loaded automatically from ELF images and used for breakpoints, backtraces, and text disassembly labels; `--gdb-symbols` also supplies symbols. The text pane shows assembly mnemonics with symbol annotations even when Capstone cross-checking is off. While stopped, its PC instruction row is black on white. The data pane shows hexadecimal bytes and aligned ASCII characters in separate colors; the four bytes starting at SP are black on white while stopped. The left pane shows syntax-colored C source when DWARF points to a readable source file, with the current line in black on white. Breakpoints and write watchpoints share six slots. CLI `--gdb` continues to serve external GDB clients.
 
 ## Recording And Debug-Oriented Options
 

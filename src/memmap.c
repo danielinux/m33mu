@@ -294,6 +294,8 @@ void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t r
     map->flash_sector_secure_opaque = 0;
     map->bus_attr = 0;
     map->bus_attr_opaque = 0;
+    map->write_observer = 0;
+    map->write_observer_opaque = 0;
     map->code_cache = 0;
     map->flash_base_s = map->flash_base_ns = 0;
     map->flash_size_s = map->flash_size_ns = 0;
@@ -386,6 +388,13 @@ void mm_memmap_set_code_cache(struct mm_memmap *map, struct mm_code_cache *cc)
         return;
     }
     map->code_cache = cc;
+}
+
+void mm_memmap_set_write_observer(struct mm_memmap *map, mm_write_observer fn, void *opaque)
+{
+    if (map == 0) return;
+    map->write_observer = fn;
+    map->write_observer_opaque = opaque;
 }
 
 mm_bool mm_memmap_configure_flash(struct mm_memmap *map, const struct mm_target_cfg *cfg, const mm_u8 *backing, mm_bool secure_view)
@@ -664,6 +673,8 @@ mm_bool mm_memmap_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 add
                 if (map->code_cache != 0) {
                     ram_note_write(map, addr, offset, size);
                 }
+                if (map->write_observer != 0)
+                    map->write_observer(map->write_observer_opaque, addr, size);
                 return MM_TRUE;
             } else if (size == 2u) {
                 buf[offset] = (mm_u8)(value & 0xffu);
@@ -671,12 +682,16 @@ mm_bool mm_memmap_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 add
                 if (map->code_cache != 0) {
                     ram_note_write(map, addr, offset, size);
                 }
+                if (map->write_observer != 0)
+                    map->write_observer(map->write_observer_opaque, addr, size);
                 return MM_TRUE;
             } else if (size == 1u) {
                 buf[offset] = (mm_u8)(value & 0xffu);
                 if (map->code_cache != 0) {
                     ram_note_write(map, addr, offset, size);
                 }
+                if (map->write_observer != 0)
+                    map->write_observer(map->write_observer_opaque, addr, size);
                 return MM_TRUE;
             }
         }
@@ -880,6 +895,8 @@ mm_bool mm_memmap_write8(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 ad
             if (map->code_cache != 0) {
                 ram_note_write(map, addr, offset, 1u);
             }
+            if (map->write_observer != 0)
+                map->write_observer(map->write_observer_opaque, addr, 1u);
             return MM_TRUE;
         }
     }
