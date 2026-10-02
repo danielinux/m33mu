@@ -38,6 +38,7 @@ int main(int argc, char **argv)
     int i;
     char input[40];
     (void)argc;
+    (void)argv;
     memset(&cfg, 0, sizeof(cfg));
     memset(&cpu, 0, sizeof(cpu));
     memset(&tui, 0, sizeof(tui));
