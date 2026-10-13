@@ -43,11 +43,11 @@ static const struct mm_ram_region STM32H533_RAM_REGIONS[] = {
     /* Scratch block, not modelled silicon: the STM32H5 has no TCM and no
      * memory at 0x0A000000. Independent storage, not an alias of the
      * SRAM banks below. */
-    { 0x0A000000u, 0x0A000000u, 0x00020000u, -1 },
-    { 0x30000000u, 0x20000000u, 0x00020000u, 0 }, /* SRAM1 128 KB */
-    { 0x30020000u, 0x20020000u, 0x00014000u, 1 }, /* SRAM2 80 KB */
-    { 0x30034000u, 0x20034000u, 0x00010000u, 2 }, /* SRAM3 64 KB */
-    { 0x50036400u, 0x40036400u, 0x00000800u, -1 } /* BKPSRAM 2 KB */
+    { 0x0A000000u, 0x0A000000u, 0x00020000u, -1, 0u },
+    { 0x30000000u, 0x20000000u, 0x00020000u, 0, 0u }, /* SRAM1 128 KB */
+    { 0x30020000u, 0x20020000u, 0x00014000u, 1, 0u }, /* SRAM2 80 KB */
+    { 0x30034000u, 0x20034000u, 0x00010000u, 2, 0u }, /* SRAM3 64 KB */
+    { 0x50036400u, 0x40036400u, 0x00000800u, -1, 0u } /* BKPSRAM 2 KB */
 };
 
 #define STM32H533_RAM_REGION_COUNT (sizeof(STM32H533_RAM_REGIONS) / sizeof(STM32H533_RAM_REGIONS[0]))

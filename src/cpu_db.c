@@ -19,6 +19,8 @@
  *
  */
 
+#include <stdio.h>
+
 #include <string.h>
 #include "m33mu/cpu_db.h"
 #include "stm32h563/stm32h563_mmio.h"
@@ -68,6 +70,10 @@
 #include "rp2350/rp2350_uart_spi.h"
 #include "rp2350/rp2350_timers.h"
 #include "rp2350/cpu_config.h"
+#include "imxrt700/imxrt700_mmio.h"
+#include "imxrt700/imxrt700_multicore.h"
+#include "imxrt700/imxrt700_secure.h"
+#include "imxrt700/cpu_config.h"
 #include "lpc55s69/lpc55s69_mmio.h"
 #include "lpc55s69/lpc55s69_flexcomm.h"
 #include "lpc55s69/lpc55s69_timers.h"
@@ -76,6 +82,10 @@
 #include "pic32ck/pic32ck_sercom.h"
 #include "pic32ck/pic32ck_timers.h"
 #include "pic32ck/cpu_config.h"
+#include "m2354/m2354_mmio.h"
+#include "m2354/m2354_uart.h"
+#include "m2354/m2354_timers.h"
+#include "m2354/cpu_config.h"
 #include "rw612/rw612_mmio.h"
 #include "rw612/rw612_flexcomm.h"
 #include "rw612/rw612_timers.h"
@@ -94,6 +104,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H563_FLASH_SIZE,
             STM32H563_FLASH_BASE_NS,
             STM32H563_FLASH_SIZE,
+            0,
+            0,
             STM32H563_RAM_BASE_S,
             STM32H563_RAM_SIZE,
             STM32H563_RAM_BASE_NS,
@@ -120,7 +132,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H563_TIMER_INIT,
             STM32H563_TIMER_RESET,
             STM32H563_TIMER_TICK,
-            STM32H563_TZ_ATTR
+            STM32H563_TZ_ATTR,
+            0,
+            0
         }
     },
     {
@@ -130,6 +144,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H533_FLASH_SIZE,
             STM32H533_FLASH_BASE_NS,
             STM32H533_FLASH_SIZE,
+            0,
+            0,
             STM32H533_RAM_BASE_S,
             STM32H533_RAM_SIZE,
             STM32H533_RAM_BASE_NS,
@@ -156,6 +172,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H533_TIMER_INIT,
             STM32H533_TIMER_RESET,
             STM32H533_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -166,6 +184,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H5F4_FLASH_SIZE,
             STM32H5F4_FLASH_BASE_NS,
             STM32H5F4_FLASH_SIZE,
+            0,
+            0,
             STM32H5F4_RAM_BASE_S,
             STM32H5F4_RAM_SIZE,
             STM32H5F4_RAM_BASE_NS,
@@ -192,7 +212,9 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H5F4_TIMER_INIT,
             STM32H5F4_TIMER_RESET,
             STM32H5F4_TIMER_TICK,
-            STM32H5F4_TZ_ATTR
+            STM32H5F4_TZ_ATTR,
+            0,
+            0
         }
     },
     {
@@ -202,6 +224,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32U585_FLASH_SIZE,
             STM32U585_FLASH_BASE_NS,
             STM32U585_FLASH_SIZE,
+            0,
+            0,
             STM32U585_RAM_BASE_S,
             STM32U585_RAM_SIZE,
             STM32U585_RAM_BASE_NS,
@@ -228,6 +252,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32U585_TIMER_INIT,
             STM32U585_TIMER_RESET,
             STM32U585_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -238,6 +264,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32L552_FLASH_SIZE,
             STM32L552_FLASH_BASE_NS,
             STM32L552_FLASH_SIZE,
+            0,
+            0,
             STM32L552_RAM_BASE_S,
             STM32L552_RAM_SIZE,
             STM32L552_RAM_BASE_NS,
@@ -264,6 +292,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32L552_TIMER_INIT,
             STM32L552_TIMER_RESET,
             STM32L552_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -274,6 +304,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             MCXW71C_FLASH_SIZE,
             MCXW71C_FLASH_BASE_NS,
             MCXW71C_FLASH_SIZE,
+            0,
+            0,
             MCXW71C_RAM_BASE_S,
             MCXW71C_RAM_SIZE,
             MCXW71C_RAM_BASE_NS,
@@ -300,6 +332,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             MCXW71C_TIMER_INIT,
             MCXW71C_TIMER_RESET,
             MCXW71C_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -310,6 +344,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             MCXN947_FLASH_SIZE,
             MCXN947_FLASH_BASE_NS,
             MCXN947_FLASH_SIZE,
+            0,
+            0,
             MCXN947_RAM_BASE_S,
             MCXN947_RAM_SIZE,
             MCXN947_RAM_BASE_NS,
@@ -336,6 +372,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             MCXN947_TIMER_INIT,
             MCXN947_TIMER_RESET,
             MCXN947_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -346,6 +384,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             NRF5340_FLASH_SIZE,
             NRF5340_FLASH_BASE_NS,
             NRF5340_FLASH_SIZE,
+            0,
+            0,
             NRF5340_RAM_BASE_S,
             NRF5340_RAM_SIZE,
             NRF5340_RAM_BASE_NS,
@@ -372,6 +412,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             NRF5340_TIMER_INIT,
             NRF5340_TIMER_RESET,
             NRF5340_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -382,6 +424,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             NRF54LM20_FLASH_SIZE,
             NRF54LM20_FLASH_BASE_NS,
             NRF54LM20_FLASH_SIZE,
+            0,
+            0,
             NRF54LM20_RAM_BASE_S,
             NRF54LM20_RAM_SIZE,
             NRF54LM20_RAM_BASE_NS,
@@ -408,6 +452,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             NRF54LM20_TIMER_INIT,
             NRF54LM20_TIMER_RESET,
             NRF54LM20_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -418,6 +464,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             RP2350_FLASH_SIZE,
             RP2350_FLASH_BASE_NS,
             RP2350_FLASH_SIZE,
+            0,
+            0,
             RP2350_RAM_BASE_S,
             RP2350_RAM_SIZE,
             RP2350_RAM_BASE_NS,
@@ -444,6 +492,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             RP2350_TIMER_INIT,
             RP2350_TIMER_RESET,
             RP2350_TIMER_TICK,
+            0,
+            &mm_rp2350_mc_ops,
             0
         }
     },
@@ -453,6 +503,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             LPC55S69_FLASH_BASE_S,
             LPC55S69_FLASH_SIZE,
             LPC55S69_FLASH_BASE_NS,
+            LPC55S69_FLASH_SIZE,
+            LPC55S69_FLASH_BASE_S2,
             LPC55S69_FLASH_SIZE,
             LPC55S69_RAM_BASE_S,
             LPC55S69_RAM_SIZE,
@@ -480,6 +532,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             LPC55S69_TIMER_INIT,
             LPC55S69_TIMER_RESET,
             LPC55S69_TIMER_TICK,
+            0,
+            0,
             0
         }
     },
@@ -490,6 +544,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             PIC32CK_FLASH_SIZE,
             PIC32CK_FLASH_BASE_NS,
             PIC32CK_FLASH_SIZE,
+            0,
+            0,
             PIC32CK_RAM_BASE_S,
             PIC32CK_RAM_SIZE,
             PIC32CK_RAM_BASE_NS,
@@ -516,7 +572,49 @@ static const struct mm_cpu_entry cpu_table[] = {
             PIC32CK_TIMER_INIT,
             PIC32CK_TIMER_RESET,
             PIC32CK_TIMER_TICK,
-            PIC32CK_TZ_ATTR
+            PIC32CK_TZ_ATTR,
+            0,
+            0
+        }
+    },
+    {
+        "m2354",
+        {
+            M2354_FLASH_BASE_S,
+            M2354_FLASH_SIZE,
+            M2354_FLASH_BASE_NS,
+            M2354_FLASH_SIZE,
+            0,
+            0,
+            M2354_RAM_BASE_S,
+            M2354_RAM_SIZE,
+            M2354_RAM_BASE_NS,
+            M2354_RAM_SIZE,
+            1,
+            M2354_RAM_REGIONS,
+            M2354_RAM_REGION_COUNT,
+            M2354_MPCBB_BLOCK_SIZE,
+            0,
+            M2354_FLAGS,
+            M2354_SOC_RESET,
+            M2354_SOC_REGISTER,
+            M2354_FLASH_BIND,
+            M2354_CLOCK_GET_HZ,
+            M2354_USART_INIT,
+            M2354_USART_RESET,
+            M2354_USART_POLL,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            M2354_TIMER_INIT,
+            M2354_TIMER_RESET,
+            M2354_TIMER_TICK,
+            M2354_TZ_ATTR,
+            0,
+            0
         }
     },
     {
@@ -526,6 +624,8 @@ static const struct mm_cpu_entry cpu_table[] = {
             RW612_FLASH_SIZE,
             RW612_FLASH_BASE_NS,
             RW612_FLASH_SIZE,
+            0,
+            0,
             RW612_RAM_BASE_S,
             RW612_RAM_SIZE,
             RW612_RAM_BASE_NS,
@@ -552,7 +652,49 @@ static const struct mm_cpu_entry cpu_table[] = {
             RW612_TIMER_INIT,
             RW612_TIMER_RESET,
             RW612_TIMER_TICK,
+            0,
+            0,
             0
+        }
+    },
+    {
+        "imxrt700",
+        {
+            IMXRT700_FLASH_BASE_S,
+            IMXRT700_FLASH_SIZE,
+            IMXRT700_FLASH_BASE_NS,
+            IMXRT700_FLASH_SIZE,
+            0,
+            0,
+            IMXRT700_RAM_BASE_S,
+            IMXRT700_RAM_SIZE,
+            IMXRT700_RAM_BASE_NS,
+            IMXRT700_RAM_SIZE,
+            2,
+            IMXRT700_RAM_REGIONS,
+            IMXRT700_RAM_REGION_COUNT,
+            IMXRT700_MPCBB_BLOCK_SIZE,
+            IMXRT700_MPCBB_SECURE,
+            IMXRT700_FLAGS,
+            IMXRT700_SOC_RESET,
+            IMXRT700_SOC_REGISTER,
+            IMXRT700_FLASH_BIND,
+            IMXRT700_CLOCK_GET_HZ,
+            IMXRT700_USART_INIT,
+            IMXRT700_USART_RESET,
+            IMXRT700_USART_POLL,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            IMXRT700_TIMER_TICK,
+            0,
+            IMXRT700_MC_OPS,
+            IMXRT700_BOOT_RESOLVE
         }
     }
 };

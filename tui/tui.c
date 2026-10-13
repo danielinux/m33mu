@@ -42,8 +42,11 @@
 #include "m33mu/gpio.h"
 #include "m33mu/eth_backend.h"
 #include "m33mu/memmap.h"
+#include "m33mu/fetch.h"
+#include "m33mu/capstone.h"
 #include "stm32h5_eth.h"
 #include "tui.h"
+#include "debugger.h"
 
 typedef uint32_t uintattr_t;
 
@@ -732,6 +735,344 @@ static void tui_draw_filled(int x0, int y0, int x1, int y1, uintattr_t fg, uinta
     }
 }
 
+static void tui_debug_title(int x, int y, int end, const char *title, uintattr_t bg)
+{
+    if (end <= x) return;
+    tui_draw_filled(x, y, end - 1, y, TUI_FG_WHITE, bg);
+    tui_draw_text(x + 1, y, end - 1, TUI_FG_WHITE, bg, title);
+}
+
+static void tui_debug_focus_title(int x, int y, int end, const char *title,
+                                  uintattr_t bg, mm_bool focused)
+{
+    if (focused) {
+        tui_draw_filled(x, y, end - 1, y, TUI_FG_BLACK, TUI_FG_WHITE);
+        tui_draw_text(x + 1, y, end - 1, TUI_FG_BLACK, TUI_FG_WHITE, title);
+    } else
+        tui_debug_title(x, y, end, title, bg);
+}
+
+static mm_bool tui_c_keyword(const char *word, size_t len)
+{
+    static const char *const words[] = {
+        "auto", "break", "case", "char", "const", "continue", "default", "do",
+        "double", "else", "enum", "extern", "float", "for", "goto", "if",
+        "inline", "int", "long", "register", "restrict", "return", "short",
+        "signed", "sizeof", "static", "struct", "switch", "typedef", "union",
+        "unsigned", "void", "volatile", "while", "_Bool", "_Atomic", "NULL",
+        "true", "false"
+    };
+    size_t i;
+    for (i = 0; i < sizeof(words) / sizeof(words[0]); ++i)
+        if (strlen(words[i]) == len && memcmp(words[i], word, len) == 0) return MM_TRUE;
+    return MM_FALSE;
+}
+
+static void tui_draw_c_source(int x, int y, int end, const char *source,
+                              mm_bool selected, mm_bool *block_comment)
+{
+    size_t i = 0;
+    mm_bool directive = MM_FALSE;
+    uintattr_t bg = selected ? TUI_FG_WHITE : TUI_BG_BLACK;
+    while (source[i] == ' ' || source[i] == '\t') ++i;
+    directive = source[i] == '#';
+    for (i = 0; source[i] != '\0' && x < end;) {
+        size_t start = i;
+        uintattr_t fg = TUI_FG_WHITE;
+        if (*block_comment || (source[i] == '/' && source[i + 1] == '*')) {
+            if (!*block_comment) { *block_comment = MM_TRUE; i += 2; }
+            while (source[i] != '\0') {
+                if (source[i] == '*' && source[i + 1] == '/') {
+                    i += 2; *block_comment = MM_FALSE; break;
+                }
+                ++i;
+            }
+            fg = TUI_FG_GREEN;
+        } else if (source[i] == '/' && source[i + 1] == '/') {
+            i = strlen(source); fg = TUI_FG_GREEN;
+        } else if (source[i] == '"' || source[i] == '\'') {
+            char quote = source[i++];
+            while (source[i] != '\0') {
+                if (source[i] == '\\' && source[i + 1] != '\0') { i += 2; continue; }
+                if (source[i++] == quote) break;
+            }
+            fg = TUI_FG_YELLOW;
+        } else if ((source[i] >= '0' && source[i] <= '9') ||
+                   ((source[i] >= 'A' && source[i] <= 'Z') ||
+                    (source[i] >= 'a' && source[i] <= 'z') || source[i] == '_')) {
+            mm_bool number = source[i] >= '0' && source[i] <= '9';
+            do { ++i; } while ((source[i] >= 'A' && source[i] <= 'Z') ||
+                               (source[i] >= 'a' && source[i] <= 'z') ||
+                               (source[i] >= '0' && source[i] <= '9') || source[i] == '_');
+            fg = number ? TUI_FG_MAGENTA :
+                 tui_c_keyword(source + start, i - start) ? TUI_FG_CYAN : TUI_FG_WHITE;
+        } else ++i;
+        if (directive && fg == TUI_FG_WHITE) fg = TUI_FG_MAGENTA;
+        if (selected) fg = TUI_FG_BLACK;
+        while (start < i && x < end)
+            tui_put_cell(x++, y, (unsigned char)source[start++], tui_attr(fg), tui_attr(bg));
+    }
+}
+
+static void tui_draw_debugger(struct mm_tui *tui, int w, int h)
+{
+    int split = w / 2;
+    int slots_y = h - 10;
+    int right_mid = 2 + (slots_y - 2) / 2;
+    int row, i;
+    int data_bytes_per_row;
+    mm_u32 code_cursor;
+    mm_u32 text_cursor;
+    mm_bool block_comment = MM_FALSE;
+    char line[256];
+    uintattr_t state_bg = tui->target_running ? TUI_BG_RUN : TUI_BG_STOP;
+    if (w < 78 || h < 19) {
+        tui_draw_text(1, 1, w - 1, TUI_FG_YELLOW, TUI_BG_BLACK,
+                      "Debugger needs at least 78 columns x 19 rows");
+        return;
+    }
+    if (slots_y < right_mid + 3) right_mid = slots_y - 3;
+    tui_debug_title(0, 0, w, " m33mu debugger  F9: emulator  F2: run/stop  F7: step", state_bg);
+    if (tui->debugger_source_valid) {
+        const char *base = strrchr(tui->debugger_source_path, '/');
+        snprintf(line, sizeof(line), "SOURCE  %.220s:%d", base ? base + 1 : tui->debugger_source_path,
+                 tui->debugger_source_line);
+    } else if (tui->func_valid && tui->func_name[0] != '\0')
+        snprintf(line, sizeof(line), "CODE  %s", tui->func_name);
+    else
+        snprintf(line, sizeof(line), "CODE  [from PC]");
+    tui_debug_focus_title(0, 2, split, line, TUI_BG_MENU,
+                          tui->debugger_focus == 1u);
+    snprintf(line, sizeof(line), "TEXT / ASM  start [%s]", tui->debugger_text_input);
+    tui_debug_focus_title(split + 1, 2, w, line, TUI_BG_NS,
+                          tui->debugger_focus == 2u);
+    snprintf(line, sizeof(line), "DATA  start [%s]", tui->debugger_data_input);
+    tui_debug_focus_title(split + 1, right_mid, w, line, TUI_BG_NS,
+                          tui->debugger_focus == 3u);
+    tui_debug_title(split + 1, slots_y, w, "BREAKPOINTS / WATCHPOINTS (6)", TUI_BG_MENU);
+    for (row = 1; row < h - 3; ++row) {
+        tui_put_cell(split, row, 0x2502, TUI_FG_GREY, TUI_BG_BLACK);
+    }
+    snprintf(line, sizeof(line), "PC %08lx  SP %08lx  %s  %s", (unsigned long)tui->core_pc,
+             (unsigned long)tui->core_sp, tui->core_sec == MM_SECURE ? "SEC" : "NS",
+             tui->target_running ? "RUNNING" : "STOPPED");
+    tui_draw_text(1, 1, w - 1, TUI_FG_CYAN, TUI_BG_BLACK, line);
+    code_cursor = tui->debugger_code_addr;
+    for (row = 0; row < h - 13 && row < 32; ++row) {
+        mm_u32 addr;
+        int off;
+        mm_u16 hw = 0;
+        struct mm_fetch_result fetch;
+        char mnemonic[40] = "";
+        char operands[80] = "";
+        if (tui->debugger_source_valid) {
+            int source_number = tui->debugger_source_start + row;
+            if (row < tui->debugger_source_count) {
+                mm_bool current = source_number == tui->debugger_source_line;
+                snprintf(line, sizeof(line), "%c%4d %s",
+                         current ? '>' : ' ',
+                         source_number, tui->debugger_source[row]);
+                if (current)
+                    tui_draw_filled(1, 3 + row, split - 2, 3 + row,
+                                    TUI_FG_BLACK, TUI_FG_WHITE);
+                snprintf(line, sizeof(line), "%c%4d ", current ? '>' : ' ', source_number);
+                tui_draw_text(1, 3 + row, split - 1,
+                              current ? TUI_FG_BLACK : TUI_FG_GREY,
+                              current ? TUI_FG_WHITE : TUI_BG_BLACK, line);
+                tui_draw_c_source(7, 3 + row, split - 1, tui->debugger_source[row],
+                                  current, &block_comment);
+            }
+            continue;
+        }
+        addr = code_cursor;
+        off = (int)(addr - tui->debugger_code_addr);
+        if (off >= 0 && off + 1 < TUI_DEBUG_BYTES &&
+            tui->debugger_code_valid[off] && tui->debugger_code_valid[off + 1]) {
+            hw = (mm_u16)(tui->debugger_code[off] | ((mm_u16)tui->debugger_code[off + 1] << 8));
+            memset(&fetch, 0, sizeof(fetch));
+            fetch.pc_fetch = addr;
+            fetch.len = 2;
+            fetch.insn = hw;
+            if (t32_is_32bit_prefix(hw) && off + 3 < TUI_DEBUG_BYTES &&
+                tui->debugger_code_valid[off + 2] && tui->debugger_code_valid[off + 3]) {
+                fetch.len = 4;
+                fetch.insn = ((mm_u32)hw << 16) |
+                             (mm_u32)(tui->debugger_code[off + 2] |
+                                      ((mm_u16)tui->debugger_code[off + 3] << 8));
+            }
+            code_cursor += fetch.len;
+            if (capstone_decode_one(&fetch, 0, mnemonic, sizeof(mnemonic),
+                                    operands, sizeof(operands))) {
+                snprintf(line, sizeof(line), "%c %08lx: %-8s %s",
+                         addr == (tui->core_pc & ~1u) ? '>' : ' ',
+                         (unsigned long)addr, mnemonic, operands);
+            } else {
+                snprintf(line, sizeof(line), "%c %08lx: %04x", addr == (tui->core_pc & ~1u) ? '>' : ' ',
+                         (unsigned long)addr, (unsigned)hw);
+            }
+        } else {
+            snprintf(line, sizeof(line), "  %08lx: --", (unsigned long)addr);
+            code_cursor += 2u;
+        }
+        tui_draw_text(1, 3 + row, split - 1, addr == (tui->core_pc & ~1u) ? TUI_FG_YELLOW : TUI_FG_WHITE,
+                      TUI_BG_BLACK, line);
+    }
+    tui_debug_title(0, h - 10, split,
+                    tui->debugger_show_backtrace ? "BACKTRACE  (~ stack candidate)" : "REGISTERS",
+                    TUI_BG_MENU);
+    if (tui->debugger_show_backtrace) {
+        int first_frame = tui->debugger_frame_selected >= 6u ?
+                          (int)tui->debugger_frame_selected - 5 : 0;
+        for (row = 0; row + first_frame < tui->debugger_frame_count && row < 6; ++row) {
+            int frame = row + first_frame;
+            char symbol[64] = "";
+            (void)mm_tui_format_dwfl_addr(tui->debugger_resolve_opaque,
+                                           tui->debugger_frame_pc[frame], symbol, sizeof(symbol));
+            snprintf(line, sizeof(line), "%c#%d  %08lx  %s%s",
+                     frame == tui->debugger_frame_selected ? '>' : ' ', frame,
+                     (unsigned long)tui->debugger_frame_pc[frame],
+                     symbol[0] ? symbol : "?",
+                     frame >= (tui->debugger_frame_has_lr ? 2 : 1) ? "  ~" : "");
+            tui_draw_text(1, h - 9 + row, split - 1, TUI_FG_CYAN, TUI_BG_BLACK, line);
+        }
+    } else {
+    for (row = 0; row < 5; ++row) {
+        int a = row * 3;
+        snprintf(line, sizeof(line), "%d:%08lx %d:%08lx %d:%08lx",
+                 a, (unsigned long)tui->regs[a], a + 1,
+                 (unsigned long)tui->regs[a + 1], a + 2,
+                 (unsigned long)tui->regs[a + 2]);
+        tui_draw_text(1, h - 9 + row, split - 1, TUI_FG_MAGENTA, TUI_BG_BLACK, line);
+    }
+    snprintf(line, sizeof(line), "pc:%08lx xpsr:%08lx", (unsigned long)tui->regs[15],
+             (unsigned long)tui->xpsr);
+    tui_draw_text(1, h - 4, split - 1, TUI_FG_MAGENTA, TUI_BG_BLACK, line);
+    }
+    text_cursor = tui->debugger_text_addr;
+    for (row = 0; row < right_mid - 3 && row < TUI_DEBUG_BYTES / 2; ++row) {
+        mm_u32 addr = text_cursor;
+        int base = (int)(text_cursor - tui->debugger_text_addr);
+        int n;
+        if (base < 0 || base + 1 >= TUI_DEBUG_BYTES) break;
+        if (tui->debugger_text_valid[base] && tui->debugger_text_valid[base + 1]) {
+            struct mm_fetch_result fetch;
+            mm_u16 hw = (mm_u16)(tui->debugger_text[base] |
+                                  ((mm_u16)tui->debugger_text[base + 1] << 8));
+            char mnemonic[24] = "";
+            char operands[64] = "";
+            memset(&fetch, 0, sizeof(fetch));
+            fetch.pc_fetch = addr;
+            fetch.len = 2u;
+            fetch.insn = hw;
+            if (t32_is_32bit_prefix(hw) && base + 3 < TUI_DEBUG_BYTES &&
+                tui->debugger_text_valid[base + 2] &&
+                tui->debugger_text_valid[base + 3]) {
+                fetch.len = 4u;
+                fetch.insn = ((mm_u32)hw << 16) |
+                             (mm_u32)(tui->debugger_text[base + 2] |
+                                      ((mm_u16)tui->debugger_text[base + 3] << 8));
+            }
+            text_cursor += fetch.len;
+            if (capstone_decode_one(&fetch, 0, mnemonic, sizeof(mnemonic),
+                                    operands, sizeof(operands))) {
+                const char *target = tui->debugger_text_targets[base / 2];
+                if (target[0] != '\0') {
+                    const char *comma = strchr(operands, ',');
+                    if (comma != 0)
+                        n = snprintf(line, sizeof(line), "%08lx: %-7s %.*s <%s>",
+                                     (unsigned long)fetch.pc_fetch, mnemonic,
+                                     (int)(comma - operands + 1), operands, target);
+                    else
+                        n = snprintf(line, sizeof(line), "%08lx: %-7s <%s>",
+                                     (unsigned long)fetch.pc_fetch, mnemonic, target);
+                } else
+                    n = snprintf(line, sizeof(line), "%08lx: %-7s %s",
+                                 (unsigned long)fetch.pc_fetch, mnemonic, operands);
+            } else if (fetch.len == 4u) {
+                n = snprintf(line, sizeof(line), "%08lx: .hword 0x%04x, 0x%04x",
+                             (unsigned long)fetch.pc_fetch, (unsigned)hw,
+                             (unsigned)(fetch.insn & 0xffffu));
+            } else {
+                n = snprintf(line, sizeof(line), "%08lx: .hword 0x%04x",
+                             (unsigned long)fetch.pc_fetch, (unsigned)hw);
+            }
+            if (n > 0 && n < (int)sizeof(line)) {
+                const char *symbol = tui->debugger_text_symbols[base / 2];
+                if (symbol[0] != '\0' && strstr(symbol, "+0x") == 0)
+                    (void)snprintf(line + n, sizeof(line) - (size_t)n, " ; <%s>", symbol);
+            }
+        } else {
+            snprintf(line, sizeof(line), "%08lx: --", (unsigned long)addr);
+            text_cursor += 2u;
+        }
+        if (mm_tui_debug_highlight_pc(tui, addr)) {
+            tui_draw_filled(split + 2, 3 + row, w - 2, 3 + row,
+                            TUI_FG_BLACK, TUI_FG_WHITE);
+            tui_draw_text(split + 2, 3 + row, w - 1,
+                          TUI_FG_BLACK, TUI_FG_WHITE, line);
+        } else
+            tui_draw_text(split + 2, 3 + row, w - 1,
+                          TUI_FG_CYAN, TUI_BG_BLACK, line);
+    }
+    data_bytes_per_row = mm_tui_debug_data_bytes_per_row(w);
+    for (row = 0; row < slots_y - right_mid - 1 &&
+                  row * data_bytes_per_row < TUI_DEBUG_BYTES; ++row) {
+        int base = row * data_bytes_per_row;
+        int x = split + 2;
+        int ascii_x = x + 9 + data_bytes_per_row * 3 + 2;
+        int n = snprintf(line, sizeof(line), "%08lx:",
+                         (unsigned long)(tui->debugger_data_addr + (mm_u32)base));
+        for (i = 0; i < data_bytes_per_row && base + i < TUI_DEBUG_BYTES &&
+                    n + 4 < (int)sizeof(line); ++i) {
+            if (tui->debugger_data_valid[base + i])
+                n += snprintf(line + n, sizeof(line) - (size_t)n, " %02x",
+                              tui->debugger_data[base + i]);
+            else
+                n += snprintf(line + n, sizeof(line) - (size_t)n, " ??");
+        }
+        tui_draw_text(x, right_mid + 1 + row, w - 1, TUI_FG_GREEN,
+                      TUI_BG_BLACK, line);
+        for (i = 0; i < data_bytes_per_row && base + i < TUI_DEBUG_BYTES; ++i) {
+            mm_u8 byte = tui->debugger_data[base + i];
+            mm_bool printable = tui->debugger_data_valid[base + i] &&
+                                byte >= 32u && byte <= 126u;
+            mm_bool current_sp = mm_tui_debug_highlight_sp(
+                tui, tui->debugger_data_addr + (mm_u32)(base + i));
+            if (current_sp) {
+                char hex_byte[4];
+                if (tui->debugger_data_valid[base + i])
+                    snprintf(hex_byte, sizeof(hex_byte), " %02x", byte);
+                else
+                    snprintf(hex_byte, sizeof(hex_byte), " ??");
+                tui_draw_text(x + 9 + i * 3, right_mid + 1 + row,
+                              x + 12 + i * 3, TUI_FG_BLACK, TUI_FG_WHITE,
+                              hex_byte);
+            }
+            tui_put_cell(ascii_x + i, right_mid + 1 + row,
+                         printable ? byte : '.',
+                         tui_attr(current_sp ? TUI_FG_BLACK :
+                                  printable ? TUI_FG_CYAN : TUI_FG_GREY),
+                         tui_attr(current_sp ? TUI_FG_WHITE : TUI_BG_BLACK));
+        }
+    }
+    for (i = 0; i < TUI_DEBUG_SLOTS && slots_y + 1 + i < h - 3; ++i) {
+        const struct mm_tui_debug_slot *slot = &tui->debugger_slots[i];
+        snprintf(line, sizeof(line), "%d  %-5s 0x%08lx%s%s%s", i + 1,
+                 slot->valid ? (slot->kind == 1 ? "break" : "watch") : "free",
+                 (unsigned long)slot->addr, slot->valid && slot->kind == 2 ? " write" : "",
+                 slot->valid && slot->label[0] ? " " : "",
+                 slot->valid ? slot->label : "");
+        tui_draw_text(split + 2, slots_y + 1 + i, w - 1,
+                      slot->valid ? TUI_FG_YELLOW : TUI_FG_GREY, TUI_BG_BLACK, line);
+    }
+    tui_draw_text(1, h - 3, w - 1, TUI_FG_YELLOW, TUI_BG_BLACK, tui->debugger_message);
+    tui_debug_focus_title(0, h - 2, w,
+                          " GDB command    Tab: command/code/text/data",
+                          TUI_BG_MENU, tui->debugger_focus == 0u);
+    snprintf(line, sizeof(line), "(gdb) %.248s", tui->debugger_input);
+    tui_draw_text(1, h - 1, w - 1, TUI_FG_WHITE, TUI_BG_BLACK, line);
+}
+
 static int tui_draw_gpio_label(int x, int y, int max_x, const char *label,
                                mm_bool clock_on, uintattr_t bg)
 {
@@ -865,6 +1206,77 @@ static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod
         tui->input_dirty = MM_TRUE;
         return;
     }
+    if (key == KEY_F(9)) {
+        tui->debugger_view = tui->debugger_view ? MM_FALSE : MM_TRUE;
+        if (tui->debugger_view) {
+            snprintf(tui->debugger_text_input, sizeof(tui->debugger_text_input),
+                     "0x%08lx", (unsigned long)(tui->debugger_text_pinned ?
+                     tui->debugger_text_addr : (tui->core_pc & ~1u)));
+            snprintf(tui->debugger_data_input, sizeof(tui->debugger_data_input),
+                     "0x%08lx", (unsigned long)(tui->debugger_data_pinned ?
+                     tui->debugger_data_addr :
+                     tui->core_sp - mm_tui_debug_data_center_offset(tui)));
+        }
+        tui->input_dirty = MM_TRUE;
+        return;
+    }
+    if (tui->debugger_view) {
+        char *field = tui->debugger_focus == 2u ? tui->debugger_text_input :
+                      tui->debugger_focus == 3u ? tui->debugger_data_input : tui->debugger_input;
+        size_t cap = tui->debugger_focus == 0u ? sizeof(tui->debugger_input) :
+                     sizeof(tui->debugger_text_input);
+        size_t len = strlen(field);
+        if (key == KEY_F(2)) {
+            if (!tui->target_running)
+                mm_tui_debug_follow_execution(tui, tui->core_pc, tui->core_sp);
+            tui->actions |= tui->target_running ? MM_TUI_ACTION_PAUSE : MM_TUI_ACTION_CONTINUE;
+        } else if (key == KEY_F(7)) {
+            if (!tui->target_running) tui->actions |= MM_TUI_ACTION_STEP;
+        } else if (ch == '\t') {
+            tui->debugger_focus = (mm_u8)((tui->debugger_focus + 1u) % 4u);
+        } else if ((key == KEY_UP || key == KEY_DOWN ||
+                    key == KEY_PPAGE || key == KEY_NPAGE ||
+                    key == KEY_LEFT || key == KEY_RIGHT) && tui->debugger_focus != 0u) {
+            int amount = (key == KEY_PPAGE || key == KEY_NPAGE ||
+                          key == KEY_LEFT || key == KEY_RIGHT) ? 8 : 1;
+            int sign = (key == KEY_UP || key == KEY_PPAGE || key == KEY_LEFT) ? -1 : 1;
+            if (tui->debugger_focus == 1u) {
+                tui->debugger_code_scroll += sign * amount;
+                if (tui->debugger_code_scroll < -2048) tui->debugger_code_scroll = -2048;
+                if (tui->debugger_code_scroll > 2048) tui->debugger_code_scroll = 2048;
+            } else {
+                mm_u32 *addr = tui->debugger_focus == 2u ? &tui->debugger_text_addr :
+                               &tui->debugger_data_addr;
+                mm_u32 stride = tui->debugger_focus == 2u ? 2u :
+                                (mm_u32)mm_tui_debug_data_bytes_per_row(tui->width);
+                *addr += (mm_u32)(sign * amount * (int)stride);
+                if (tui->debugger_focus == 2u) tui->debugger_text_pinned = MM_TRUE;
+                else tui->debugger_data_pinned = MM_TRUE;
+                snprintf(field, cap, "0x%08lx", (unsigned long)*addr);
+            }
+        } else if (key == KEY_ENTER || ch == '\n' || ch == '\r') {
+            if (tui->debugger_focus == 0u) {
+                if (mm_tui_debug_queue_command(tui)) field[0] = '\0';
+            } else if (tui->debugger_focus != 1u && len != 0 &&
+                       !tui->debugger_command_ready) {
+                    snprintf(tui->debugger_command, sizeof(tui->debugger_command), "%s %s",
+                             tui->debugger_focus == 2u ? "text" : "data", field);
+                tui->debugger_command_ready = MM_TRUE;
+                tui->actions |= MM_TUI_ACTION_DEBUG_COMMAND;
+            }
+        } else if (tui->debugger_focus == 1u) {
+            /* The code pane scrolls; typing remains with the command/address fields. */
+        } else if (key == KEY_BACKSPACE || ch == 0x7fu || ch == 0x08u) {
+            if (len != 0) field[len - 1] = '\0';
+        } else if (ch >= 32u && ch < 127u && len + 1 < cap &&
+                   (tui->debugger_focus == 0u || (ch >= '0' && ch <= '9') ||
+                    (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F') || ch == 'x')) {
+            field[len] = (char)ch;
+            field[len + 1] = '\0';
+        }
+        tui->input_dirty = MM_TRUE;
+        return;
+    }
     if (tui->window2_mode == MM_TUI_WIN2_UART) {
         struct mm_tui_uart *uart = tui_serial_current(tui);
         mm_u8 b = 0;
@@ -929,6 +1341,8 @@ static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod
         return;
     }
     if (key == KEY_F(2)) {
+        if (!tui->target_running)
+            mm_tui_debug_follow_execution(tui, tui->core_pc, tui->core_sp);
         tui->actions |= tui->target_running ? MM_TUI_ACTION_PAUSE : MM_TUI_ACTION_CONTINUE;
         return;
     }
@@ -981,10 +1395,6 @@ static void tui_handle_key(struct mm_tui *tui, int key, uint32_t ch, uint8_t mod
         tui->actions |= MM_TUI_ACTION_TOGGLE_CAPSTONE;
         return;
     }
-    if (key == KEY_F(9)) {
-        tui->actions |= MM_TUI_ACTION_LAUNCH_GDB;
-        return;
-    }
 }
 
 static void tui_draw(struct mm_tui *tui)
@@ -1021,6 +1431,15 @@ static void tui_draw(struct mm_tui *tui)
 
     getmaxyx(stdscr, h, w);
     if (w <= 0 || h <= 3) return;
+    if (tui->debugger_view) {
+        tui->width = w;
+        tui->height = h;
+        erase();
+        tui_draw_debugger(tui, w, h);
+        if (tui->quit_prompt) tui_draw_quit_prompt(tui, w, h);
+        refresh();
+        return;
+    }
     show_nonsecure_stack = (tui->msp_top_ns_valid || tui->psp_top_ns_valid) ? MM_TRUE : MM_FALSE;
     tui->width = w;
     tui->height = h;
@@ -1102,7 +1521,7 @@ static void tui_draw(struct mm_tui *tui)
         tui_draw_text(console_w + 2, 11, w - 1, step_fg, menu_bg, "Step (F7)");
         tui_draw_text(console_w + 2, 13, w - 1, step_fg, menu_bg, "CPU Reset (F8)");
     }
-    tui_draw_text(console_w + 2, 17, w - 1, menu_fg, menu_bg, "GDB TUI (F9)");
+    tui_draw_text(console_w + 2, 17, w - 1, menu_fg, menu_bg, "Debugger (F9)");
     tui_draw_text(console_w + 2, 19, w - 1, menu_fg, menu_bg, "Quit (Ctrl+X)");
 
     /* Control bar */
@@ -1795,6 +2214,8 @@ mm_bool mm_tui_init(struct mm_tui *tui)
     tui->image0_path[0] = '\0';
     tui->target_running = MM_TRUE;
     tui->gdb_connected = MM_FALSE;
+    snprintf(tui->debugger_message, sizeof(tui->debugger_message),
+             "help: b SYMBOL, watch ADDRESS, si, n/next; blank Return repeats command");
     tui->gdb_port = 0;
     tui->active = MM_FALSE;
     tui->serial_count = 0;
@@ -1945,6 +2366,7 @@ void mm_tui_set_image0(struct mm_tui *tui, const char *path)
     tui->func_pc = 0u;
     tui->func_valid = MM_FALSE;
     tui->func_name[0] = '\0';
+    tui->debugger_text_symbols_ready = MM_FALSE;
 }
 
 void mm_tui_set_cpu_name(struct mm_tui *tui, const char *name)

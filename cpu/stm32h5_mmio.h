@@ -89,6 +89,9 @@ struct stm32h5_mmio_variant {
      * variant does not model one. */
     mm_bool (*usb_register_mmio)(struct mmio_bus *bus);
     void (*usb_reset)(void);
+
+    /* DBGMCU_IDCODE, REV_ID << 16 | 0x6000 | DEV_ID. Read-only. */
+    mm_u32 dbgmcu_idcode;
 };
 
 /* Entry points. The four that a target can reach first each latch the

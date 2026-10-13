@@ -222,6 +222,23 @@ static void usart_update_ack(struct stm32_usart_inst *u)
     u->regs[USART_ISR / 4] = isr;
 }
 
+/* The interrupt request is the OR of each status flag with its enable bit,
+ * so it is raised the moment a register write makes a pair true. */
+static void usart_update_irq(struct stm32_usart_inst *u)
+{
+    mm_u32 cr1;
+    mm_u32 isr;
+    if (u->owner == 0 || u->owner->nvic == 0 || u->irq < 0 || !u->enabled) {
+        return;
+    }
+    cr1 = u->regs[USART_CR1 / 4];
+    isr = u->regs[USART_ISR / 4];
+    if (((cr1 & CR1_RXNEIE) != 0u && (isr & ISR_RXNE) != 0u) ||
+        ((cr1 & CR1_TXEIE) != 0u && (isr & ISR_TXE) != 0u)) {
+        mm_nvic_set_pending(u->owner->nvic, (mm_u32)u->irq, MM_TRUE);
+    }
+}
+
 static mm_bool usart_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
 {
     struct stm32_usart_inst *u = (struct stm32_usart_inst *)opaque;
@@ -296,16 +313,14 @@ static mm_bool usart_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u3
             }
         }
         mm_uart_io_queue_tx(&u->io, (mm_u8)value);
-        u->regs[USART_ISR / 4] &= ~ISR_TXE;
+        (void)mm_uart_io_flush(&u->io);
+        /* The modeled shifter is instantaneous: the frame is out as soon as
+         * it is written, whatever the host side of the console is doing. */
+        u->regs[USART_ISR / 4] |= ISR_TXE;
         if (u->has_tc) {
-            u->regs[USART_ISR / 4] &= ~ISR_TC;
+            u->regs[USART_ISR / 4] |= ISR_TC;
         }
-        if (mm_uart_io_flush(&u->io) && mm_uart_io_tx_empty(&u->io)) {
-            u->regs[USART_ISR / 4] |= ISR_TXE;
-            if (u->has_tc) {
-                u->regs[USART_ISR / 4] |= ISR_TC;
-            }
-        }
+        usart_update_irq(u);
         return MM_TRUE;
     }
     if (u->has_tc && offset == USART_ICR) {
@@ -317,6 +332,8 @@ static mm_bool usart_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u3
     memcpy((mm_u8 *)u->regs + offset, &value, size_bytes);
     if (offset == USART_CR1) {
         usart_update_ack(u);
+        ensure_enabled(u);
+        usart_update_irq(u);
     }
     return MM_TRUE;
 }
@@ -331,22 +348,7 @@ static void poll_instance(struct stm32_usart_inst *u)
             printf("[USART_RXNE_SET] base=0x%08lx\n", (unsigned long)u->base);
         }
     }
-    if (mm_uart_io_tx_empty(&u->io)) {
-        u->regs[USART_ISR / 4] |= ISR_TXE;
-        if (u->has_tc) {
-            u->regs[USART_ISR / 4] |= ISR_TC;
-        }
-    }
-    if (u->owner != 0 && u->owner->nvic != 0 && u->irq >= 0) {
-        mm_u32 cr1 = u->regs[USART_CR1 / 4];
-        mm_u32 isr = u->regs[USART_ISR / 4];
-        if (((cr1 & CR1_RXNEIE) != 0u) && ((isr & ISR_RXNE) != 0u)) {
-            mm_nvic_set_pending(u->owner->nvic, (mm_u32)u->irq, MM_TRUE);
-        }
-        if (((cr1 & CR1_TXEIE) != 0u) && ((isr & ISR_TXE) != 0u)) {
-            mm_nvic_set_pending(u->owner->nvic, (mm_u32)u->irq, MM_TRUE);
-        }
-    }
+    usart_update_irq(u);
 }
 
 void stm32_usart_state_init(struct stm32_usart_state *state,

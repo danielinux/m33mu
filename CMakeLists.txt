@@ -530,6 +530,11 @@ if(M33MU_BUILD_TESTS)
     if("${test_name}" STREQUAL "tpm_nv_path_test" AND NOT M33MU_HAS_LIBTPMS)
       continue()
     endif()
+    # The PUF model derives keys and key-code tags with SHA-256, so it is
+    # inert without wolfSSL; nothing to assert in that build.
+    if("${test_name}" STREQUAL "lpc55s69_puf_rng_test" AND NOT M33MU_HAS_WOLFSSL)
+      continue()
+    endif()
     if(NOT M33MU_HAS_RUST_PLUGINS)
       if("${test_name}" STREQUAL "se050_parse_test")
         continue()
@@ -577,8 +582,11 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-nrf54lm20 app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-pic32ck all
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-pic32ck-sdk clean all
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-m2354 clean all
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-imxrt700 clean all
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-fpu-instructions app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-lpc55s69 app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-rp2350-pio app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-rtos-exceptions app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-rw612-sdk all
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-se-suite app.bin
@@ -631,6 +639,16 @@ add_custom_target(test-firmware
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> tests/firmware/test-tz-bxns-cmse-sau-mpu/build/secure.bin tests/firmware/test-tz-bxns-cmse-sau-mpu/build/nonsecure.bin:0x2000 || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> --cpu pic32ck tests/firmware/test-pic32ck-sdk/test_fcw.bin || true"
   COMMAND /bin/sh -c "$<TARGET_FILE:m33mu> --cpu pic32ck tests/firmware/test-pic32ck-sdk/test_idau.bin || true"
+  COMMAND $<TARGET_FILE:m33mu> --cpu m2354 tests/firmware/test-m2354/test_uart.bin
+          --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
+  COMMAND $<TARGET_FILE:m33mu> --cpu m2354 tests/firmware/test-m2354/test_fmc.bin
+          --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
+  COMMAND $<TARGET_FILE:m33mu> --cpu m2354 tests/firmware/test-m2354/test_scu.bin
+  COMMAND $<TARGET_FILE:m33mu> --cpu imxrt700 --expect-bkpt 0x7f tests/firmware/test-imxrt700/app.bin
+  COMMAND $<TARGET_FILE:m33mu> --cpu imxrt700 --expect-bkpt 0x7f tests/firmware/test-imxrt700/app-ramload.bin
+          --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
+  COMMAND $<TARGET_FILE:m33mu> --cpu rp2350 tests/firmware/test-rp2350-pio/app.bin
+          --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
   DEPENDS m33mu firmware-build
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
@@ -734,6 +752,17 @@ add_custom_target(test-mcxn947
   DEPENDS m33mu
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
   COMMENT "Running MCXN947 emulator test with FLEXCOMM peripherals"
+)
+
+add_custom_target(test-imxrt700
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-imxrt700 all
+  COMMAND $<TARGET_FILE:m33mu> --cpu imxrt700 tests/firmware/test-imxrt700/app.bin
+          --uart-stdout --expect-bkpt 0x7f
+  COMMAND $<TARGET_FILE:m33mu> --cpu imxrt700 tests/firmware/test-imxrt700/app-ramload.bin
+          --uart-stdout --expect-bkpt 0x7f
+  DEPENDS m33mu
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Running i.MX RT700 dual-core / TrustZone emulator test (XIP and load-to-RAM boot)"
 )
 
 add_custom_target(test-nrf5340

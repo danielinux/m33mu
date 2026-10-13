@@ -203,7 +203,7 @@ int capstone_decode_one(const struct mm_fetch_result *fetch, int *id_out,
     cs_insn *insn = 0;
     size_t count;
 
-    if (!g_capstone.ready || !g_capstone.enabled || fetch == 0 || fetch->len == 0u) {
+    if (!g_capstone.ready || fetch == 0 || fetch->len == 0u) {
         return 0;
     }
 

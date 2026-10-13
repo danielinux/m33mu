@@ -30,6 +30,17 @@ struct mm_memmap;
 #define TUI_MAX_LINES 1024
 #define TUI_MAX_COLS  512
 #define TUI_MAX_UARTS 8
+#define TUI_DEBUG_SLOTS 6
+#define TUI_DEBUG_BYTES 256
+
+struct mm_tui_debug_slot {
+    mm_u32 addr;
+    mm_u8 size;
+    mm_u8 kind; /* 1 = breakpoint, 2 = write watchpoint */
+    mm_u8 sample[4];
+    mm_bool valid;
+    char label[64];
+};
 
 struct mm_tui_uart {
     int fd;
@@ -58,6 +69,56 @@ struct mm_tui {
     volatile mm_bool want_quit;
     volatile mm_bool target_running;
     volatile mm_bool gdb_connected;
+    volatile mm_bool debugger_view;
+    volatile mm_bool debugger_disasm_ready;
+    volatile mm_bool debugger_command_ready;
+    char debugger_input[256];
+    char debugger_text_input[16];
+    char debugger_data_input[16];
+    mm_u8 debugger_focus;
+    char debugger_command[256];
+    char debugger_last_command[256];
+    char debugger_message[256];
+    char debugger_source_path[256];
+    char debugger_source[64][160];
+    int debugger_source_line;
+    int debugger_source_start;
+    int debugger_source_count;
+    mm_bool debugger_source_valid;
+    mm_u32 debugger_source_pc;
+    int debugger_code_scroll;
+    mm_u32 debugger_frame_pc[8];
+    mm_u8 debugger_frame_count;
+    mm_u8 debugger_frame_selected;
+    mm_bool debugger_frame_has_lr;
+    mm_bool debugger_show_backtrace;
+    mm_bool debugger_next_pending;
+    mm_u32 debugger_next_pc;
+    mm_u32 debugger_next_sp;
+    mm_u8 debugger_next_sec;
+    mm_u64 debugger_step_cycle;
+    mm_u32 debugger_text_addr;
+    mm_u32 debugger_code_addr;
+    mm_u64 debugger_snapshot_ns;
+    mm_u32 debugger_data_addr;
+    mm_bool debugger_text_pinned;
+    mm_bool debugger_data_pinned;
+    mm_u8 debugger_text[TUI_DEBUG_BYTES];
+    mm_u8 debugger_code[TUI_DEBUG_BYTES];
+    mm_u8 debugger_data[TUI_DEBUG_BYTES];
+    mm_u8 debugger_text_valid[TUI_DEBUG_BYTES];
+    mm_u8 debugger_code_valid[TUI_DEBUG_BYTES];
+    mm_u8 debugger_data_valid[TUI_DEBUG_BYTES];
+    char debugger_text_symbols[TUI_DEBUG_BYTES / 2][64];
+    char debugger_text_targets[TUI_DEBUG_BYTES / 2][64];
+    mm_u32 debugger_text_symbol_base;
+    mm_bool debugger_text_symbols_ready;
+    struct mm_tui_debug_slot debugger_slots[TUI_DEBUG_SLOTS];
+    mm_bool (*debugger_resolve_symbol)(void *opaque, const char *name, mm_u32 *addr);
+    void *debugger_resolve_opaque;
+    void *debugger_monitor_opaque;
+    mm_u8 debugger_watch_hit;
+    mm_u32 debugger_watch_addr;
     volatile int gdb_port;
     volatile mm_u8 window1_mode;
     volatile mm_u8 window2_mode;
@@ -153,7 +214,7 @@ enum mm_tui_action {
     MM_TUI_ACTION_STEP = 1u << 4,
     MM_TUI_ACTION_RELOAD = 1u << 5,
     MM_TUI_ACTION_TOGGLE_CAPSTONE = 1u << 6,
-    MM_TUI_ACTION_LAUNCH_GDB = 1u << 7
+    MM_TUI_ACTION_DEBUG_COMMAND = 1u << 7
 };
 
 enum mm_tui_window1_mode {

@@ -10,6 +10,7 @@
 #include "m33mu/eth_backend.h"
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
+#include "m33mu/host_rng.h"
 
 #define ETH_BASE     0x40028000u
 #define ETH_SEC_BASE 0x50028000u
@@ -225,11 +226,8 @@ static mm_u32 eth_desc_count(mm_u32 rlr)
 
 static void eth_generate_mac(mm_u8 mac[6])
 {
-    mm_u64 v = 0;
-    ssize_t n = getrandom(&v, sizeof(v), GRND_NONBLOCK);
-    if (n != (ssize_t)sizeof(v)) {
-        v = ((mm_u64)rand() << 32) ^ (mm_u64)rand();
-    }
+    mm_u64 v = ((mm_u64)mm_host_rng_u32() << 32) ^ (mm_u64)mm_host_rng_u32();
+
     mac[0] = (mm_u8)(v & 0xFFu);
     mac[1] = (mm_u8)((v >> 8) & 0xFFu);
     mac[2] = (mm_u8)((v >> 16) & 0xFFu);

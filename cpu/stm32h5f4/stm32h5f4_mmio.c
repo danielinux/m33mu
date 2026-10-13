@@ -68,7 +68,9 @@ static const struct stm32h5_mmio_variant g_variant = {
     0xF0000000u, /* ahb2enr_reset: SRAM2..5 clocks on */
 
     0,           /* no USB block modelled */
-    0
+    0,
+
+    0x1001647Au  /* dbgmcu_idcode: DEV_ID 0x47A, revision Z (ES0639 Table 2) */
 };
 
 mm_bool mm_stm32h5f4_register_mmio(struct mmio_bus *bus)

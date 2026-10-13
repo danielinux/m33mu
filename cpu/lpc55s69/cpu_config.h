@@ -10,6 +10,7 @@
 
 /* LPC55S69 memory map (Secure / Non-secure aliases) */
 #define LPC55S69_FLASH_BASE_S   0x10000000u
+#define LPC55S69_FLASH_BASE_S2  0x0C000000u  /* alternate secure alias */
 #define LPC55S69_FLASH_BASE_NS  0x00000000u
 #define LPC55S69_FLASH_SIZE     0x000A0000u  /* 640 KB */
 
@@ -21,7 +22,7 @@
 #define LPC55S69_PERIPH_BASE_NS 0x40000000u
 
 static const struct mm_ram_region LPC55S69_RAM_REGIONS[] = {
-    { LPC55S69_RAM_BASE_S, LPC55S69_RAM_BASE_NS, LPC55S69_RAM_SIZE, 0 }
+    { LPC55S69_RAM_BASE_S, LPC55S69_RAM_BASE_NS, LPC55S69_RAM_SIZE, 0, 0u }
 };
 
 #define LPC55S69_RAM_REGION_COUNT \

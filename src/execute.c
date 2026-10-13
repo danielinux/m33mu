@@ -36,6 +36,22 @@
 #include <stdlib.h>
 #include <math.h>
 
+/*
+ * ALUWritePC (ARM ARM B1.4.2): MOV/ADD writing PC branch within Thumb state
+ * and ignore bit 0, unlike the BXWritePC of BX, BLX, POP{PC} and LDR to PC,
+ * which faults on an even target.  Thumb-1 switch dispatch is "mov pc, rN"
+ * through a table of even addresses, so ARMv8-M Baseline code hits this where
+ * a Thumb-2 compiler would emit TBB/TBH or BX.  EXC_RETURN magic values are
+ * left untouched so handle_pc_write() still recognises them.
+ */
+static mm_u32 alu_write_pc_value(mm_u32 value)
+{
+    if ((value & 0xffffff00u) != 0xffffff00u) {
+        value |= 1u;
+    }
+    return value;
+}
+
 static int g_stack_trace = -1;
 static int g_splim_trace = -1;
 static int g_pop_trace = -1;
@@ -700,16 +716,15 @@ mm_u32 itstate_set(mm_u32 xpsr, mm_u8 itstate)
 
 mm_u8 itstate_advance(mm_u8 itstate)
 {
-    mm_u8 mask = (mm_u8)(itstate & 0x0fu);
-    if (mask == 0u) {
+    mm_u8 low5 = (mm_u8)(itstate & 0x1fu);
+    if ((itstate & 0x0fu) == 0u) {
         return 0u;
     }
-    mask = (mm_u8)(mask << 1);
-    itstate = (mm_u8)((itstate & 0xF0u) | (mask & 0x0fu));
-    if ((itstate & 0x0fu) == 0u) {
-        itstate = 0u;
+    low5 = (mm_u8)((low5 << 1) & 0x1fu);
+    if ((low5 & 0x0fu) == 0u) {
+        return 0u;
     }
-    return itstate;
+    return (mm_u8)((itstate & 0xe0u) | low5);
 }
 
 static void itstate_clear(mm_u32 *xpsr, mm_u8 *it_pattern, mm_u8 *it_remaining, mm_u8 *it_cond)
@@ -1732,6 +1747,65 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                               fpu_mark_active(&cpu);
                                               break;
                                           }
+                        case MM_OP_VLSTM:
+                        case MM_OP_VLLDM: {
+                                              /* Secure FP context save/restore around a BLXNS
+                                               * (ARMv8-M ARM C2.4 VLSTM/VLLDM).  Frame layout:
+                                               * S0-S15 at +0x00, FPSCR at +0x40, S16-S31 at +0x48.
+                                               * Lazy preservation is not modelled: the save is
+                                               * performed immediately. */
+                                              mm_u32 base = cpu.r[d.rn];
+                                              mm_u32 k;
+                                              if (cpu.sec_state != MM_SECURE) {
+                                                  EXEC_RAISE_UNDEF();
+                                              }
+                                              if (d.kind == MM_OP_VLSTM) {
+                                                  mm_bool active = (cpu.control_s & (1u << 2)) != 0u;
+                                                  cpu.vlstm_stack <<= 1;
+                                                  if (active) {
+                                                      for (k = 0; k < 33u; ++k) {
+                                                          mm_u32 a = (k < 16u) ? base + 4u * k
+                                                                   : (k == 16u) ? base + 0x40u
+                                                                   : base + 0x48u + 4u * (k - 17u);
+                                                          mm_u32 v = (k < 16u) ? cpu.s[k] : (k == 16u) ? cpu.fpscr : cpu.s[k - 1u];
+                                                          if (!mm_memmap_write(&map, MM_SECURE, a, 4u, v)) {
+                                                              if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, a, MM_FALSE)) done = MM_TRUE;
+                                                              return MM_EXEC_CONTINUE;
+                                                          }
+                                                      }
+                                                      for (k = 0; k < 32u; ++k) {
+                                                          cpu.s[k] = 0u;
+                                                      }
+                                                      cpu.fpscr = 0u;
+                                                      cpu.control_s &= ~(1u << 2);
+                                                      cpu.vlstm_stack |= 1u;
+                                                  }
+                                              } else {
+                                                  mm_bool saved = (cpu.vlstm_stack & 1u) != 0u;
+                                                  cpu.vlstm_stack >>= 1;
+                                                  if (saved) {
+                                                      for (k = 0; k < 33u; ++k) {
+                                                          mm_u32 a = (k < 16u) ? base + 4u * k
+                                                                   : (k == 16u) ? base + 0x40u
+                                                                   : base + 0x48u + 4u * (k - 17u);
+                                                          mm_u32 v = 0u;
+                                                          if (!mm_memmap_read(&map, MM_SECURE, a, 4u, &v)) {
+                                                              if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, a, MM_FALSE)) done = MM_TRUE;
+                                                              return MM_EXEC_CONTINUE;
+                                                          }
+                                                          if (k < 16u) {
+                                                              cpu.s[k] = v;
+                                                          } else if (k == 16u) {
+                                                              cpu.fpscr = v;
+                                                          } else {
+                                                              cpu.s[k - 1u] = v;
+                                                          }
+                                                      }
+                                                      cpu.control_s |= 1u << 2;
+                                                  }
+                                              }
+                                              break;
+                                          }
                         case MM_OP_VLDM:
                         case MM_OP_VSTM: {
                                               mm_u32 base = cpu.r[d.rn];
@@ -2112,6 +2186,24 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                    if (vflag) cpu.xpsr |= (1u << 28);
                                                } else {
                                                    cpu.r[d.rd] = lhs + rhs;
+                                               }
+                                               /* The 16-bit high-register form covers ADD SP, SP, Rm
+                                                * and ADD PC, Rm.  R13 here is only a mirror of the
+                                                * banked stack pointer, so it has to be pushed through
+                                                * the active-SP setter the way the wide ADD.W above
+                                                * does -- ARMv8-M Baseline has no wide SUB SP, #imm12,
+                                                * so Thumb-1 frames larger than 508 bytes are built
+                                                * with "ldr rN, =-size; add sp, rN" and would
+                                                * otherwise silently lose the allocation. */
+                                               if (d.rd == 13u) {
+                                                   EXEC_SET_SP(cpu.r[13]);
+                                               } else if (d.rd == 15u) {
+                                                   if (!handle_pc_write(&cpu, &map, &scs,
+                                                                        alu_write_pc_value(cpu.r[15]),
+                                                                        &it_pattern, &it_remaining,
+                                                                        &it_cond)) {
+                                                       done = MM_TRUE;
+                                                   }
                                                }
                                            }
                                        }
@@ -3936,7 +4028,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                         break;
                         case MM_OP_MOV_REG:
                                         if (d.rd == 15u) {
-                                            if (!handle_pc_write(&cpu, &map, &scs, cpu.r[d.rm], &it_pattern, &it_remaining, &it_cond)) {
+                                            if (!handle_pc_write(&cpu, &map, &scs, alu_write_pc_value(cpu.r[d.rm]), &it_pattern, &it_remaining, &it_cond)) {
                                                 done = MM_TRUE;
                                             }
                                         } else if (d.rd == 13u) {
@@ -4690,7 +4782,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                                (int)cpu.mode,
                                                                (unsigned long)(cpu.xpsr & 0x1ffu));
                                                     }
-                                                    if ((val & 0xffffff00u) == 0xffffff00u && wbit) {
+                                                    if (((val & 0xffffff00u) == 0xffffff00u || val == MM_TZ_FNC_RETURN) && wbit) {
                                                         mm_u32 sp_after = (opc == 2u) ? (base - 4u * count) : (base + 4u * count);
                                                         if (d.rn == 13u) {
                                                             EXEC_SET_SP(sp_after);
@@ -4701,7 +4793,7 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                     if (!handle_pc_write(&cpu, &map, &scs, val, &it_pattern, &it_remaining, &it_cond)) {
                                                         done = MM_TRUE;
                                                     }
-                                                    exc_return_taken = (val & 0xffffff00u) == 0xffffff00u;
+                                                    exc_return_taken = (val & 0xffffff00u) == 0xffffff00u || val == MM_TZ_FNC_RETURN;
                                                 } else {
                                                         cpu.r[reg] = val;
                                                     }
@@ -4892,7 +4984,8 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                     break;
                                                 }
                                                 if (reg == 15) {
-                                                    mm_bool is_exc_return = (val & 0xffffff00u) == 0xffffff00u;
+                                                    mm_bool is_exc_return = (val & 0xffffff00u) == 0xffffff00u ||
+                                                                            val == MM_TZ_FNC_RETURN;
                                                     if (is_exc_return) {
                                                         mm_u32 sp_after = sp + 4u;
                                                         EXEC_SET_SP(sp_after);

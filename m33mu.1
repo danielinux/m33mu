@@ -54,7 +54,9 @@ Supported profiles at the time of writing:
 .BR nrf5340 ,
 .BR nrf54lm20 ,
 .BR rp2350 ,
-.BR pic32ck .
+.BR pic32ck ,
+.BR m2354 ,
+.BR imxrt700 .
 .TP
 .BR --gdb
 Start the built\-in GDB remote serial protocol server on port 1234.
@@ -162,7 +164,7 @@ Use this when you want seeded startup SRAM plus repeatable bit\-flip noise on to
 .BR --tui
 Start the interactive ncurses terminal UI.
 
-The TUI is intended for interactive sessions where you want CPU state, stack usage, UART output, and basic peripheral status in one screen. It is not meant for automated test logging.
+The TUI shows CPU state, stack usage, UART output, and basic peripheral status. Press F9 to switch to its built-in debugger. The debugger has code, text memory, data memory, and six breakpoint/watchpoint slots. Tab cycles through the command, code, text, and data panes; the selected title is inverted. Arrow keys scroll the focused code or memory pane; Enter applies a typed memory start address. Continue (c or F2) clears manual scrolling and recenters the panes on PC and SP. An empty Return in the command pane repeats its last command. The command line accepts help, continue (c), single-instruction step (s or si), step over a call (n or next), break (b), watch, delete, info registers, x, text, data, disassemble, bt, up, down, and mon. The mon command supports info, reset, quit, capstone on/off, and fault-clock. Breakpoints accept a loaded ELF symbol name (b symbol_name) or an explicit address (b *0xADDRESS). Text memory shows assembly mnemonics and loaded symbol names, with the PC instruction inverted while stopped. Data memory shows hex bytes with an aligned, colored ASCII column; four bytes starting at SP are inverted while stopped. C source is syntax colored, with the current line black on white. Backtraces include the current frame, LR, and approximate stack return candidates. F2 stops or continues and F7 steps. The external GDB client remains available with --gdb in CLI mode.
 .TP
 .BR --record
 Enable the in\-memory execution trace used for reverse/debug workflows.
@@ -284,6 +286,8 @@ Route UART output to stdout instead of a PTY device.
 
 This is the preferred mode for CI and shell scripts because logs become visible directly in process output and can be piped, grepped, or archived.
 
+Guest bytes are never dropped: a host that drains stdout slowly stalls the emulator instead of losing output, and the UART registers the guest sees do not depend on the host side. The emulator's own messages keep their place relative to guest bytes on a blocking stdout, which is what a shell pipe, file or terminal provides. A PTY, by contrast, is best effort: with no reader or a slow one the oldest queued bytes are dropped, so use this option when a complete transcript matters.
+
 When the TUI is active, stdout UART routing is disabled.
 
 Example:
@@ -311,6 +315,25 @@ This is mainly a bring\-up and TrustZone/memory\-protection debugging aid.
 Disable TrustZone protections for the session and force non\-secure boot behavior.
 
 Use this only when you explicitly want to remove secure/non\-secure separation from the run.
+.TP
+.BR --secwm1 = <strt>:<end> ", " --secwm2 = <strt>:<end>
+Provision a flash secure watermark on stm32h5 targets, as the option bytes of a
+real board carry it. Sectors are counted within the bank, and a start value
+greater than the end value means the bank holds no secure sector. A bank left
+unnamed is secure in full.
+
+Passing either flag turns on the flash TrustZone filter, which reads back zero
+when the security attribute of an access does not match the attribution of the
+target sector, in both directions, exactly as silicon does. Passing neither
+leaves the filter inert and says so on stdout: which sectors are secure is a
+property of the board's option bytes rather than of the image, so there is
+nothing sound to infer from an image alone.
+
+wolfBoot's stm32h5 TrustZone layout, for example, is
+.BR "--secwm1=0:47 --secwm2=0:127" :
+bootloader secure, boot partition non\-secure so the application can run, bank 2
+secure for the update partition at
+.IR 0x0C100000 .
 .TP
 .BR --boot " " flash|ram|spiflash
 Select the boot source.
@@ -469,6 +492,9 @@ When set to 1, trace WFE/WFI sleep and wake decisions.
 .B M33MU_PROT_TRACE
 Print SAU/MPU attribution decisions.
 Values 1 through 3 increase verbosity.
+.TP
+.B M33MU_STM32H5_IDCODE
+Replace the STM32H5 DBGMCU_IDCODE value (hex with 0x, or decimal).
 .SH EXAMPLES
 .TP
 .B m33mu tests/firmware/test-stm32h563/app.bin

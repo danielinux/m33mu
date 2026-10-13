@@ -10,6 +10,7 @@
 #include "m33mu/nvic.h"
 #include "rp2350/cpu_config.h"
 #include "rp2350/rp2350_mmio.h"
+#include "rp2350/rp2350_pio.h"
 
 #define TIMER0_BASE 0x400b0000u
 #define TIMER1_BASE 0x400b8000u
@@ -398,6 +399,7 @@ void mm_rp2350_timers_init(struct mmio_bus *bus, struct mm_nvic *nvic)
     struct mmio_region reg;
     if (bus == 0) return;
     g_nvic = nvic;
+    mm_rp2350_pio_bind_nvic(nvic);
 
     memset(&reg, 0, sizeof(reg));
     reg.size = TIMER_SIZE;
@@ -432,6 +434,8 @@ void mm_rp2350_timers_tick(mm_u64 cycles)
     mm_u64 cycles_per_us = (hz == 0u) ? 1u : (hz / 1000000ull);
     mm_u64 inc;
     int i;
+
+    mm_rp2350_pio_tick(cycles);
     if (cycles_per_us == 0u) cycles_per_us = 1u;
     g_cycle_accum += cycles;
     inc = g_cycle_accum / cycles_per_us;

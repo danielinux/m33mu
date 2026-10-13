@@ -111,6 +111,18 @@ static mm_bool memmap_read_old_bytes(const struct mm_memmap *map, enum mm_sec_st
             offset = addr - base;
             return read_buf_bytes(map->flash.buffer, offset, size, out);
         }
+        /* Second secure alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) + size <= size_limit) {
+                offset = addr - base;
+                return read_buf_bytes(map->flash.buffer, offset, size, out);
+            }
+        }
         base = map->flash_base_ns;
         size_limit = map->flash_size_ns;
         if (size_limit == 0u && map->flash.length > 0u) {
@@ -226,6 +238,31 @@ static mm_bool ram_offset_for_addr(const struct mm_memmap *map, mm_u32 addr, mm_
     return MM_FALSE;
 }
 
+/* Invalidate translated code for a RAM write.  When RAM regions alias each
+ * other, code may have been decoded through any alias of the written bytes. */
+static void ram_note_write(const struct mm_memmap *map, mm_u32 addr, mm_u32 offset, mm_u32 size)
+{
+    mm_u32 i;
+    if (map->code_cache == 0) {
+        return;
+    }
+    if (!map->ram_has_alias) {
+        mm_code_cache_note_write(map->code_cache, addr, size);
+        return;
+    }
+    for (i = 0; i < map->ram_region_count; ++i) {
+        const struct mm_ram_region *r = &map->ram_regions[i];
+        mm_u32 roff = map->ram_region_offsets[i];
+        if (offset < roff || offset - roff >= r->size) {
+            continue;
+        }
+        mm_code_cache_note_write(map->code_cache, r->base_s + (offset - roff), size);
+        if (r->base_ns != r->base_s) {
+            mm_code_cache_note_write(map->code_cache, r->base_ns + (offset - roff), size);
+        }
+    }
+}
+
 void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t region_capacity)
 {
     mmio_bus_init(&map->mmio, regions, region_capacity);
@@ -238,6 +275,7 @@ void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t r
     map->ram_region_count = 0;
     map->ram_region_last_hit = ~0u;
     map->ram_total_size = 0;
+    map->ram_has_alias = MM_FALSE;
     map->ram_region_offsets[0] = 0;
     map->ram_region_offsets[1] = 0;
     map->ram_region_offsets[2] = 0;
@@ -256,6 +294,8 @@ void mm_memmap_init(struct mm_memmap *map, struct mmio_region *regions, size_t r
     map->flash_sector_secure_opaque = 0;
     map->bus_attr = 0;
     map->bus_attr_opaque = 0;
+    map->write_observer = 0;
+    map->write_observer_opaque = 0;
     map->code_cache = 0;
     map->flash_base_s = map->flash_base_ns = 0;
     map->flash_size_s = map->flash_size_ns = 0;
@@ -350,6 +390,13 @@ void mm_memmap_set_code_cache(struct mm_memmap *map, struct mm_code_cache *cc)
     map->code_cache = cc;
 }
 
+void mm_memmap_set_write_observer(struct mm_memmap *map, mm_write_observer fn, void *opaque)
+{
+    if (map == 0) return;
+    map->write_observer = fn;
+    map->write_observer_opaque = opaque;
+}
+
 mm_bool mm_memmap_configure_flash(struct mm_memmap *map, const struct mm_target_cfg *cfg, const mm_u8 *backing, mm_bool secure_view)
 {
     if (map == 0 || cfg == 0 || backing == 0) {
@@ -360,6 +407,8 @@ mm_bool mm_memmap_configure_flash(struct mm_memmap *map, const struct mm_target_
     map->flash_base_ns = cfg->flash_base_ns;
     map->flash_size_s = cfg->flash_size_s;
     map->flash_size_ns = cfg->flash_size_ns;
+    map->flash_base_s2 = cfg->flash_base_s2;
+    map->flash_size_s2 = cfg->flash_size_s2;
     if (secure_view) {
         map->flash.length = cfg->flash_size_s;
         map->flash.base = cfg->flash_base_s;
@@ -388,8 +437,15 @@ mm_bool mm_memmap_configure_ram(struct mm_memmap *map, const struct mm_target_cf
         if (map->ram_region_count > (sizeof(map->ram_regions) / sizeof(map->ram_regions[0]))) {
             map->ram_region_count = (mm_u32)(sizeof(map->ram_regions) / sizeof(map->ram_regions[0]));
         }
+        map->ram_has_alias = MM_FALSE;
         for (i = 0; i < map->ram_region_count; ++i) {
+            mm_u32 alias = cfg->ram_regions[i].alias_of;
             map->ram_regions[i] = cfg->ram_regions[i];
+            if (alias != 0u && alias <= i) {
+                map->ram_region_offsets[i] = map->ram_region_offsets[alias - 1u];
+                map->ram_has_alias = MM_TRUE;
+                continue;
+            }
             map->ram_region_offsets[i] = total;
             total += cfg->ram_regions[i].size;
         }
@@ -443,6 +499,25 @@ mm_bool mm_memmap_read(const struct mm_memmap *map, enum mm_sec_state sec, mm_u3
                 return MM_FALSE;
             }
             if (read_buf_le(map->flash.buffer, offset, size, &tmp)) { *value_out = tmp; return MM_TRUE; }
+        }
+        /* Try second secure flash alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) + size <= size_limit) {
+                offset = addr - base;
+                if (flash_tz_rejects(map, addr, offset, MM_SECURE)) {
+                    *value_out = 0u;
+                    return MM_TRUE;
+                }
+                if (map->flash_ecc_check != 0 && !map->flash_ecc_check(map->flash_ecc_check_opaque, offset)) {
+                    return MM_FALSE;
+                }
+                if (read_buf_le(map->flash.buffer, offset, size, &tmp)) { *value_out = tmp; return MM_TRUE; }
+            }
         }
         /* Try non-secure flash window. */
         base = map->flash_base_ns;
@@ -549,6 +624,23 @@ mm_bool mm_memmap_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 add
             }
             return MM_FALSE;
         }
+        /* Second secure flash alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) + size <= size_limit) {
+                if (map->flash_write(map->flash_write_opaque, sec, addr, size, value)) {
+                    if (map->code_cache != 0) {
+                        mm_code_cache_note_write(map->code_cache, addr, size);
+                    }
+                    return MM_TRUE;
+                }
+                return MM_FALSE;
+            }
+        }
         base = map->flash_base_ns;
         size_limit = map->flash_size_ns;
         if (size_limit == 0u && map->flash.length > 0u) {
@@ -579,21 +671,27 @@ mm_bool mm_memmap_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 add
                 buf[offset + 2u] = (mm_u8)((value >> 16) & 0xffu);
                 buf[offset + 3u] = (mm_u8)((value >> 24) & 0xffu);
                 if (map->code_cache != 0) {
-                    mm_code_cache_note_write(map->code_cache, addr, size);
+                    ram_note_write(map, addr, offset, size);
                 }
+                if (map->write_observer != 0)
+                    map->write_observer(map->write_observer_opaque, addr, size);
                 return MM_TRUE;
             } else if (size == 2u) {
                 buf[offset] = (mm_u8)(value & 0xffu);
                 buf[offset + 1u] = (mm_u8)((value >> 8) & 0xffu);
                 if (map->code_cache != 0) {
-                    mm_code_cache_note_write(map->code_cache, addr, size);
+                    ram_note_write(map, addr, offset, size);
                 }
+                if (map->write_observer != 0)
+                    map->write_observer(map->write_observer_opaque, addr, size);
                 return MM_TRUE;
             } else if (size == 1u) {
                 buf[offset] = (mm_u8)(value & 0xffu);
                 if (map->code_cache != 0) {
-                    mm_code_cache_note_write(map->code_cache, addr, size);
+                    ram_note_write(map, addr, offset, size);
                 }
+                if (map->write_observer != 0)
+                    map->write_observer(map->write_observer_opaque, addr, size);
                 return MM_TRUE;
             }
         }
@@ -642,6 +740,23 @@ mm_bool mm_memmap_fetch_read16(const struct mm_memmap *map, enum mm_sec_state se
             }
             if (read_buf_le(map->flash.buffer, offset, 2u, &tmp)) { *value_out = tmp; return MM_TRUE; }
             return MM_FALSE;
+        }
+
+        /* Second secure flash alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) + 2u <= size_limit) {
+                offset = addr - base;
+                if (map->flash_ecc_check != 0 && !map->flash_ecc_check(map->flash_ecc_check_opaque, offset)) {
+                    return MM_FALSE;
+                }
+                if (read_buf_le(map->flash.buffer, offset, 2u, &tmp)) { *value_out = tmp; return MM_TRUE; }
+                return MM_FALSE;
+            }
         }
 
         base = map->flash_base_ns;
@@ -698,6 +813,26 @@ mm_bool mm_memmap_read8(const struct mm_memmap *map, enum mm_sec_state sec, mm_u
             }
             *value_out = map->flash.buffer[flash_off];
             return MM_TRUE;
+        }
+        /* Second secure flash alias (e.g. LPC55S69 0x0C000000). */
+        if (map->flash_base_s2 != 0u) {
+            base = map->flash_base_s2;
+            size_limit = map->flash_size_s2;
+            if (size_limit == 0u) {
+                size_limit = map->flash_size_s;
+            }
+            if (addr >= base && (addr - base) < size_limit) {
+                mm_u32 flash_off = addr - base;
+                if (flash_tz_rejects(map, addr, flash_off, MM_SECURE)) {
+                    *value_out = 0u;
+                    return MM_TRUE;
+                }
+                if (map->flash_ecc_check != 0 && !map->flash_ecc_check(map->flash_ecc_check_opaque, flash_off)) {
+                    return MM_FALSE;
+                }
+                *value_out = map->flash.buffer[flash_off];
+                return MM_TRUE;
+            }
         }
         base = map->flash_base_ns;
         size_limit = map->flash_size_ns;
@@ -758,8 +893,10 @@ mm_bool mm_memmap_write8(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 ad
             buf = (mm_u8 *)map->ram.buffer;
             buf[offset] = value;
             if (map->code_cache != 0) {
-                mm_code_cache_note_write(map->code_cache, addr, 1u);
+                ram_note_write(map, addr, offset, 1u);
             }
+            if (map->write_observer != 0)
+                map->write_observer(map->write_observer_opaque, addr, 1u);
             return MM_TRUE;
         }
     }
@@ -799,7 +936,7 @@ mm_bool mm_memmap_write_ram_raw(struct mm_memmap *map, mm_u32 addr, mm_u32 size,
         return MM_FALSE;
     }
     if (map->code_cache != 0) {
-        mm_code_cache_note_write(map->code_cache, addr, size);
+        ram_note_write(map, addr, offset, size);
     }
     return MM_TRUE;
 }

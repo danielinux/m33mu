@@ -59,6 +59,7 @@ static mm_bool is_control_flow(enum mm_op_kind kind)
     case MM_OP_TBH:
     case MM_OP_MRS:
     case MM_OP_MSR:
+    case MM_OP_CPS:     /* PRIMASK/FAULTMASK change: let pending IRQs in */
     case MM_OP_MCR_MRC:
     case MM_OP_MCRR_MRRC:
     case MM_OP_DSB:

@@ -43,13 +43,13 @@ static const struct mm_ram_region STM32H5F4_RAM_REGIONS[] = {
     /* Scratch block, not modelled silicon: the STM32H5 has no memory at
      * 0x0A000000 and no second view of SRAM there. Independent storage,
      * not an alias of the SRAM banks below. */
-    { 0x0A000000u, 0x0A000000u, 0x00180000u, -1 },
-    { 0x30000000u, 0x20000000u, 0x00040000u, 0 }, /* SRAM1 256 KB */
-    { 0x30040000u, 0x20040000u, 0x00020000u, 1 }, /* SRAM2 128 KB */
-    { 0x30060000u, 0x20060000u, 0x00060000u, 2 }, /* SRAM3 384 KB */
-    { 0x300C0000u, 0x200C0000u, 0x00060000u, 3 }, /* SRAM4 384 KB */
-    { 0x30120000u, 0x20120000u, 0x00060000u, 4 }, /* SRAM5 384 KB */
-    { 0x50036400u, 0x40036400u, 0x00001000u, -1 } /* BKPSRAM 4 KB */
+    { 0x0A000000u, 0x0A000000u, 0x00180000u, -1, 0u },
+    { 0x30000000u, 0x20000000u, 0x00040000u, 0, 0u }, /* SRAM1 256 KB */
+    { 0x30040000u, 0x20040000u, 0x00020000u, 1, 0u }, /* SRAM2 128 KB */
+    { 0x30060000u, 0x20060000u, 0x00060000u, 2, 0u }, /* SRAM3 384 KB */
+    { 0x300C0000u, 0x200C0000u, 0x00060000u, 3, 0u }, /* SRAM4 384 KB */
+    { 0x30120000u, 0x20120000u, 0x00060000u, 4, 0u }, /* SRAM5 384 KB */
+    { 0x50036400u, 0x40036400u, 0x00001000u, -1, 0u } /* BKPSRAM 4 KB */
 };
 
 #define STM32H5F4_RAM_REGION_COUNT (sizeof(STM32H5F4_RAM_REGIONS) / sizeof(STM32H5F4_RAM_REGIONS[0]))

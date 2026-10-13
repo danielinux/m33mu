@@ -77,6 +77,7 @@ cmake --build build --target test-stm32u5
 cmake --build build --target test-stm32l5
 cmake --build build --target test-mcxw
 cmake --build build --target test-mcxn947
+cmake --build build --target test-imxrt700
 ```
 
 ## First Runs

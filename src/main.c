@@ -43,6 +43,8 @@
 #include "mcxn947/mcxn947_romapi.h"
 #include "lpc55s69/lpc55s69_romapi.h"
 #include "rw612/rw612_romapi.h"
+#include "imxrt700/imxrt700_romapi.h"
+#include "imxrt700/cpu_config.h"
 #include "rp2350/rp2350_mmio.h"
 #include "stm32h533/stm32h533_mmio.h"
 #include "stm32h563/stm32h563_mmio.h"
@@ -75,7 +77,9 @@
 #include "m33mu/stsafe.h"
 #include "m33mu/tropic01.h"
 #endif
+#include "m33mu/host_rng.h"
 #include "tui.h"
+#include "debugger.h"
 #include <string.h>
 #include <time.h>
 #include <stdlib.h>
@@ -488,6 +492,9 @@ static mm_bool mm_bootapi_handle(struct mm_cpu *cpu, struct mm_memmap *map)
     if (mm_rw612_romapi_handle(cpu, map)) {
         return MM_TRUE;
     }
+    if (mm_imxrt700_romapi_handle(cpu, map)) {
+        return MM_TRUE;
+    }
     return MM_FALSE;
 }
 
@@ -503,6 +510,26 @@ static void finish_trace_step_if_started(mm_bool trace_started,
     record_window_step(cpu, map);
 }
 
+/*
+ * i.MX RT700: boot ROM (both aliases) and secure views of the non-secure
+ * XSPI0 and SRAM aliases.  SDK images link at the non-secure alias and run
+ * secure while the SAU is still disabled, which attributes everything Secure.
+ */
+static void add_imxrt700_prot_regions(struct mm_prot_ctx *p, const struct mm_target_cfg *cfg)
+{
+    mm_u32 ri;
+    mm_prot_add_region(p, IMXRT700_ROM_BASE_S, IMXRT700_ROM_SIZE, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+    mm_prot_add_region(p, IMXRT700_ROM_BASE_NS, IMXRT700_ROM_SIZE, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+    mm_prot_add_region(p, IMXRT700_ROM_BASE_NS, IMXRT700_ROM_SIZE, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
+    mm_prot_add_region(p, cfg->flash_base_ns, cfg->flash_size_ns,
+                       MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+    for (ri = 0; ri < cfg->ram_region_count; ++ri) {
+        const struct mm_ram_region *r = &cfg->ram_regions[ri];
+        mm_prot_add_region(p, r->base_ns, r->size,
+                           MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+    }
+}
+
 static mm_u32 cfg_total_ram(const struct mm_target_cfg *cfg)
 {
     mm_u32 total = 0;
@@ -510,17 +537,14 @@ static mm_u32 cfg_total_ram(const struct mm_target_cfg *cfg)
     if (cfg == 0) return 0;
     if (cfg->ram_regions != 0 && cfg->ram_region_count > 0u) {
         for (i = 0; i < cfg->ram_region_count; ++i) {
+            if (cfg->ram_regions[i].alias_of != 0u) {
+                continue;
+            }
             total += cfg->ram_regions[i].size;
         }
         return total;
     }
     return cfg->ram_size_s;
-}
-
-static void handle_timeout_alarm(int sig)
-{
-    (void)sig;
-    _exit(127);
 }
 
 static void dump_cpu_regs(const struct mm_cpu *cpu, const char *tag)
@@ -847,50 +871,6 @@ static void apply_target_boot_seed_regs(struct mm_cpu *cpu, const char *cpu_name
     }
 }
 
-static void launch_gdb_tui(const struct mm_tui *tui)
-{
-    char elf_path[512];
-    char cmd[1024];
-    const char *elf = 0;
-    int port;
-    size_t len;
-    if (tui == 0) return;
-    port = tui->gdb_port != 0 ? tui->gdb_port : 1234;
-    if (tui->image0_path[0] != '\0') {
-        len = strlen(tui->image0_path);
-        if (len > 4 && strcmp(tui->image0_path + len - 4, ".bin") == 0) {
-            snprintf(elf_path, sizeof(elf_path), "%.*s.elf", (int)(len - 4), tui->image0_path);
-            if (access(elf_path, R_OK) == 0) {
-                elf = elf_path;
-            }
-        }
-    }
-    if (elf != 0) {
-        snprintf(cmd, sizeof(cmd),
-                 "exec arm-none-eabi-gdb -n -q -ex \"file %s\" -ex \"tar rem:%d\" -ex \"tui enable\" -ex \"focus cmd\"",
-                 elf, port);
-    } else {
-        snprintf(cmd, sizeof(cmd),
-                 "exec arm-none-eabi-gdb -n -q -ex \"tar rem:%d\" -ex \"tui enable\" -ex \"focus cmd\"",
-                 port);
-    }
-    printf("GDB launch command: %s\n", cmd);
-    {
-        pid_t pid = fork();
-        if (pid < 0) {
-            perror("fork");
-            return;
-        }
-        if (pid == 0) {
-            execl("/usr/bin/x-terminal-emulator", "/usr/bin/x-terminal-emulator",
-                  "-e", "/bin/sh", "-c", cmd, (char *)0);
-            perror("execl(/usr/bin/x-terminal-emulator)");
-            _exit(127);
-        }
-    }
-    return;
-}
-
 #ifdef M33MU_HAS_LIBDW
 struct mm_symbol_ctx {
     Dwfl *dwfl;
@@ -955,30 +935,13 @@ static mm_bool symbol_ctx_build(const char **elf_paths, size_t count)
 static mm_bool symbol_lookup_name(mm_u32 pc, char *out, size_t out_len)
 {
 #ifdef M33MU_HAS_LIBDW
-    Dwfl_Module *mod;
-    const char *name;
-    mm_u32 addr;
-    size_t len;
+    char *offset;
     if (out == 0 || out_len == 0) return MM_FALSE;
     out[0] = '\0';
-    if (!g_symbol_ctx.ready || g_symbol_ctx.dwfl == 0) {
-        return MM_FALSE;
-    }
-    addr = pc & ~1u;
-    mod = dwfl_addrmodule(g_symbol_ctx.dwfl, addr);
-    if (mod == 0) {
-        return MM_FALSE;
-    }
-    name = dwfl_module_addrname(mod, addr);
-    if (name == 0 || name[0] == '\0' || name[0] == '?') {
-        return MM_FALSE;
-    }
-    len = strlen(name);
-    if (len >= out_len) {
-        len = out_len - 1u;
-    }
-    memcpy(out, name, len);
-    out[len] = '\0';
+    if (!g_symbol_ctx.ready ||
+        !mm_tui_format_dwfl_addr(g_symbol_ctx.dwfl, pc, out, out_len)) return MM_FALSE;
+    offset = strstr(out, "+0x");
+    if (offset != 0) *offset = '\0';
     return MM_TRUE;
 #else
     (void)pc;
@@ -988,8 +951,118 @@ static mm_bool symbol_lookup_name(mm_u32 pc, char *out, size_t out_len)
 #endif
 }
 
+static mm_bool symbol_format_address(mm_u32 addr, char *out, size_t out_len)
+{
 #ifdef M33MU_HAS_LIBDW
+    return mm_tui_format_dwfl_addr(g_symbol_ctx.ready ? g_symbol_ctx.dwfl : 0,
+                                    addr, out, out_len);
+#else
+    return mm_tui_format_dwfl_addr(0, addr, out, out_len);
 #endif
+}
+
+static void tui_symbolize_text(struct mm_tui *tui)
+{
+    int base;
+    int i;
+    if (tui == 0 || !tui->debugger_view ||
+        (tui->debugger_text_symbols_ready &&
+         tui->debugger_text_symbol_base == tui->debugger_text_addr)) return;
+    tui->debugger_text_symbol_base = tui->debugger_text_addr;
+    tui->debugger_text_symbols_ready = MM_TRUE;
+    for (i = 0; i < TUI_DEBUG_BYTES / 2; ++i) {
+        tui->debugger_text_symbols[i][0] = '\0';
+        tui->debugger_text_targets[i][0] = '\0';
+    }
+    for (base = 0; base + 1 < TUI_DEBUG_BYTES; ) {
+        struct mm_fetch_result fetch;
+        struct mm_decoded decoded;
+        mm_u16 hw;
+        mm_u32 target;
+        i = base / 2;
+        (void)symbol_format_address(tui->debugger_text_addr + (mm_u32)base,
+                                    tui->debugger_text_symbols[i],
+                                    sizeof(tui->debugger_text_symbols[i]));
+        if (!tui->debugger_text_valid[base] || !tui->debugger_text_valid[base + 1]) {
+            base += 2;
+            continue;
+        }
+        hw = (mm_u16)(tui->debugger_text[base] |
+                      ((mm_u16)tui->debugger_text[base + 1] << 8));
+        memset(&fetch, 0, sizeof(fetch));
+        fetch.pc_fetch = tui->debugger_text_addr + (mm_u32)base;
+        fetch.len = 2u;
+        fetch.insn = hw;
+        if (t32_is_32bit_prefix(hw) && base + 3 < TUI_DEBUG_BYTES &&
+            tui->debugger_text_valid[base + 2] &&
+            tui->debugger_text_valid[base + 3]) {
+            fetch.len = 4u;
+            fetch.insn = ((mm_u32)hw << 16) |
+                         (mm_u32)(tui->debugger_text[base + 2] |
+                                  ((mm_u16)tui->debugger_text[base + 3] << 8));
+        }
+        decoded = mm_decode_t32(&fetch);
+        switch (decoded.kind) {
+        case MM_OP_B_COND:
+        case MM_OP_B_UNCOND:
+        case MM_OP_B_COND_WIDE:
+        case MM_OP_B_UNCOND_WIDE:
+        case MM_OP_BL:
+        case MM_OP_CBZ:
+        case MM_OP_CBNZ:
+            target = fetch.pc_fetch + 4u + decoded.imm;
+            (void)symbol_format_address(target, tui->debugger_text_targets[i],
+                                        sizeof(tui->debugger_text_targets[i]));
+            break;
+        default:
+            break;
+        }
+        base += fetch.len;
+    }
+}
+
+static void tui_load_source(struct mm_tui *tui, mm_u32 pc)
+{
+    if (tui == 0) return;
+    tui->debugger_source_valid = MM_FALSE;
+#ifdef M33MU_HAS_LIBDW
+    if (g_symbol_ctx.ready && g_symbol_ctx.dwfl != 0) {
+        Dwfl_Line *line = dwfl_getsrc(g_symbol_ctx.dwfl, pc | 1u);
+        int number = 0;
+        const char *path = line ? dwfl_lineinfo(line, 0, &number, 0, 0, 0) : 0;
+        FILE *file;
+        char *text_line = 0;
+        size_t cap = 0;
+        int current = 0;
+        int first = number - 5 + tui->debugger_code_scroll;
+        if (first < 1) first = 1;
+        tui->debugger_source_pc = pc;
+        if (path == 0 || number < 1 || (file = fopen(path, "r")) == 0) return;
+        tui->debugger_source_line = number;
+        tui->debugger_source_start = first;
+        tui->debugger_source_count = 0;
+        snprintf(tui->debugger_source_path, sizeof(tui->debugger_source_path), "%s", path);
+        while (tui->debugger_source_count < (int)(sizeof(tui->debugger_source) /
+                                                  sizeof(tui->debugger_source[0])) &&
+               getline(&text_line, &cap, file) >= 0) {
+            size_t len;
+            ++current;
+            if (current < first) continue;
+            len = strlen(text_line);
+            while (len > 0 && (text_line[len - 1] == '\n' || text_line[len - 1] == '\r'))
+                text_line[--len] = '\0';
+            snprintf(tui->debugger_source[tui->debugger_source_count],
+                     sizeof(tui->debugger_source[0]), "%s", text_line);
+            tui->debugger_source_count++;
+        }
+        free(text_line);
+        fclose(file);
+        tui->debugger_source_valid = tui->debugger_source_count > 0 ? MM_TRUE : MM_FALSE;
+    }
+#else
+    (void)pc;
+#endif
+}
 
 static const char *path_basename(const char *path)
 {
@@ -1245,6 +1318,21 @@ static mm_bool handle_tui(struct mm_tui *tui,
     if (!opt_tui || tui == 0) {
         return MM_FALSE;
     }
+    tui->debugger_resolve_symbol = mm_tui_resolve_dwfl;
+    tui->debugger_monitor_opaque = gdb;
+#ifdef M33MU_HAS_LIBDW
+    tui->debugger_resolve_opaque = g_symbol_ctx.ready ? g_symbol_ctx.dwfl : 0;
+#else
+    tui->debugger_resolve_opaque = 0;
+#endif
+#ifdef M33MU_USE_LIBCAPSTONE
+    if (tui->debugger_view && !tui->debugger_disasm_ready) {
+        if (capstone_init()) {
+            if (opt_capstone != 0 && !*opt_capstone) (void)capstone_set_enabled(MM_FALSE);
+            tui->debugger_disasm_ready = MM_TRUE;
+        }
+    }
+#endif
     running = target_should_run((opt_gdb != 0 ? *opt_gdb : MM_FALSE), gdb,
                                 (tui_paused != 0 ? *tui_paused : MM_FALSE),
                                 (tui_step != 0 ? *tui_step : MM_FALSE));
@@ -1286,21 +1374,43 @@ static mm_bool handle_tui(struct mm_tui *tui,
             } else {
                 mm_tui_set_function(tui, func_pc, 0);
             }
+            tui_load_source(tui, func_pc);
+        }
+        if (tui->debugger_view) {
+            mm_u32 source_pc = tui->debugger_frame_selected < tui->debugger_frame_count ?
+                               tui->debugger_frame_pc[tui->debugger_frame_selected] : func_pc;
+            int wanted = tui->debugger_source_line - 5 + tui->debugger_code_scroll;
+            if (tui->debugger_frame_selected > 0u && source_pc >= 2u)
+                source_pc -= 2u;
+            if (wanted < 1) wanted = 1;
+            if (source_pc != tui->debugger_source_pc ||
+                (tui->debugger_source_valid && wanted != tui->debugger_source_start))
+                tui_load_source(tui, source_pc);
         }
     } else if (tui->func_valid) {
         mm_tui_set_function(tui, 0u, 0);
+    }
+    if (running) {
+        tui->debugger_source_valid = MM_FALSE;
+        tui->func_pc = 0u;
     }
     if (cpu_name != 0) {
         mm_tui_set_cpu_name(tui, cpu_name);
     }
     if (map != 0) {
         mm_tui_set_memory_map(tui, map);
+        mm_memmap_set_write_observer(map, mm_tui_debug_observe_write, tui);
+    }
+    if (cpu != 0 && map != 0) {
+        mm_tui_debug_snapshot(tui, cpu, map);
+        tui_symbolize_text(tui);
     }
     actions = mm_tui_take_actions(tui);
     if ((actions & MM_TUI_ACTION_QUIT) != 0u) {
         return MM_TRUE;
     }
     if ((actions & MM_TUI_ACTION_RESET) != 0u) {
+        tui->debugger_next_pending = MM_FALSE;
         apply_reset_view(tui, cpu, map, cycle_total, steps_offset, steps_latched);
     }
     if ((actions & MM_TUI_ACTION_RELOAD) != 0u) {
@@ -1309,6 +1419,8 @@ static mm_bool handle_tui(struct mm_tui *tui,
         }
     }
     if ((actions & MM_TUI_ACTION_PAUSE) != 0u) {
+        tui->debugger_next_pending = MM_FALSE;
+        if (tui_step != 0) *tui_step = MM_FALSE;
         if (opt_gdb != 0 && *opt_gdb && gdb != 0) {
             gdb->running = MM_FALSE;
             mm_gdb_stub_notify_stop(gdb, 5);
@@ -1317,6 +1429,7 @@ static mm_bool handle_tui(struct mm_tui *tui,
         }
     }
     if ((actions & MM_TUI_ACTION_CONTINUE) != 0u) {
+        tui->debugger_next_pending = MM_FALSE;
         if (opt_gdb != 0 && *opt_gdb && gdb != 0) {
             gdb->running = MM_TRUE;
         } else if (tui_paused != 0) {
@@ -1324,12 +1437,14 @@ static mm_bool handle_tui(struct mm_tui *tui,
         }
     }
     if ((actions & MM_TUI_ACTION_STEP) != 0u) {
+        tui->debugger_next_pending = MM_FALSE;
         if (opt_gdb != 0 && *opt_gdb && gdb != 0) {
             gdb->step_pending = MM_TRUE;
             gdb->running = MM_TRUE;
         } else {
             if (tui_step != 0) *tui_step = MM_TRUE;
             if (tui_paused != 0) *tui_paused = MM_FALSE;
+            tui->debugger_step_cycle = cycle_total;
         }
     }
     if ((actions & MM_TUI_ACTION_TOGGLE_CAPSTONE) != 0u) {
@@ -1355,23 +1470,16 @@ static mm_bool handle_tui(struct mm_tui *tui,
         (void)opt_capstone;
 #endif
     }
-    if ((actions & MM_TUI_ACTION_LAUNCH_GDB) != 0u) {
-        if (gdb_port <= 0 || gdb_port > 65535) {
-            fprintf(stderr, "invalid gdb port: %d\n", gdb_port);
+    if ((actions & MM_TUI_ACTION_DEBUG_COMMAND) != 0u && cpu != 0 && map != 0) {
+        if (opt_gdb != 0 && *opt_gdb) {
+            snprintf(tui->debugger_message, sizeof(tui->debugger_message),
+                     "External GDB controls this session");
+            tui->debugger_command_ready = MM_FALSE;
         } else {
-            if (gdb != 0 && *opt_gdb) {
-                mm_gdb_stub_close(gdb);
-                *opt_gdb = MM_FALSE;
-            }
-            mm_gdb_stub_set_cpu_name(gdb, cpu_name);
-            printf("Starting GDB server on port %d...\n", gdb_port);
-            if (mm_gdb_stub_start(gdb, gdb_port)) {
-                *opt_gdb = MM_TRUE;
-                (void)launch_gdb_tui(tui);
-                printf("Waiting for GDB connection in background...\n");
-            } else {
-                fprintf(stderr, "Failed to start GDB server\n");
-            }
+            mm_tui_debug_command(tui, cpu, map, tui_paused, tui_step);
+            if (tui_step != 0 && *tui_step) tui->debugger_step_cycle = cycle_total;
+            mm_tui_debug_snapshot(tui, cpu, map);
+            tui_symbolize_text(tui);
         }
     }
     return MM_FALSE;
@@ -1414,8 +1522,191 @@ static void host_sync_if_needed(mm_u64 vcycles,
 
 static struct mm_cpu *g_cpu0 = 0;
 static struct mm_cpu *g_cpu1 = 0;
+static struct mm_memmap *g_timeout_map = 0;
 static struct mm_nvic *g_nvic0 = 0;
 static struct mm_nvic *g_nvic1 = 0;
+
+/* --- Wall-clock timeout (--timeout) ------------------------------------
+ * The handler runs in signal context, so it may use only async-signal-safe
+ * calls: no printf, no malloc, no stdio at all. Everything below is
+ * formatted by hand into a stack buffer and handed to write(2) on stderr,
+ * which is unbuffered and survives a pipeline such as "| tee".
+ *
+ * Reporting the state matters more than it looks. A timeout is how an
+ * intermittent guest hang shows up in CI, and exiting silently discards the
+ * only evidence of where it hung: the run is over, the guest is gone, and
+ * the log simply ends. PC and LR are enough to find the offending function
+ * in the map file on the next occurrence. */
+static volatile sig_atomic_t g_timeout_secs = 0;
+static const volatile mm_u64 *g_cycle_total = 0;
+
+static void timeout_write(const char *s)
+{
+    size_t n = 0;
+    size_t off = 0;
+    ssize_t w;
+
+    while (s[n] != '\0') {
+        n++;
+    }
+    while (off < n) {
+        w = write(2, s + off, n - off);
+        if (w <= 0) {
+            return;
+        }
+        off += (size_t)w;
+    }
+}
+
+static char *timeout_str(char *p, const char *s)
+{
+    while (*s != '\0') {
+        *p = *s;
+        p++;
+        s++;
+    }
+    return p;
+}
+
+/* Writes exactly 8 hex digits and returns the position after them. */
+static char *timeout_hex32(char *p, mm_u32 v)
+{
+    static const char digits[] = "0123456789abcdef";
+    int i;
+
+    for (i = 7; i >= 0; i--) {
+        p[i] = digits[v & 0xFu];
+        v >>= 4;
+    }
+    return p + 8;
+}
+
+static char *timeout_dec(char *p, mm_u64 v)
+{
+    char tmp[24];
+    int n = 0;
+
+    if (v == 0u) {
+        *p = '0';
+        return p + 1;
+    }
+    while (v > 0u && n < (int)sizeof(tmp)) {
+        tmp[n] = (char)('0' + (int)(v % 10u));
+        v /= 10u;
+        n++;
+    }
+    while (n > 0) {
+        n--;
+        *p = tmp[n];
+        p++;
+    }
+    return p;
+}
+
+static void timeout_dump_cpu(const struct mm_cpu *cpu, const char *tag)
+{
+    char line[320];
+    char *p;
+    int i;
+
+    if (cpu == 0) {
+        return;
+    }
+
+    p = line;
+    *p = '[';
+    p++;
+    p = timeout_str(p, tag);
+    p = timeout_str(p, "] PC=0x");
+    p = timeout_hex32(p, cpu->r[15]);
+    p = timeout_str(p, " LR=0x");
+    p = timeout_hex32(p, cpu->r[14]);
+    p = timeout_str(p, " SP=0x");
+    p = timeout_hex32(p, cpu->r[13]);
+    p = timeout_str(p, " xpsr=0x");
+    p = timeout_hex32(p, cpu->xpsr);
+    p = timeout_str(p, " mode=");
+    p = timeout_dec(p, (mm_u64)(unsigned int)cpu->mode);
+    p = timeout_str(p, " sec=");
+    p = timeout_dec(p, (mm_u64)(unsigned int)cpu->sec_state);
+    *p = '\n';
+    p++;
+    *p = '\0';
+    timeout_write(line);
+
+    p = line;
+    *p = '[';
+    p++;
+    p = timeout_str(p, tag);
+    p = timeout_str(p, "]");
+    for (i = 0; i < 13; i++) {
+        p = timeout_str(p, " r");
+        p = timeout_dec(p, (mm_u64)(unsigned int)i);
+        p = timeout_str(p, "=0x");
+        p = timeout_hex32(p, cpu->r[i]);
+    }
+    *p = '\n';
+    p++;
+    *p = '\0';
+    timeout_write(line);
+
+    if (g_timeout_map == 0) {
+        return;
+    }
+    {
+        mm_u32 cfsr = 0, hfsr = 0, bfar = 0, mmfar = 0, fault_pc = 0;
+        enum mm_sec_state sec = cpu->sec_state;
+        (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED28u, 4u, &cfsr);
+        (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED2Cu, 4u, &hfsr);
+        (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED38u, 4u, &bfar);
+        (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED34u, 4u, &mmfar);
+        (void)mm_memmap_read(g_timeout_map, sec, cpu->r[13] + 20u, 4u, &fault_pc);
+        p = line;
+        *p = '['; p++;
+        p = timeout_str(p, tag);
+        p = timeout_str(p, "] CFSR=0x");
+        p = timeout_hex32(p, cfsr);
+        p = timeout_str(p, " HFSR=0x");
+        p = timeout_hex32(p, hfsr);
+        p = timeout_str(p, " BFAR=0x");
+        p = timeout_hex32(p, bfar);
+        p = timeout_str(p, " MMFAR=0x");
+        p = timeout_hex32(p, mmfar);
+        p = timeout_str(p, " faultPC=0x");
+        p = timeout_hex32(p, fault_pc);
+        *p = '\n'; p++;
+        *p = '\0';
+        timeout_write(line);
+    }
+}
+
+static void handle_timeout_alarm(int sig)
+{
+    char line[160];
+    char *p;
+
+    (void)sig;
+
+    p = line;
+    p = timeout_str(p, "[TIMEOUT] wall-clock limit of ");
+    p = timeout_dec(p, (mm_u64)(unsigned int)g_timeout_secs);
+    p = timeout_str(p, " s reached; the guest was still running");
+    if (g_cycle_total != 0) {
+        p = timeout_str(p, " after ");
+        p = timeout_dec(p, *g_cycle_total);
+        p = timeout_str(p, " virtual cycles");
+    }
+    *p = '.';
+    p++;
+    *p = '\n';
+    p++;
+    *p = '\0';
+    timeout_write(line);
+
+    timeout_dump_cpu(g_cpu0, "TIMEOUT cpu0");
+    timeout_dump_cpu(g_cpu1, "TIMEOUT cpu1");
+    _exit(127);
+}
 
 static struct mm_nvic *nvic_for_cpu(const struct mm_cpu *cpu)
 {
@@ -2709,8 +3000,8 @@ static mm_bool allow_system_reset(const struct mm_target_cfg *cfg, const char *c
     if (cfg == 0 || cpu_name == 0) {
         return MM_TRUE;
     }
-    if (cfg->core_count > 1u && strcmp(cpu_name, "rp2350") == 0) {
-        return mm_rp2350_core1_can_reset();
+    if (cfg->core_count > 1u && cfg->mc_ops != 0 && cfg->mc_ops->core1_can_reset != 0) {
+        return cfg->mc_ops->core1_can_reset();
     }
     return MM_TRUE;
 }
@@ -2983,6 +3274,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
                                   mm_u32 exc_ret)
 {
     struct mm_exc_return_info info;
+    mm_bool frame_psp = MM_FALSE;
     mm_u32 tail_exc_num = 0u;
     enum mm_sec_state tail_handler_sec = MM_SECURE;
     mm_bool tail_is_irq = MM_FALSE;
@@ -3120,7 +3412,14 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
                (unsigned)cpu->exc_depth);
         dump_exc_stack_state(cpu, "EXC_STACK_POP_POST");
     }
-    if (info.use_psp) {
+    /* EXC_RETURN.SPSEL captures the PREEMPTED domain's CONTROL.SPSEL at
+     * entry, so bit2 always names the stack holding the frame — for
+     * same-domain and cross-domain returns alike. Never consult the live
+     * CONTROL here: a nested same-domain exception entry (e.g. a Secure
+     * SysTick taken while Non-secure code runs above a parked Secure
+     * thread) legitimately rewrites it between stacking and unstacking. */
+    frame_psp = info.to_thread && info.use_psp;
+    if (frame_psp) {
         sp = (info.target_sec == MM_NONSECURE) ? cpu->psp_ns : cpu->psp_s;
     } else {
         sp = (info.target_sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s;
@@ -3300,7 +3599,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
     if ((frame[7] & (1u << 9)) != 0u) {
         sp += 4u;
     }
-    if (info.use_psp) {
+    if (frame_psp) {
         if (info.target_sec == MM_NONSECURE) cpu->psp_ns = sp;
         else cpu->psp_s = sp;
     } else {
@@ -3314,10 +3613,15 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
                (unsigned long)sp);
     }
     /*
-     * On exception return to Thread mode, EXC_RETURN.SPSEL selects the
-     * stack used for unstacking. Some firmware (e.g., frosted) programs
-     * CONTROL.SPSEL in the handler to switch to PSP after return; preserve
-     * an already-set SPSEL bit rather than unconditionally clearing it.
+     * EXC_RETURN.SPSEL restores CONTROL.SPSEL of the domain being RETURNED
+     * to (Armv8-M exception model: the value captured from the preempted
+     * domain at entry). Same- and cross-domain thread returns behave alike;
+     * handler-mode returns leave CONTROL untouched. Pairs with the
+     * same-domain-only SPSEL clear at entry: together they keep a parked
+     * thread's SPSEL alive across unrelated cross-domain preemptions (the
+     * original defect left CONTROL_NS.SPSEL stuck at 0 after an NS-targeting
+     * exception preempted Secure code, so an NS thread later resumed via
+     * BXNS ran on the wrong stack).
      */
     if (info.to_thread) {
         if (info.return_sec == MM_NONSECURE) {
@@ -3485,6 +3789,10 @@ static mm_bool step_core_simple(struct mm_cpu *cpu,
         } else if (mm_nvic_select_ex(nvic, cpu, scs) >= 0) {
             wake = MM_TRUE;
         } else if (cpu->sleep_wfe && mm_nvic_any_pending(nvic)) {
+            wake = MM_TRUE;
+        } else if (!cpu->sleep_wfe && mm_nvic_any_pending_enabled(nvic)) {
+            /* WFI wakes on an interrupt that would preempt with PRIMASK
+             * clear, so "cpsid i; wfi; cpsie i" idle loops work. */
             wake = MM_TRUE;
         }
         if (!wake) {
@@ -3758,6 +4066,23 @@ static mm_bool handle_pc_write(struct mm_cpu *cpu,
         if (!raise_usage_fault(cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr, (1u << 16))) {
             return MM_FALSE;
         }
+        return MM_TRUE;
+    }
+    if (value == MM_TZ_FNC_RETURN && cpu->sec_state == MM_NONSECURE && cpu->tz_depth > 0) {
+        /* Non-secure branch to FNC_RETURN (BX Rm, POP {pc}, LDR pc, ...):
+         * return from the Secure BLXNS that called this function. */
+        mm_u32 secure_sp;
+        cpu->tz_depth--;
+        cpu->sec_state = cpu->tz_ret_sec[cpu->tz_depth];
+        cpu->mode = cpu->tz_ret_mode[cpu->tz_depth];
+        secure_sp = mm_cpu_get_active_sp(cpu);
+        mm_cpu_set_active_sp(cpu, secure_sp + 8u);
+        cpu->r[13] = mm_cpu_get_active_sp(cpu);
+        cpu->r[15] = cpu->tz_ret_pc[cpu->tz_depth] | 1u;
+        cpu->xpsr = itstate_set(cpu->xpsr, 0u);
+        if (it_pattern) *it_pattern = 0;
+        if (it_remaining) *it_remaining = 0;
+        if (it_cond) *it_cond = 0;
         return MM_TRUE;
     }
     if ((value & 0xffffff00u) == 0xffffff00u) {
@@ -4412,12 +4737,25 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
     fp_stack = (!tail_chain) && fpu_auto_preserve_enabled(cpu, scs);
     fp_lazy = fp_stack && fpu_lazy_preserve_enabled(cpu, scs);
     addl_state = cross_domain_additional_state_required(sec, handler_sec);
+    /* EXC_RETURN.SPSEL captures CONTROL.SPSEL of the PREEMPTED domain at
+     * entry (Armv8-M exception model): bit2 names the stack the frame was
+     * pushed to, and the matching return restores the return domain's
+     * CONTROL.SPSEL from it. */
     if (pre_mode == MM_HANDLER) {
         use_psp_entry = MM_FALSE;
         exc_ret_val = exc_return_encode(sec, handler_sec, MM_FALSE, MM_FALSE, fp_stack ? MM_FALSE : MM_TRUE, addl_state ? MM_FALSE : MM_TRUE);
     } else {
         use_psp_entry = (((sec == MM_NONSECURE) ? cpu->control_ns : cpu->control_s) & 0x2u) != 0u;
-        exc_ret_val = tail_chain ? cpu->r[14] :
+        /* Tail-chaining preserves the return context described by the
+         * previous EXC_RETURN (S, mode, SPSEL, frame bits) but ES always
+         * names the NEW exception's target domain (Armv8-M exception
+         * model). Reusing bit0 verbatim hands a Secure handler chained
+         * after a Non-secure one an ES=0 EXC_RETURN; a later return with
+         * that value is treated as a Non-secure exception return and
+         * resumes a stale NS handler frame. */
+        exc_ret_val = tail_chain ?
+            ((cpu->r[14] & ~0x1u) |
+             ((handler_sec == MM_SECURE) ? 0x1u : 0x0u)) :
             exc_return_encode(sec,
                               handler_sec,
                               use_psp_entry,
@@ -4576,11 +4914,19 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
     cpu->xpsr = (xpsr_in & 0xF8000000u) | 0x01000000u | (exc_num & 0x1FFu);
     cpu->r[14] = exc_ret_val;
     cpu->mode = MM_HANDLER;
-    /* On exception entry, CONTROL.SPSEL becomes 0 for the handler security state. */
-    if (handler_sec == MM_NONSECURE) {
-        cpu->control_ns &= ~0x2u;
-    } else {
-        cpu->control_s &= ~0x2u;
+    /* On exception entry, CONTROL.SPSEL becomes 0 for the handler security
+     * state — but only when the exception was taken FROM that state. A
+     * cross-domain preemption must leave the other domain's CONTROL.SPSEL
+     * intact: it describes a parked thread context (e.g. a Secure Partition
+     * suspended mid-SVC) whose later cross-domain return restores from
+     * EXC_RETURN.SPSEL, and a Non-secure thread resumed via BXNS reads its
+     * own live CONTROL_NS.SPSEL. */
+    if (handler_sec == sec) {
+        if (handler_sec == MM_NONSECURE) {
+            cpu->control_ns &= ~0x2u;
+        } else {
+            cpu->control_s &= ~0x2u;
+        }
     }
     if (stack_trace_enabled()) {
         printf("[EXC_ENTER_SPSEL] sec=%d control_s=0x%08lx control_ns=0x%08lx\n",
@@ -4774,6 +5120,7 @@ int main(int argc, char **argv)
     mm_u8 it_cond1 = 0;
     mm_bool tui_paused = MM_FALSE;
     mm_bool tui_step = MM_FALSE;
+    mm_bool tui_debug_skip_break = MM_FALSE;
     mm_bool reload_pending = MM_FALSE;
     mm_u64 tui_steps_offset = 0;
     mm_u64 tui_steps_latched = 0;
@@ -5131,6 +5478,17 @@ int main(int argc, char **argv)
                 return 1;
             }
             opt_expect_bkpt = MM_TRUE;
+        } else if (strcmp(argv[i], "--rng-seed") == 0) {
+            unsigned long sd;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing rng seed value\n");
+                return 1;
+            }
+            sd = strtoul(argv[i + 1], 0, 0);
+            mm_host_rng_seed((mm_u32)sd);
+            fprintf(stderr, "[RNG] host seed 0x%08lx (from --rng-seed)\n",
+                    (unsigned long)mm_host_rng_get_seed());
+            i++;
         } else if (strcmp(argv[i], "--timeout") == 0) {
             unsigned long t;
             if (i + 1 >= argc) {
@@ -5493,6 +5851,7 @@ int main(int argc, char **argv)
         sa.sa_handler = handle_timeout_alarm;
         sigemptyset(&sa.sa_mask);
         (void)sigaction(SIGALRM, &sa, 0);
+        g_timeout_secs = (sig_atomic_t)opt_timeout;
         alarm(opt_timeout);
     }
     if (opt_puf_noise > 0u && !opt_puf_seed_set) {
@@ -5887,6 +6246,7 @@ int main(int argc, char **argv)
             mm_u32 boot_offset_local = 0;
             mm_u32 boot_base_s = 0;
             mm_u32 boot_base_ns = 0;
+            mm_bool boot_resolved = MM_FALSE;
             enum mm_boot_mode boot_mode_local = boot_mode;
             const mm_u64 poll_granularity = DEFAULT_BATCH_CYCLES;
             mm_u64 sync_granularity = DEFAULT_SYNC_GRANULARITY;
@@ -5914,6 +6274,7 @@ int main(int argc, char **argv)
                 g_boot_override_pending = MM_FALSE;
             }
             mm_memmap_init(&map, regions, sizeof(regions) / sizeof(regions[0]));
+            g_timeout_map = &map;
             mm_target_soc_reset(&cfg);
             mm_timer_reset(&cfg);
             mm_signal_prepare_for_run();
@@ -5957,23 +6318,53 @@ int main(int argc, char **argv)
                     boot_base_s = cfg.flash_base_s + boot_offset_local;
                     boot_base_ns = cfg.flash_base_ns + boot_offset_local;
                 }
+                boot_resolved = MM_FALSE;
+                if (!opt_boot_offset && boot_mode_local == MM_BOOT_FLASH && cfg.boot_resolve != 0) {
+                    mm_u32 vtor = 0;
+                    if (cfg.boot_resolve(&map, flash, cfg.flash_size_s, &vtor)) {
+                        boot_base_s = vtor;
+                        boot_base_ns = vtor;
+                        boot_resolved = MM_TRUE;
+                    }
+                }
                 if (opt_no_tz) {
-                    force_ns_boot = MM_TRUE;
                     cfg.mpcbb_block_secure = 0;
                     cfg.mpcbb_block_size = 0;
                     /* No TrustZone: the target IDAU attribution must not
                      * fault accesses either. */
                     cfg.tz_attr_for_addr = 0;
+                    /* Running the core non-secure only models a
+                     * TrustZone-disabled part when the non-secure view is the
+                     * base address, as it is on the NXP and ST targets that
+                     * alias the secure view upwards.  M2354 aliases the other
+                     * way round, so its TZEN=0 images are linked for the base
+                     * view and have to keep running there; with no SAU
+                     * programmed that is already what a part with TrustZone
+                     * disabled looks like. */
+                    if (cfg.ram_base_ns <= cfg.ram_base_s &&
+                        (cfg.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
+                        force_ns_boot = MM_TRUE;
+                    }
+                    mm_mcxn947_romapi_set_tz_disabled(MM_TRUE);
                     printf("[TZ] TrustZone disabled via --no-tz\n");
-                } else if (cfg.ram_base_s != cfg.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH) {
+                } else if (cfg.ram_base_s != cfg.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH &&
+                           (cfg.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
                     if (mm_vector_read(&map, MM_SECURE, boot_base_s, 0u, &initial_sp)) {
-                        if ((initial_sp & 0xF0000000u) == 0x20000000u) {
+                        /* An initial SP inside the non-secure RAM alias means
+                         * the image was linked for the non-secure world.  The
+                         * alias is not always 0x2xxxxxxx: on M2354 the secure
+                         * view is the base address and the non-secure alias is
+                         * base + 0x10000000, the opposite of the NXP and ST
+                         * parts. */
+                        if ((initial_sp & 0xF0000000u) ==
+                            (cfg.ram_base_ns & 0xF0000000u)) {
                             force_ns_boot = MM_TRUE;
                             cfg.mpcbb_block_secure = 0;
                             cfg.mpcbb_block_size = 0;
                             /* No TrustZone: the target IDAU attribution must
                              * not fault accesses either. */
                             cfg.tz_attr_for_addr = 0;
+                            mm_mcxn947_romapi_set_tz_disabled(MM_TRUE);
                             printf("[TZ] Non-secure boot detected (SP=0x%08lx); TrustZone disabled\n",
                                    (unsigned long)initial_sp);
                         }
@@ -5983,9 +6374,19 @@ int main(int argc, char **argv)
                     map.flash.base = cfg.flash_base_ns;
                     map.flash.length = cfg.flash_size_ns;
                     map.ram.base = cfg.ram_base_ns;
-                    if (boot_mode_local == MM_BOOT_FLASH) {
+                    if (boot_mode_local == MM_BOOT_FLASH && !boot_resolved) {
                         boot_base_s = cfg.flash_base_ns + boot_offset_local;
                         boot_base_ns = cfg.flash_base_ns + boot_offset_local;
+                    } else if (boot_resolved) {
+                        /* The boot hook reports secure-alias addresses. */
+                        mm_u32 v = boot_base_s;
+                        if (v >= cfg.flash_base_s && v - cfg.flash_base_s < cfg.flash_size_s) {
+                            v = cfg.flash_base_ns + (v - cfg.flash_base_s);
+                        } else if (v >= cfg.ram_base_s && v - cfg.ram_base_s < cfg.ram_size_s) {
+                            v = cfg.ram_base_ns + (v - cfg.ram_base_s);
+                        }
+                        boot_base_s = v;
+                        boot_base_ns = v;
                     }
                 } else {
                     map.flash.base = cfg.flash_base_s;
@@ -6145,6 +6546,9 @@ int main(int argc, char **argv)
                 mm_prot_add_region(&prot, 0x00000000u, cfg.flash_size_ns,
                                    MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
             }
+            if (cpu_name != 0 && strcmp(cpu_name, "imxrt700") == 0) {
+                add_imxrt700_prot_regions(&prot, &cfg);
+            }
             if (cfg.ram_regions != 0 && cfg.ram_region_count > 0u) {
                 mm_u32 ri;
                 for (ri = 0; ri < cfg.ram_region_count; ++ri) {
@@ -6184,6 +6588,9 @@ int main(int argc, char **argv)
                     mm_prot_add_region(&prot1, 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
                     mm_prot_add_region(&prot1, 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
                 }
+                if (cpu_name != 0 && strcmp(cpu_name, "imxrt700") == 0) {
+                    add_imxrt700_prot_regions(&prot1, &cfg);
+                }
                 if (cpu_name != 0 && strcmp(cpu_name, "nrf5340") == 0) {
                     mm_prot_add_region(&prot1, 0x00000000u, cfg.flash_size_ns,
                                        MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
@@ -6218,6 +6625,7 @@ int main(int argc, char **argv)
             }
             g_cpu0 = &cpu;
             g_nvic0 = &nvic;
+            g_cycle_total = &cycle_total;
             if (cfg.core_count > 1u) {
                 g_cpu1 = &cpu1;
                 g_nvic1 = &nvic1;
@@ -6233,8 +6641,8 @@ int main(int argc, char **argv)
                     }
                 }
             }
-            if (cfg.core_count > 1u && cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                mm_rp2350_bind_multicore(&cpu, &cpu1, &nvic, &nvic1, &active_core);
+            if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->bind != 0) {
+                cfg.mc_ops->bind(&cpu, &cpu1, &nvic, &nvic1, &active_core, &map);
             }
 
             /* Reset CPU state */
@@ -6310,8 +6718,8 @@ int main(int argc, char **argv)
             enum mm_sec_state boot_sec = force_ns_boot ? MM_NONSECURE : MM_SECURE;
             active_core = 0;
                 g_active_prot_ctx = &prot;
-                if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                    mm_rp2350_set_active_core(0);
+                if (cfg.mc_ops != 0 && cfg.mc_ops->set_active_core != 0) {
+                    cfg.mc_ops->set_active_core(0u);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
                     scs.sau_ctrl = 0x1u | 0x2u;
@@ -6395,11 +6803,11 @@ int main(int argc, char **argv)
                     mm_system_clear_reset();
                     break;
                 }
-                if (cfg.core_count > 1u && cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
+                if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->core1_take_launch != 0) {
                     mm_u32 launch_vtor = 0;
                     mm_u32 launch_sp = 0;
                     mm_u32 launch_entry = 0;
-                    if (mm_rp2350_core1_take_launch(&launch_vtor, &launch_sp, &launch_entry)) {
+                    if (cfg.mc_ops->core1_take_launch(&launch_vtor, &launch_sp, &launch_entry)) {
                         int r;
                         for (r = 0; r < 16; ++r) cpu1.r[r] = 0;
                         cpu1.xpsr = 0x01000000u;
@@ -6478,6 +6886,20 @@ int main(int argc, char **argv)
                     }
                 }
 
+                if (opt_tui && !opt_gdb && tui_step &&
+                    cycle_total > tui.debugger_step_cycle) {
+                    tui_step = MM_FALSE;
+                    tui_paused = MM_TRUE;
+                }
+                if (opt_tui && !opt_gdb &&
+                    mm_tui_debug_next_reached(&tui, &cpu)) {
+                    tui.debugger_next_pending = MM_FALSE;
+                    tui_paused = MM_TRUE;
+                    snprintf(tui.debugger_message, sizeof(tui.debugger_message),
+                             "Next stopped at 0x%08lx", (unsigned long)(cpu.r[15] & ~1u));
+                    tui.input_dirty = MM_TRUE;
+                }
+
                 running_now = target_should_run(opt_gdb, &gdb, tui_paused, tui_step);
                 if (running_now != last_running) {
                     mm_u64 steps_now = 0;
@@ -6501,18 +6923,20 @@ int main(int argc, char **argv)
                     last_running = running_now;
                 }
 
-                if (running_now && cfg.core_count > 1u && cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0 &&
-                    mm_rp2350_core1_running()) {
+                if (running_now && !tui_step && cfg.core_count > 1u && cfg.mc_ops != 0 &&
+                    cfg.mc_ops->core1_running != 0 && cfg.mc_ops->core1_running()) {
                     const mm_u32 core1_epoch_steps = 64u;
                     mm_u32 core1_step;
                     active_core = 1u;
                     g_active_prot_ctx = &prot1;
-                    mm_rp2350_set_active_core(1u);
+                    if (cfg.mc_ops->set_active_core != 0) {
+                        cfg.mc_ops->set_active_core(1u);
+                    }
                     for (core1_step = 0; core1_step < core1_epoch_steps; ++core1_step) {
-                        if (!mm_rp2350_core1_running()) {
+                        if (!cfg.mc_ops->core1_running()) {
                             break;
                         }
-                        if (opt_gdb) {
+                        if (opt_gdb || opt_tui) {
                             mm_u8 i;
                             fault_clock_count = gdb.fault_clock_count;
                             if (fault_clock_count > (mm_u8)(sizeof(fault_clocks) / sizeof(fault_clocks[0]))) {
@@ -6533,7 +6957,9 @@ int main(int argc, char **argv)
                     }
                     active_core = 0u;
                     g_active_prot_ctx = &prot;
-                    mm_rp2350_set_active_core(0u);
+                    if (cfg.mc_ops->set_active_core != 0) {
+                        cfg.mc_ops->set_active_core(0u);
+                    }
                     if (done) {
                         continue;
                     }
@@ -6572,6 +6998,13 @@ int main(int argc, char **argv)
                         mm_gdb_stub_notify_stop(&gdb, 5);
                         continue;
                     }
+                }
+                if (opt_tui && !opt_gdb && mm_tui_debug_has_slots(&tui) &&
+                    mm_tui_debug_check(&tui, &cpu, &map, &tui_debug_skip_break)) {
+                    tui_paused = MM_TRUE;
+                    tui_step = MM_FALSE;
+                    tui.debugger_next_pending = MM_FALSE;
+                    continue;
                 }
 
                 if (!opt_gdb && reload_pending && tui_paused) {
@@ -6624,6 +7057,10 @@ int main(int argc, char **argv)
                         wake = MM_TRUE;
                     } else if (mm_nvic_select_ex(&nvic, &cpu, &scs) >= 0) {
                         wake = MM_TRUE;
+                    } else if (!cpu.sleep_wfe && mm_nvic_any_pending_enabled(&nvic)) {
+                        /* WFI wakes on an interrupt that would preempt with
+                         * PRIMASK clear ("cpsid i; wfi; cpsie i" idle loops). */
+                        wake = MM_TRUE;
                     } else if (cpu.sleep_wfe && mm_nvic_any_pending(&nvic)) {
                         if (getenv("M33MU_SLEEP_TRACE")) {
                             printf("[SLEEP_WAKE] wfe pending irq (primask_s=%lu primask_ns=%lu)\n",
@@ -6636,6 +7073,10 @@ int main(int argc, char **argv)
                         cpu.sleeping = MM_FALSE;
                         cpu.sleep_wfe = MM_FALSE;
                         cpu.event_reg = MM_FALSE;
+                    } else if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->core1_running != 0 &&
+                               cfg.mc_ops->core1_running() && !cpu1.sleeping) {
+                        /* Core1 still has work: keep scheduling it rather than idling the host. */
+                        continue;
                     } else {
                         mm_u64 delta = mm_scs_systick_cycles_until_fire(&scs);
                         if (delta == (mm_u64)-1) {
@@ -6668,7 +7109,8 @@ int main(int argc, char **argv)
                                 continue;
                             }
                             if (systick_pending_select(&cpu, &scs, &systick_sec) || scs.pend_sv || mm_nvic_select_ex(&nvic, &cpu, &scs) >= 0 ||
-                                (cpu.sleep_wfe && mm_nvic_any_pending(&nvic))) {
+                                (cpu.sleep_wfe && mm_nvic_any_pending(&nvic)) ||
+                                (!cpu.sleep_wfe && mm_nvic_any_pending_enabled(&nvic))) {
                                 cpu.sleeping = MM_FALSE;
                                 cpu.sleep_wfe = MM_FALSE;
                                 cpu.event_reg = MM_FALSE;
@@ -6814,7 +7256,8 @@ check_irq_pending:
                     mm_u32 tb_bkpt_imm = 0;
                     mm_u32 ops_executed = 0;
                     mm_u32 target_idx = 0;
-                    if (opt_gdb || opt_capstone || mm_trace_enabled() || g_call_trace) {
+                    if (opt_gdb || opt_capstone || mm_trace_enabled() || g_call_trace ||
+                        (opt_tui && mm_tui_debug_has_slots(&tui))) {
                         fast_mode = MM_FALSE;
                     }
                     if (it_remaining != 0u) {
@@ -6907,23 +7350,37 @@ check_irq_pending:
                             if (it_remaining != 0u) {
                                 break;
                             }
+                            /* Leave the chain as soon as an interrupt can be taken
+                             * (e.g. right after CPSIE), or a "cpsie; ...; cpsid; wfi"
+                             * idle loop never lets it in. */
+                            if (mm_nvic_any_pending_enabled(&nvic) &&
+                                mm_nvic_select_ex(&nvic, &cpu, &scs) >= 0) {
+                                break;
+                            }
                             fast_fpu_ok = fpu_access_allowed(&cpu, &scs) ? MM_TRUE : MM_FALSE;
                             code_cache.fpu_ok = fast_fpu_ok;
                             pc_after = cpu.r[15];
+                            /* Successor blocks must be resolved in the CURRENT
+                             * security state, not the state the finished block
+                             * was built for: a block ending in BXNS/BLXNS/SG
+                             * changes cpu.sec_state, and chaining with the
+                             * stale tb->sec fetches the next block through the
+                             * wrong security view (garbage decode -> phantom
+                             * UNDEFINSTR/DACCVIOL in the guest). */
                             if (pc_after == tb->fallthrough_pc) {
                                 if (tb->fallthrough_idx < M33MU_TB_ENTRIES) {
                                     candidate_tb = mm_tb_chain_lookup(&code_cache,
                                                                       tb->fallthrough_idx,
                                                                       tb->fallthrough_gen,
                                                                       tb->end_pc,
-                                                                      tb->sec);
+                                                                      cpu.sec_state);
                                     if (candidate_tb == 0) {
                                         tb->fallthrough_idx = M33MU_TB_ENTRIES;
                                         tb->fallthrough_gen = 0;
                                     }
                                 }
                                 if (candidate_tb == 0) {
-                                    candidate_tb = mm_tb_lookup(&code_cache, tb->end_pc, tb->sec);
+                                    candidate_tb = mm_tb_lookup(&code_cache, tb->end_pc, cpu.sec_state);
                                     if (candidate_tb != 0) {
                                         target_idx = (tb->end_pc >> 1u) & (M33MU_TB_ENTRIES - 1u);
                                         tb->fallthrough_idx = target_idx;
@@ -6937,14 +7394,14 @@ check_irq_pending:
                                                                       tb->branch_idx,
                                                                       tb->branch_gen,
                                                                       tb->branch_pc & ~1u,
-                                                                      tb->sec);
+                                                                      cpu.sec_state);
                                     if (candidate_tb == 0) {
                                         tb->branch_idx = M33MU_TB_ENTRIES;
                                         tb->branch_gen = 0;
                                     }
                                 }
                                 if (candidate_tb == 0) {
-                                    candidate_tb = mm_tb_lookup(&code_cache, tb->branch_pc & ~1u, tb->sec);
+                                    candidate_tb = mm_tb_lookup(&code_cache, tb->branch_pc & ~1u, cpu.sec_state);
                                     if (candidate_tb != 0) {
                                         target_idx = ((tb->branch_pc & ~1u) >> 1u) & (M33MU_TB_ENTRIES - 1u);
                                         tb->branch_idx = target_idx;
@@ -7001,7 +7458,7 @@ check_irq_pending:
                     mm_timer_tick(&cfg, insn_cycles);
                     mm_signal_check_trigger(cpu.r[15] & ~1u);
                     mm_signal_advance((mm_u64)insn_cycles);
-                    if (opt_gdb) {
+                    if (opt_gdb || opt_tui) {
                         mm_u8 i;
                         fault_clock_count = gdb.fault_clock_count;
                         if (fault_clock_count > (mm_u8)(sizeof(fault_clocks) / sizeof(fault_clocks[0]))) {
@@ -7281,6 +7738,7 @@ check_irq_pending:
                             done = MM_FALSE;
                             tui_paused = MM_TRUE;
                             tui_step = MM_FALSE;
+                            tui.debugger_next_pending = MM_FALSE;
                         }
                     }
                     if (trace_started) {

@@ -186,3 +186,34 @@ jobs:
           build/m33mu --cpu stm32h5f4 --dualbank \
             --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
             $FW/test-stm32h5f4-signal-output-timing/app.bin
+      - name: Run M2354 firmware tests (Cortex-M23 baseline)
+        # First ARMv8-M Baseline target: the console test also covers the
+        # Thumb-1 "mov pc, rN" dispatch and the "add sp, rN" frame setup that
+        # Thumb-2 builds never emit.
+        run: |
+          set -euo pipefail
+          for t in test_uart test_fmc test_scu; do
+            build/m33mu \
+              --cpu m2354 \
+              --uart-stdout \
+              --expect-bkpt 0x7f \
+              --timeout 60 \
+              --quit-on-faults \
+              tests/firmware/test-m2354/$t.bin | tee /tmp/m33mu-m2354-$t.log
+            grep -q "ALL PASS" /tmp/m33mu-m2354-$t.log
+          done
+      - name: Run i.MX RT700 firmware tests (dual Cortex-M33, TrustZone)
+        # Booted like the ROM does: FCB + XIP image, and a load-to-RAM image.
+        # No --quit-on-faults: the AHBSC check provokes a non-secure fault on
+        # purpose and recovers from it.
+        run: |
+          set -euo pipefail
+          for t in app app-ramload; do
+            build/m33mu \
+              --cpu imxrt700 \
+              --uart-stdout \
+              --expect-bkpt 0x7f \
+              --timeout 60 \
+              tests/firmware/test-imxrt700/$t.bin < /dev/null | tee /tmp/m33mu-imxrt700-$t.log
+            grep -q "ALL PASS" /tmp/m33mu-imxrt700-$t.log
+          done
