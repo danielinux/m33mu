@@ -437,7 +437,9 @@ May be repeated.
 .TP
 .BR --signal-sync= SYMBOL|ADDR
 Start replay of all bound traces the first time the PC reaches this address.
-A symbol name requires an ELF image.
+A symbol name requires an ELF image. Required with
+.BR --signal-bind ;
+the run exits with status 1 if the address is never reached.
 .TP
 .BR --vdd_mv= MV
 Supply voltage used to derive GPIO input thresholds (default 3300).

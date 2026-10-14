@@ -23,10 +23,12 @@ build/m33mu --cpu stm32h5f4 \
 - `--signal-file=<path>`: the `.sigc` container holding the traces.
 - `--signal-bind:trace=<name>:target=<PXn>:role=gpio`: drive pin
   `PXn` from the named trace. Can be repeated, up to 32 bindings.
-- `--signal-sync=<symbol|address>`: the PC that starts replay. A symbol is
-  looked up in the ELF image's symbol table, which requires the image to be an
-  ELF and m33mu to be built with libelf. A numeric address works with any
-  image format. The Thumb bit is ignored.
+- `--signal-sync=<symbol|address>`: the PC that starts replay, required with
+  `--signal-bind`. A symbol is looked up in the ELF image's symbol table,
+  which requires the image to be an ELF and m33mu to be built with libelf. A
+  numeric address works with any image format. The Thumb bit is ignored. If
+  the PC never reaches it, m33mu prints an error and exits with 1 (only a
+  warning under `--gdb` or `--tui`).
 - `--vdd_mv=<mV>`: supply voltage used to derive the input thresholds
   (default 3300).
 
@@ -79,9 +81,8 @@ execution path in `src/main.c` that advances `mm_timer_tick()`.
 
 ## Constraints
 
-- **The trigger must be a branch target.** The translation-block fast path
-  only observes the PC at block entry, so an address in the middle of a block
-  never fires. Use a function entry. A dedicated
+- **The trigger must be reached.** Translation blocks end before the trigger
+  PC, so any instruction address works. A dedicated
   `__attribute__((noinline, used))` marker function is the most robust
   choice, because a HAL function can be inlined away.
 - **Dispatch granularity.** On the fast path, crossings are applied after each
@@ -126,5 +127,6 @@ execution path in `src/main.c` that advances `mm_timer_tick()`.
 | `input-nonuniform` | Explicit timestamps |
 | `input-mode-guard` | An output pin ignores the trace, then follows it again once back in input mode |
 | `trigger-oneshot` | A second pass through the trigger PC does not restart replay |
+| `trigger-midblock` | A trigger on a fall-through instruction, not a branch target, starts replay |
 | `group-sync` | Two bindings in one group change state together |
 | `output-loopback` / `output-timing` | `ODR`→`IDR` mirroring and cycle accounting are unaffected by the signal hooks |

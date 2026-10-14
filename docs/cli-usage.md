@@ -150,7 +150,8 @@ Replay recorded voltage traces onto GPIO inputs. See
 - `--signal-file=<path>`: load a `.sigc` signal container
 - `--signal-bind:trace=<name>:target=<PXn>:role=gpio`: drive input pin `PXn` from a trace
 - `--signal-sync=<symbol|addr>`: start replay when the PC first reaches this address
-  (a symbol requires an ELF image)
+  (a symbol requires an ELF image). Required with `--signal-bind`; the run exits with 1
+  if the address is never reached
 - `--vdd_mv=<mV>`: supply voltage for the GPIO input thresholds (default 3300)
 
 ## TrustZone / Memory / Flash Options

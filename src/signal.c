@@ -491,6 +491,28 @@ static void signal_dispatch_gpio(struct mm_signal_binding *b)
     }
 }
 
+mm_bool mm_signal_is_trigger_pc(mm_u32 pc)
+{
+    mm_u32 i;
+    for (i = 0; i < g_trigger_count; ++i) {
+        if (g_triggers[i].configured && g_triggers[i].trigger_pc == pc) {
+            return MM_TRUE;
+        }
+    }
+    return MM_FALSE;
+}
+
+mm_bool mm_signal_all_triggered(void)
+{
+    mm_u32 i;
+    for (i = 0; i < g_binding_count; ++i) {
+        if (!g_bindings[i].triggered) {
+            return MM_FALSE;
+        }
+    }
+    return MM_TRUE;
+}
+
 void mm_signal_check_trigger(mm_u32 pc)
 {
     mm_u32 i;

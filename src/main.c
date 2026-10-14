@@ -5921,6 +5921,10 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        if (signal_bind_count > 0 && !has_signal_trigger) {
+            fprintf(stderr, "--signal-bind requires --signal-sync\n");
+            return 1;
+        }
         if (has_signal_trigger) {
             mm_u32 trig_addr;
             if (!signal_resolve_trigger_addr(opt_signal_sync, images,
@@ -7764,6 +7768,13 @@ check_irq_pending:
             covdump_cycles = cycle_total;
             mm_code_cache_release(&code_cache);
             break;
+        }
+    }
+    if (!mm_signal_all_triggered()) {
+        fprintf(stderr, "signal: --signal-sync=%s was never reached, no trace was replayed\n",
+                opt_signal_sync);
+        if (!opt_gdb && !opt_tui) {
+            rc = 1;
         }
     }
 

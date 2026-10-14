@@ -165,6 +165,16 @@ jobs:
             --signal-bind:trace=vin:target=PA5:role=gpio:group=0
           run_signal_test $FW/test-stm32h5f4-signal-trigger-oneshot $COMMON/fixture_oneshot.sigc \
             --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-trigger-midblock $COMMON/fixture_oneshot.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0 \
+            --signal-sync=signal_midblock_marker
+          # input-exti-masked passes without replay, so only the unreached trigger can fail it.
+          if run_signal_test $FW/test-stm32h5f4-signal-input-exti-masked $COMMON/fixture_1cross.sigc \
+              --signal-bind:trace=vin:target=PA5:role=gpio:group=0 \
+              --signal-sync=0x0c0ffff0; then
+            echo "an unreached --signal-sync did not fail the run"
+            exit 1
+          fi
           run_signal_test $FW/test-stm32h5f4-signal-group-sync $COMMON/fixture_group_sync.sigc \
             --signal-bind:trace=trace_a:target=PA5:role=gpio:group=0 \
             --signal-bind:trace=trace_b:target=PB2:role=gpio:group=0

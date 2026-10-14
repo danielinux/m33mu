@@ -240,6 +240,29 @@ static int test_prepare_for_run_rearms(void)
     return 0;
 }
 
+static int test_trigger_pc_and_all_triggered(void)
+{
+    mm_i16 samples[2] = { 0, 3300 };
+
+    reset_fakes();
+    if (!mm_signal_all_triggered()) return 1;
+    if (!write_fixture(g_tmp_path, "vin5", samples, 2, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("vin5", 0, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP) < 0) return 1;
+    if (mm_signal_is_trigger_pc(0x08001000u)) return 1;
+    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+    if (!mm_signal_is_trigger_pc(0x08001000u)) return 1;
+    if (mm_signal_is_trigger_pc(0x08001002u)) return 1;
+
+    mm_signal_check_trigger(0x08000000u);
+    mm_signal_advance(10);
+    if (mm_signal_all_triggered()) return 1;
+    mm_signal_check_trigger(0x08001000u);
+    mm_signal_advance(1);
+    if (!mm_signal_all_triggered()) return 1;
+    return 0;
+}
+
 int main(void)
 {
     struct {
@@ -251,6 +274,7 @@ int main(void)
         { "rejected_write_does_not_crash_or_wedge", test_rejected_write_does_not_crash_or_wedge },
         { "unknown_trace_rejected", test_unknown_trace_rejected },
         { "prepare_for_run_rearms", test_prepare_for_run_rearms },
+        { "trigger_pc_and_all_triggered", test_trigger_pc_and_all_triggered },
     };
     size_t i;
     int failures = 0;

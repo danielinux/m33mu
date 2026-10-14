@@ -48,9 +48,11 @@ void mm_signal_set_vdd_mv(mm_i32 vdd_mv);
 void mm_signal_set_cpu_hz(mm_u64 hz);
 
 /* Call with the PC about to execute, before mm_tb_run() or a single step.
- * The TB path only sees block entry PCs, so a trigger must be a branch
- * target (e.g. a function entry). pc has the Thumb bit cleared. */
+ * pc has the Thumb bit cleared. */
 void mm_signal_check_trigger(mm_u32 pc);
+
+/* Translation blocks end before a trigger PC so that it is seen at entry. */
+mm_bool mm_signal_is_trigger_pc(mm_u32 pc);
 
 /* Call after execution with the cycles just executed. */
 void mm_signal_advance(mm_u64 cycles);
@@ -62,5 +64,8 @@ int mm_signal_bind(const char *trace_name, int bank, int pin,
 /* One-shot: the first time pc == trigger_pc, group_id starts at t=0. */
 void mm_signal_set_master_trigger(mm_u32 group_id, mm_u32 trigger_pc);
 mm_bool mm_signal_group_triggered(mm_u32 group_id);
+
+/* MM_FALSE if some binding is still waiting for its trigger. */
+mm_bool mm_signal_all_triggered(void);
 
 #endif /* M33MU_SIGNAL_H */
