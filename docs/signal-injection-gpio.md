@@ -109,6 +109,10 @@ and resumes where it left off; this is intended and keeps runs deterministic.
   be taken, so latency is at most one translation block. Tests should wait
   for an interrupt with a generous budget, not assert exact interrupt
   latency.
+- **Timing fidelity.** One instruction is one cycle and flash has no wait
+  states, so firmware runs faster than silicon relative to the trace. Timing
+  derived from timers or SysTick stays consistent with the trace; busy-wait
+  delays and software debounce counters do not. Keep assertion windows loose.
 - **Edges coalesce.** EXTI pending and NVIC pending are single bits, so
   crossings that arrive faster than the ISR can service them merge into one
   interrupt, as on hardware. Edge-counting fixtures space their crossings
