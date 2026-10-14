@@ -142,5 +142,5 @@ core at its scheduled time, with or without SysTick.
 | `trigger-oneshot` | A second pass through the trigger PC does not restart replay |
 | `reset-keeps-running` | After a system reset the pin reads the level the trace has reached |
 | `trigger-midblock` | A trigger on a fall-through instruction, not a branch target, starts replay |
-| `group-sync` | Two bindings started by the one trigger change state together |
+| `multi-binding` | Two bindings started by the one trigger change state together |
 | `output-loopback` / `output-timing` | `ODR`→`IDR` mirroring and cycle accounting are unaffected by the signal hooks |

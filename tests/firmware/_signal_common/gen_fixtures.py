@@ -70,11 +70,11 @@ tb = uniform(1, [0, 3300], 1000)
 tr = (1, "vin", 1, 3300, [0, 3300])
 write_container(os.path.join(OUT_DIR, "fixture_oneshot.sigc"), [tb], [tr])
 
-# group-sync: two identically-scheduled traces, one timebase
+# multi-binding: two identically-scheduled traces, one timebase
 tb = uniform(1, [0, 3300], 1000)
 tr_a = (1, "trace_a", 1, 3300, [0, 3300])
 tr_b = (2, "trace_b", 1, 3300, [0, 3300])
-write_container(os.path.join(OUT_DIR, "fixture_group_sync.sigc"), [tb], [tr_a, tr_b])
+write_container(os.path.join(OUT_DIR, "fixture_multi_binding.sigc"), [tb], [tr_a, tr_b])
 
 # input-idle-high: starts high, one falling crossing
 tb = uniform(1, [3300, 3300, 0], 20000)
