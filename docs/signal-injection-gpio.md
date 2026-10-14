@@ -114,6 +114,9 @@ core at its scheduled time, with or without SysTick.
 - A trigger based on a register write, for firmware without symbols.
 - GPDMA transfers triggered by EXTI.
 - Recording output pins. Firmware can read `ODR` itself.
+- Snapshots and reverse stepping (`--record`). Neither the replay position nor
+  the GPIO pad levels are saved, so stepping back across an injected edge does
+  not undo it.
 
 ## Tests
 
