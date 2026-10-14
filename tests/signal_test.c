@@ -333,6 +333,7 @@ static int test_trigger_pc_and_triggered(void)
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1);
     if (!mm_signal_triggered()) return 1;
+    if (mm_signal_is_trigger_pc(0x08001000u)) return 1;
     return 0;
 }
 
@@ -354,6 +355,28 @@ static int test_loader_rejects_bad_containers(void)
     if (mm_signal_load(g_tmp_path)) return 1;
     if (!write_container(g_tmp_path, 1, "v", 3, 1000, 0, samples, 3, 1)) return 1;
     if (mm_signal_load(g_tmp_path)) return 1;
+    return 0;
+}
+
+static int test_long_times_convert_exactly(void)
+{
+    mm_i16 samples[3] = { 0, 3300, 0 };
+
+    reset_fakes();
+    mm_signal_set_cpu_hz(64000001ull);
+    mm_signal_set_vdd_mv(3300);
+    if (!write_fixture(g_tmp_path, "slow", samples, 3, 1500000000u)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("slow", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+
+    if (mm_signal_cycles_until_next_event() != 96000002u) return 1;
+    mm_signal_advance(96000001u);
+    if (g_write_calls != 0) return 1;
+    mm_signal_advance(1u);
+    if (g_write_calls != 1 || g_last_level != MM_TRUE) return 1;
+    if (mm_signal_cycles_until_next_event() != 96000001u) return 1;
     return 0;
 }
 
@@ -391,6 +414,7 @@ int main(void)
         { "trigger_pc_and_triggered", test_trigger_pc_and_triggered },
         { "loader_rejects_bad_containers", test_loader_rejects_bad_containers },
         { "many_crossings", test_many_crossings },
+        { "long_times_convert_exactly", test_long_times_convert_exactly },
         { "initial_level_applied_before_trigger", test_initial_level_applied_before_trigger },
         { "cycles_until_next_event", test_cycles_until_next_event },
         { "clock_change_keeps_elapsed_time", test_clock_change_keeps_elapsed_time },

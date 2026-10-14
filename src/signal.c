@@ -88,11 +88,11 @@ static mm_u64 g_base_vcycles = 0;
 static mm_u64 g_base_ns = 0;
 static mm_bool g_rewrite_levels = MM_FALSE;
 
+/* Split at whole seconds so the products fit in 64 bits for any clock below 18 GHz. */
 static mm_u64 signal_cycles_to_ns(mm_u64 cycles)
 {
-    __int128 prod = (__int128)cycles * (__int128)MM_SIGNAL_NS_PER_SEC;
-    prod /= (__int128)g_cpu_hz;
-    return (mm_u64)prod;
+    return (cycles / g_cpu_hz) * MM_SIGNAL_NS_PER_SEC +
+           ((cycles % g_cpu_hz) * MM_SIGNAL_NS_PER_SEC) / g_cpu_hz;
 }
 
 static mm_u64 signal_now_ns(void)
@@ -115,10 +115,9 @@ void mm_signal_set_cpu_hz(mm_u64 hz)
 
 static mm_u64 signal_ns_to_cycles_ceil(mm_u64 ns)
 {
-    __int128 prod = (__int128)ns * (__int128)g_cpu_hz;
-    prod += (__int128)(MM_SIGNAL_NS_PER_SEC - 1u);
-    prod /= (__int128)MM_SIGNAL_NS_PER_SEC;
-    return (mm_u64)prod;
+    return (ns / MM_SIGNAL_NS_PER_SEC) * g_cpu_hz +
+           ((ns % MM_SIGNAL_NS_PER_SEC) * g_cpu_hz + MM_SIGNAL_NS_PER_SEC - 1u) /
+               MM_SIGNAL_NS_PER_SEC;
 }
 
 static void signal_free_loaded(void)
@@ -510,7 +509,7 @@ static void signal_dispatch_gpio(struct mm_signal_binding *b, mm_u64 elapsed_ns)
 
 mm_bool mm_signal_is_trigger_pc(mm_u32 pc)
 {
-    return (g_trigger_set && g_trigger_pc == pc) ? MM_TRUE : MM_FALSE;
+    return (g_trigger_set && !g_triggered && g_trigger_pc == pc) ? MM_TRUE : MM_FALSE;
 }
 
 void mm_signal_check_trigger(mm_u32 pc)
@@ -553,7 +552,10 @@ void mm_signal_advance(mm_u64 cycles)
     mm_u64 now_ns;
 
     g_total_vcycles += cycles;
-    now_ns = signal_now_ns();
+    if (g_binding_count == 0u) {
+        return;
+    }
+    now_ns = g_triggered ? signal_now_ns() : 0u;
 
     for (i = 0; i < g_binding_count; ++i) {
         struct mm_signal_binding *b = &g_bindings[i];
