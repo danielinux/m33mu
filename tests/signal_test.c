@@ -435,6 +435,81 @@ static int test_long_times_convert_exactly(void)
     return 0;
 }
 
+/* 0 -> 3300 -> 0mV in 100mV steps, one sample per microsecond. */
+static int run_ramp(mm_bool set_vil, mm_i32 vil_mv, mm_bool set_vih, mm_i32 vih_mv,
+                    mm_u64 *rise_cycles, mm_u64 *fall_cycles)
+{
+    mm_i16 samples[67];
+    mm_u32 i;
+
+    for (i = 0; i < 67u; ++i) {
+        samples[i] = (mm_i16)(100 * (i <= 33u ? i : 66u - i));
+    }
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    if (set_vil) mm_signal_set_gpio_vil_mv(vil_mv);
+    if (set_vih) mm_signal_set_gpio_vih_mv(vih_mv);
+    if (!write_fixture(g_tmp_path, "ramp", samples, 67, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("ramp", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+
+    *rise_cycles = mm_signal_cycles_until_next_event();
+    mm_signal_advance(*rise_cycles);
+    if (g_write_calls != 1 || g_last_level != MM_TRUE) return 1;
+    *fall_cycles = mm_signal_cycles_until_next_event();
+    mm_signal_advance(*fall_cycles);
+    if (g_write_calls != 2 || g_last_level != MM_FALSE) return 1;
+    return 0;
+}
+
+static int test_thresholds_move_crossings(void)
+{
+    mm_u64 rise, fall;
+
+    /* Default 1525/1775mV: rise at 1800mV (18us), fall at 1500mV (51us). */
+    if (run_ramp(MM_FALSE, 0, MM_FALSE, 0, &rise, &fall) != 0) return 1;
+    if (rise != 4500u || fall != 8250u) return 1;
+
+    /* 900/1200mV: rise at 12us, fall at 57us. */
+    if (run_ramp(MM_TRUE, 900, MM_TRUE, 1200, &rise, &fall) != 0) return 1;
+    if (rise != 3000u || fall != 11250u) return 1;
+
+    /* 2000/2400mV: rise at 24us, fall at 46us. */
+    if (run_ramp(MM_TRUE, 2000, MM_TRUE, 2400, &rise, &fall) != 0) return 1;
+    if (rise != 6000u || fall != 5500u) return 1;
+
+    /* VIH alone: VIL keeps its 1525mV default, fall at 51us. */
+    if (run_ramp(MM_FALSE, 0, MM_TRUE, 2400, &rise, &fall) != 0) return 1;
+    if (rise != 6000u || fall != 6750u) return 1;
+    return 0;
+}
+
+static int test_inverted_thresholds_rejected(void)
+{
+    mm_i16 samples[2] = { 0, 3300 };
+
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    mm_signal_set_gpio_vil_mv(2000);
+    mm_signal_set_gpio_vih_mv(2000);
+    if (!write_fixture(g_tmp_path, "vin8", samples, 2, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("vin8", 0, 5, MM_SIGNAL_ROLE_GPIO) != -1) return 1;
+
+    /* Effective pair: VIL 1800mV against the 1775mV default VIH. */
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    mm_signal_set_gpio_vil_mv(1800);
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("vin8", 0, 5, MM_SIGNAL_ROLE_GPIO) != -1) return 1;
+
+    reset_fakes();
+    if (mm_signal_gpio_vil_mv() != 1525 || mm_signal_gpio_vih_mv() != 1775) return 1;
+    return 0;
+}
+
 static int test_many_crossings(void)
 {
     static mm_i16 samples[10000];
@@ -474,6 +549,8 @@ int main(void)
         { "initial_level_applied_before_trigger", test_initial_level_applied_before_trigger },
         { "cycles_until_next_event", test_cycles_until_next_event },
         { "clock_change_keeps_elapsed_time", test_clock_change_keeps_elapsed_time },
+        { "thresholds_move_crossings", test_thresholds_move_crossings },
+        { "inverted_thresholds_rejected", test_inverted_thresholds_rejected },
     };
     size_t i;
     int failures = 0;

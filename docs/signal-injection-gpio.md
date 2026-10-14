@@ -32,6 +32,13 @@ build/m33mu --cpu stm32h5f4 \
   warning under `--gdb` or `--tui`).
 - `--vdd-mv=<mV>`: supply voltage used to derive the input thresholds
   (default 3300).
+- `--gpio-vil-mv=<mV>`, `--gpio-vih-mv=<mV>`: input thresholds of every bound
+  pin. A pin reads low once the trace falls to VIL or below, and high once it
+  rises to VIH or above. Each flag overrides one side only: a side that is not
+  given keeps its default of `VDD/2 - 125 mV` (VIL) or `VDD/2 + 125 mV` (VIH).
+  The effective VIL must be below the effective VIH, otherwise m33mu exits
+  with 1. Use them to test slow edges at the datasheet limits, for example
+  `--gpio-vil-mv=990 --gpio-vih-mv=2310` at 3.3 V.
 
 ## Container format
 
@@ -71,7 +78,7 @@ serve as a reference encoder. There is no HDF5 converter yet.
 | The trigger is a PC watch, not a breakpoint | No memory patching, no halt, no firmware change: one compare per dispatch |
 | The trigger is one-shot per emulator run, and a system reset does not rewind replay | The stimulus models the outside world, which a watchdog or software reset does not restart. Bound pins get their current level again after the reset |
 | GPIO crossings are precomputed at bind time | No per-cycle voltage comparison; replay only checks the next scheduled crossing |
-| Schmitt thresholds at `VDD/2 ± 125 mV` | STM32H5 datasheet typical hysteresis is 250 mV. Voltages inside the band do not change the input state |
+| Default Schmitt thresholds at `VDD/2 ± 125 mV`, overridable with `--gpio-vil-mv`/`--gpio-vih-mv` | A model choice inside the datasheet band. The STM32H5 datasheets (DS14258 Rev 6 Table 58, and the same rows in the H533, H523 and H5Fxxx datasheets) guarantee only VIL max = 0.3·VDDIO and VIH min = 0.7·VDDIO (CMOS levels, tested in production), with wider by-design limits of 0.4·VDDIO − 0.1 V and 0.52·VDDIO + 0.18 V. The 250 mV hysteresis is a typical value, not tested. The real switching point can lie anywhere in the band, which matters for slow edges. Voltages between VIL and VIH do not change the input state |
 | Both edge directions are always forwarded | Edge selection belongs to the firmware (`EXTI_RTSR1`/`EXTI_FTSR1`) and can change at run time; the existing EXTI model gates on it and on `EXTI_IMR1` |
 | Injection writes `IDR` and calls the bank's EXTI hook | Polled reads and interrupts see the same transition through the existing paths |
 | The GPIO model keeps the pad level of every injected pin, and only Input pins show it in `IDR` | Output and AF pins are driven by the MCU, so their `IDR` bit reads back `ODR`. Analog pins have the Schmitt trigger disabled, so `IDR` reads 0 for them. A pin switched back to Input reads the pad at once, as on silicon |
@@ -120,8 +127,8 @@ core at its scheduled time, with or without SysTick.
 
 ## Tests
 
-- `tests/signal_test.c`: loader, binding, trigger, hysteresis and reset,
-  against a fake GPIO writer.
+- `tests/signal_test.c`: loader, binding, trigger, hysteresis, configurable
+  thresholds and reset, against a fake GPIO writer.
 - `tests/stm32_gpio_signal_test.c`: the input-mode guard, Analog-mode `IDR`
   masking, the pad level kept across mode changes and `ODR` writes, and
   `ODR` read-back once an injected pin is an output.

@@ -153,6 +153,9 @@ Replay recorded voltage traces onto GPIO inputs. See
   (a symbol requires an ELF image). Required with `--signal-bind`; the run exits with 1
   if the address is never reached
 - `--vdd-mv=<mV>`: supply voltage for the GPIO input thresholds (default 3300)
+- `--gpio-vil-mv=<mV>`, `--gpio-vih-mv=<mV>`: GPIO input low/high thresholds. Each one
+  overrides its side only; the other keeps its default of `VDD/2 - 125 mV` / `VDD/2 + 125 mV`.
+  The effective VIL must be below the effective VIH
 
 ## TrustZone / Memory / Flash Options
 

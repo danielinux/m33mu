@@ -5116,6 +5116,10 @@ int main(int argc, char **argv)
     } signal_bind_specs[MM_SIGNAL_MAX_BINDINGS];
     int signal_bind_count = 0;
     mm_i32 opt_vdd_mv = 3300;
+    mm_i32 opt_gpio_vil_mv = 0;
+    mm_i32 opt_gpio_vih_mv = 0;
+    mm_bool has_gpio_vil = MM_FALSE;
+    mm_bool has_gpio_vih = MM_FALSE;
     char opt_signal_file[512] = "";
     mm_bool has_signal_file = MM_FALSE;
     mm_bool has_signal_trigger = MM_FALSE;
@@ -5619,6 +5623,21 @@ int main(int argc, char **argv)
                 return 1;
             }
             opt_vdd_mv = (mm_i32)v;
+        } else if (strncmp(argv[i], "--gpio-vil-mv=", 14) == 0 ||
+                   strncmp(argv[i], "--gpio-vih-mv=", 14) == 0) {
+            char *endp;
+            long v = strtol(argv[i] + 14, &endp, 0);
+            if (argv[i][14] == '\0' || *endp != '\0' || v < 0 || v > 32767) {
+                fprintf(stderr, "invalid %.13s value: %s\n", argv[i], argv[i]);
+                return 1;
+            }
+            if (strncmp(argv[i], "--gpio-vil-mv=", 14) == 0) {
+                opt_gpio_vil_mv = (mm_i32)v;
+                has_gpio_vil = MM_TRUE;
+            } else {
+                opt_gpio_vih_mv = (mm_i32)v;
+                has_gpio_vih = MM_TRUE;
+            }
         } else if (strncmp(argv[i], "--signal-file=", 14) == 0) {
             snprintf(opt_signal_file, sizeof(opt_signal_file), "%s", argv[i] + 14);
             has_signal_file = MM_TRUE;
@@ -5753,6 +5772,7 @@ int main(int argc, char **argv)
                         "[--expect-bkpt 0xNN] [--timeout seconds] "
                         "[--signal-file=<path>] [--signal-bind:trace=<name>:target=PXn:role=gpio] "
                         "[--signal-sync=<symbol|addr>] [--vdd-mv=<mV>] "
+                        "[--gpio-vil-mv=<mV>] [--gpio-vih-mv=<mV>] "
                         "[--boot flash|ram|spiflash] "
                         "[--boot-offset=0xN] "
                         "[--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] "
@@ -5900,6 +5920,18 @@ int main(int argc, char **argv)
 
     if (has_signal_file) {
         mm_signal_set_vdd_mv(opt_vdd_mv);
+        if (has_gpio_vil) {
+            mm_signal_set_gpio_vil_mv(opt_gpio_vil_mv);
+        }
+        if (has_gpio_vih) {
+            mm_signal_set_gpio_vih_mv(opt_gpio_vih_mv);
+        }
+        if (mm_signal_gpio_vil_mv() >= mm_signal_gpio_vih_mv()) {
+            fprintf(stderr, "GPIO VIL (%d mV) must be below VIH (%d mV); "
+                            "check --gpio-vil-mv, --gpio-vih-mv and --vdd-mv\n",
+                    (int)mm_signal_gpio_vil_mv(), (int)mm_signal_gpio_vih_mv());
+            return 1;
+        }
         if (!mm_signal_load(opt_signal_file)) {
             fprintf(stderr, "failed to load --signal-file %s\n", opt_signal_file);
             return 1;

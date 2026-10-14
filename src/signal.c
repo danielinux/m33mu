@@ -74,8 +74,12 @@ static mm_u32 g_trigger_pc = 0;
 static mm_bool g_triggered = MM_FALSE;
 static mm_u64 g_trigger_ns = 0;
 
-/* Typical STM32H5 I/O Schmitt hysteresis is 250mV, centered at VDD/2. */
+/* Default band: the STM32H5 typical 250mV hysteresis, centered at VDD/2. */
 static mm_i32 g_vdd_mv = 3300;
+static mm_bool g_has_vil = MM_FALSE;
+static mm_bool g_has_vih = MM_FALSE;
+static mm_i32 g_vil_mv = 0;
+static mm_i32 g_vih_mv = 0;
 #define MM_SIGNAL_HYSTERESIS_HALF_MV 125
 
 #define MM_SIGNAL_NS_PER_SEC 1000000000ull
@@ -149,6 +153,10 @@ void mm_signal_reset(void)
     memset(g_traces, 0, sizeof(g_traces));
     memset(g_bindings, 0, sizeof(g_bindings));
     g_vdd_mv = 3300;
+    g_has_vil = MM_FALSE;
+    g_has_vih = MM_FALSE;
+    g_vil_mv = 0;
+    g_vih_mv = 0;
     g_total_vcycles = 0;
     g_base_vcycles = 0;
     g_base_ns = 0;
@@ -165,14 +173,26 @@ void mm_signal_set_vdd_mv(mm_i32 vdd_mv)
     g_vdd_mv = vdd_mv;
 }
 
-static mm_i32 signal_hi_threshold_mv(void)
+void mm_signal_set_gpio_vil_mv(mm_i32 vil_mv)
 {
-    return (g_vdd_mv / 2) + MM_SIGNAL_HYSTERESIS_HALF_MV;
+    g_has_vil = MM_TRUE;
+    g_vil_mv = vil_mv;
 }
 
-static mm_i32 signal_lo_threshold_mv(void)
+void mm_signal_set_gpio_vih_mv(mm_i32 vih_mv)
 {
-    return (g_vdd_mv / 2) - MM_SIGNAL_HYSTERESIS_HALF_MV;
+    g_has_vih = MM_TRUE;
+    g_vih_mv = vih_mv;
+}
+
+mm_i32 mm_signal_gpio_vih_mv(void)
+{
+    return g_has_vih ? g_vih_mv : (g_vdd_mv / 2) + MM_SIGNAL_HYSTERESIS_HALF_MV;
+}
+
+mm_i32 mm_signal_gpio_vil_mv(void)
+{
+    return g_has_vil ? g_vil_mv : (g_vdd_mv / 2) - MM_SIGNAL_HYSTERESIS_HALF_MV;
 }
 
 struct signal_reader {
@@ -411,8 +431,8 @@ static mm_u32 signal_walk_crossings(const struct mm_signal_trace *tr,
                                     struct mm_signal_crossing *out)
 {
     const struct mm_signal_timebase *tb = &g_timebases[tr->timebase_idx];
-    mm_i32 hi_thr = signal_hi_threshold_mv();
-    mm_i32 lo_thr = signal_lo_threshold_mv();
+    mm_i32 hi_thr = mm_signal_gpio_vih_mv();
+    mm_i32 lo_thr = mm_signal_gpio_vil_mv();
     mm_bool state = (tr->samples_mv[0] >= hi_thr) ? MM_TRUE : MM_FALSE;
     mm_u32 count = 0;
     mm_u32 i;
@@ -447,7 +467,7 @@ static mm_bool signal_build_gpio_schedule(struct mm_signal_binding *b,
     if (g_timebases[tr->timebase_idx].sample_count == 0u) {
         return MM_TRUE;
     }
-    b->current_level = (tr->samples_mv[0] >= signal_hi_threshold_mv()) ? MM_TRUE : MM_FALSE;
+    b->current_level = (tr->samples_mv[0] >= mm_signal_gpio_vih_mv()) ? MM_TRUE : MM_FALSE;
     count = signal_walk_crossings(tr, 0);
     if (count == 0u) {
         return MM_TRUE;
@@ -470,6 +490,11 @@ int mm_signal_bind(const char *trace_name, int bank, int pin,
     struct mm_signal_binding *b;
 
     if (trace_name == 0 || g_binding_count >= MM_SIGNAL_MAX_BINDINGS) {
+        return -1;
+    }
+    if (role == MM_SIGNAL_ROLE_GPIO && mm_signal_gpio_vil_mv() >= mm_signal_gpio_vih_mv()) {
+        fprintf(stderr, "signal: GPIO VIL (%d mV) must be below VIH (%d mV)\n",
+                (int)mm_signal_gpio_vil_mv(), (int)mm_signal_gpio_vih_mv());
         return -1;
     }
 

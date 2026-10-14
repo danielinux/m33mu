@@ -444,6 +444,12 @@ the run exits with status 1 if the address is never reached.
 .BR --vdd-mv= MV
 Supply voltage used to derive GPIO input thresholds (default 3300).
 .TP
+.BR --gpio-vil-mv= "MV, " --gpio-vih-mv= MV
+GPIO input low and high thresholds for bound pins.
+Each flag overrides its side only; the other keeps its default of
+VDD/2 \- 125 mV (VIL) or VDD/2 + 125 mV (VIH).
+The effective VIL must be below the effective VIH, otherwise the run exits with status 1.
+.TP
 .BR --atecc608:SPIx:cs=GPIONAME[:file=PATH]
 Attach a Microchip ATECC608A secure element simulator to the selected SPI bus.
 Requires Rust plugin support (cargo must be available at build time).

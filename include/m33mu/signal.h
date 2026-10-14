@@ -41,8 +41,13 @@ void mm_signal_prepare_for_run(void);
 
 mm_bool mm_signal_load(const char *path);
 
-/* GPIO thresholds are VDD/2 +/- 125mV; set before mm_signal_bind(). */
+/* GPIO thresholds default to VDD/2 +/- 125mV; an explicit VIL or VIH overrides
+ * its side only. Set all of them before mm_signal_bind(). */
 void mm_signal_set_vdd_mv(mm_i32 vdd_mv);
+void mm_signal_set_gpio_vil_mv(mm_i32 vil_mv);
+void mm_signal_set_gpio_vih_mv(mm_i32 vih_mv);
+mm_i32 mm_signal_gpio_vil_mv(void);
+mm_i32 mm_signal_gpio_vih_mv(void);
 void mm_signal_set_cpu_hz(mm_u64 hz);
 
 /* Call with the PC about to execute, before mm_tb_run() or a single step.
