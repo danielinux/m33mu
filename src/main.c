@@ -57,6 +57,7 @@
 #include "m33mu/table_branch.h"
 #include "m33mu/timer.h"
 #include "m33mu/signal.h"
+#include "m33mu/gpio.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/spiflash.h"
 #include "m33mu/usbdev.h"
@@ -6382,6 +6383,26 @@ int main(int argc, char **argv)
                 fprintf(stderr, "Failed to register MMIO for CPU %s\n", (cpu_name != 0) ? cpu_name : "unknown");
                 rc = 1;
                 goto cleanup;
+            }
+            if (signal_bind_count > 0) {
+                int bi;
+                if (!mm_gpio_external_input_writer_present()) {
+                    fprintf(stderr, "--signal-bind: CPU %s has no GPIO signal injection\n",
+                            (cpu_name != 0) ? cpu_name : "unknown");
+                    rc = 1;
+                    goto cleanup;
+                }
+                for (bi = 0; bi < signal_bind_count; ++bi) {
+                    int pins = 0;
+                    if (!mm_gpio_bank_info(signal_bind_specs[bi].bank, 0, 0, &pins) ||
+                        signal_bind_specs[bi].pin >= pins) {
+                        fprintf(stderr, "--signal-bind: CPU %s has no pin P%c%d\n",
+                                (cpu_name != 0) ? cpu_name : "unknown",
+                                'A' + signal_bind_specs[bi].bank, signal_bind_specs[bi].pin);
+                        rc = 1;
+                        goto cleanup;
+                    }
+                }
             }
             mm_spiflash_register_mmap_regions(&map.mmio);
             mm_target_flash_bind(&cfg, &map, flash, cfg.flash_size_s, opt_persist ? &persist : 0);

@@ -7,7 +7,8 @@ shared signal core it is built on. The ADC path is a later phase, described
 in [signal-injection-adc.md](signal-injection-adc.md).
 
 Supported target: STM32H5 (`stm32h563`, `stm32h533`, `stm32h5f4`), through the
-shared `cpu/stm32_gpio.c` model.
+shared `cpu/stm32_gpio.c` model. On other targets, or for a pin the target
+does not have, `--signal-bind` is an error.
 
 ## Usage
 
