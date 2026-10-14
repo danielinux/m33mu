@@ -21,6 +21,7 @@
 
 #include <string.h>
 #include "stm32_gpio.h"
+#include "m33mu/gpio.h"
 
 static mm_u32 gpio_mask_to_2bit(mm_u32 mask)
 {
@@ -100,6 +101,34 @@ static void gpio_refresh_pad_inputs(struct stm32_gpio_ctx *ctx)
     gpio_set_idr(ctx, gpio_pad_idr(ctx->gpio, ctx->gpio->regs[STM32_GPIO_IDR_OFFSET / 4]));
 }
 
+/* Output pins drive ODR onto the pad, except open-drain pins with ODR set. */
+static void gpio_notify_pad_outputs(struct stm32_gpio_state *g, int bank, mm_bool all)
+{
+    mm_u32 odr;
+    mm_u32 driven;
+    mm_u32 level;
+    mm_u32 changed;
+    int pin;
+
+    if (!mm_gpio_pad_listener_present()) {
+        return;
+    }
+    odr = g->regs[STM32_GPIO_ODR_OFFSET / 4] & 0xFFFFu;
+    driven = gpio_mode_pins_mask(g, GPIO_MODE_OUTPUT) &
+             ~(g->regs[STM32_GPIO_OTYPER_OFFSET / 4] & odr);
+    level = odr & driven;
+    changed = all ? 0xFFFFu : ((driven ^ g->pad_driven) | (level ^ g->pad_level));
+    g->pad_driven = driven;
+    g->pad_level = level;
+    for (pin = 0; pin < 16; ++pin) {
+        mm_u32 bit = 1u << (mm_u32)pin;
+        if ((changed & bit) != 0u) {
+            mm_gpio_notify_pad(bank, pin, ((driven & bit) == 0u) ? (mm_u8)MM_GPIO_LEVEL_Z :
+                                          (((level & bit) != 0u) ? 1u : 0u));
+        }
+    }
+}
+
 mm_u8 stm32_gpio_get_pin_af(const struct stm32_gpio_state *g, int pin)
 {
     if (pin < 0 || pin >= 16) {
@@ -118,6 +147,7 @@ void stm32_gpio_reset(struct stm32_gpio_state *gpio, int bank)
         gpio->regs[STM32_GPIO_MODER_OFFSET / 4] = 0xABFFFFFFu;
     }
     gpio->locked = MM_FALSE;
+    gpio_notify_pad_outputs(gpio, bank, MM_TRUE);
 }
 
 static void gpio_apply_brr(struct stm32_gpio_state *g, mm_u32 bits, mm_u32 mask)
@@ -205,10 +235,9 @@ mm_bool stm32_gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     return MM_TRUE;
 }
 
-mm_bool stm32_gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
-                         mm_u32 value)
+static mm_bool gpio_write_regs(struct stm32_gpio_ctx *ctx, mm_u32 offset, mm_u32 size_bytes,
+                               mm_u32 value)
 {
-    struct stm32_gpio_ctx *ctx = (struct stm32_gpio_ctx *)opaque;
     struct stm32_gpio_state *g = ctx->gpio;
     mm_u32 seccfgr = g->regs[STM32_GPIO_SECCFGR_OFFSET / 4];
     mm_u32 mask = ~seccfgr;
@@ -322,4 +351,13 @@ mm_bool stm32_gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
         g->regs[offset / 4] = value;
     }
     return MM_TRUE;
+}
+
+mm_bool stm32_gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
+                         mm_u32 value)
+{
+    struct stm32_gpio_ctx *ctx = (struct stm32_gpio_ctx *)opaque;
+    mm_bool ok = gpio_write_regs(ctx, offset, size_bytes, value);
+    gpio_notify_pad_outputs(ctx->gpio, ctx->bank_index, MM_FALSE);
+    return ok;
 }

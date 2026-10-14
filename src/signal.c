@@ -533,9 +533,28 @@ void mm_signal_set_trigger(mm_u32 trigger_pc)
     g_triggered = MM_FALSE;
 }
 
+mm_bool mm_signal_trigger_set(void)
+{
+    return g_trigger_set;
+}
+
 mm_bool mm_signal_triggered(void)
 {
     return g_triggered;
+}
+
+mm_u64 mm_signal_now_ns(void)
+{
+    return signal_now_ns();
+}
+
+mm_bool mm_signal_trigger_ns(mm_u64 *ns_out)
+{
+    if (!g_triggered || ns_out == 0) {
+        return MM_FALSE;
+    }
+    *ns_out = g_trigger_ns;
+    return MM_TRUE;
 }
 
 static void signal_dispatch_gpio(struct mm_signal_binding *b, mm_u64 elapsed_ns)

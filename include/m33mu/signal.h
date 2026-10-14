@@ -70,6 +70,12 @@ int mm_signal_bind(const char *trace_name, int bank, int pin,
 
 /* One-shot: the first time pc == trigger_pc, every binding starts at t=0. */
 void mm_signal_set_trigger(mm_u32 trigger_pc);
+mm_bool mm_signal_trigger_set(void);
 mm_bool mm_signal_triggered(void);
+
+/* Replay clock: ns since the first instruction, advanced by mm_signal_advance(). */
+mm_u64 mm_signal_now_ns(void);
+/* MM_FALSE until the trigger has fired. */
+mm_bool mm_signal_trigger_ns(mm_u64 *ns_out);
 
 #endif /* M33MU_SIGNAL_H */

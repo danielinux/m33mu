@@ -68,4 +68,11 @@ void mm_gpio_set_external_input_writer(mm_gpio_set_external_input_fn writer, voi
 mm_bool mm_gpio_set_external_input(int bank, int pin, mm_bool level);
 mm_bool mm_gpio_external_input_writer_present(void);
 
+/* Level the firmware drives on a pad: 0, 1 or MM_GPIO_LEVEL_Z (not driven). */
+#define MM_GPIO_LEVEL_Z 2u
+typedef void (*mm_gpio_pad_listener_fn)(void *opaque, int bank, int pin, mm_u8 level);
+void mm_gpio_set_pad_listener(mm_gpio_pad_listener_fn listener, void *opaque);
+mm_bool mm_gpio_pad_listener_present(void);
+void mm_gpio_notify_pad(int bank, int pin, mm_u8 level);
+
 #endif /* M33MU_GPIO_H */

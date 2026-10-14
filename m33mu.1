@@ -557,7 +557,9 @@ May be repeated.
 .BR --signal-sync= SYMBOL|ADDR
 Start replay of all bound traces the first time the PC reaches this address.
 A symbol name requires an ELF image. Required with
-.BR --signal-bind ;
+.BR --signal-bind ,
+optional with
+.BR --signal-record ;
 the run exits with status 1 if the address is never reached.
 .TP
 .BR --vdd-mv= MV
@@ -568,6 +570,20 @@ GPIO input low and high thresholds for bound pins.
 Each flag overrides its side only; the other keeps its default of
 VDD/2 \- 125 mV (VIL) or VDD/2 + 125 mV (VIH).
 The effective VIL must be below the effective VIH, otherwise the run exits with status 1.
+.TP
+.BR --signal-record= PATH
+Write the levels the firmware drives on watched pins to a CSV file with the columns
+t_ns, pin and level (0, 1 or Z), one row per change (see
+.IR docs/signal-record-gpio.md ).
+Times count from
+.B --signal-sync
+when given, otherwise from the first instruction.
+.TP
+.BR --signal-watch:target=PXn
+Record pin
+.BR PXn .
+May be repeated, up to 32 pins. Required with
+.BR --signal-record .
 .TP
 .BR --atecc608:SPIx:cs=GPIONAME[:file=PATH]
 Attach a Microchip ATECC608A secure element simulator to the selected SPI bus.

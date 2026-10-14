@@ -60,6 +60,7 @@
 #include "m33mu/table_branch.h"
 #include "m33mu/timer.h"
 #include "m33mu/signal.h"
+#include "m33mu/signal_record.h"
 #include "m33mu/gpio.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/spiflash.h"
@@ -5028,6 +5029,11 @@ static mm_bool signal_parse_gpio_name(const char *s, int *bank_out, int *pin_out
     return MM_TRUE;
 }
 
+static void signal_record_close_at_exit(void)
+{
+    (void)mm_signal_record_close();
+}
+
 /* --signal-sync accepts an address, or a symbol when the image is an ELF. */
 static mm_bool signal_resolve_trigger_addr(const char *spec,
                                             const struct mm_image_spec *images,
@@ -5189,6 +5195,13 @@ int main(int argc, char **argv)
     mm_bool has_signal_file = MM_FALSE;
     mm_bool has_signal_trigger = MM_FALSE;
     char opt_signal_sync[256] = "";
+    char opt_signal_record[256] = "";
+    mm_bool has_signal_record = MM_FALSE;
+    struct mm_signal_watch_spec {
+        int bank;
+        int pin;
+    } signal_watch_specs[MM_SIGNAL_RECORD_MAX_WATCHES];
+    int signal_watch_count = 0;
 #ifdef M33MU_HAS_RUST_PLUGINS
     struct mm_se050_cfg se050_cfgs[4];
     int se050_count = 0;
@@ -5799,6 +5812,29 @@ int main(int argc, char **argv)
             }
             signal_bind_specs[signal_bind_count] = spec;
             signal_bind_count++;
+        } else if (strncmp(argv[i], "--signal-record=", 16) == 0) {
+            snprintf(opt_signal_record, sizeof(opt_signal_record), "%s", argv[i] + 16);
+            if (opt_signal_record[0] == '\0') {
+                fprintf(stderr, "invalid --signal-record value: %s\n", argv[i]);
+                return 1;
+            }
+            has_signal_record = MM_TRUE;
+        } else if (strncmp(argv[i], "--signal-watch:", 15) == 0) {
+            struct mm_signal_watch_spec wspec;
+            if (strncmp(argv[i] + 15, "target=", 7) != 0) {
+                fprintf(stderr, "--signal-watch requires target=: %s\n", argv[i]);
+                return 1;
+            }
+            if (!signal_parse_gpio_name(argv[i] + 22, &wspec.bank, &wspec.pin)) {
+                fprintf(stderr, "invalid --signal-watch target: %s\n", argv[i] + 22);
+                return 1;
+            }
+            if (signal_watch_count >= (int)(sizeof(signal_watch_specs) / sizeof(signal_watch_specs[0]))) {
+                fprintf(stderr, "too many --signal-watch entries\n");
+                return 1;
+            }
+            signal_watch_specs[signal_watch_count] = wspec;
+            signal_watch_count++;
 #ifdef M33MU_HAS_RUST_PLUGINS
         } else if (strncmp(argv[i], "--se050:", 8) == 0) {
             if (se050_count >= (int)(sizeof(se050_cfgs) / sizeof(se050_cfgs[0]))) {
@@ -5881,6 +5917,7 @@ int main(int argc, char **argv)
                         "[--signal-file=<path>] [--signal-bind:trace=<name>:target=PXn:role=gpio] "
                         "[--signal-sync=<symbol|addr>] [--vdd-mv=<mV>] "
                         "[--gpio-vil-mv=<mV>] [--gpio-vih-mv=<mV>] "
+                        "[--signal-record=<path>] [--signal-watch:target=PXn] "
                         "[--boot flash|ram|spiflash] "
                         "[--boot-offset=0xN] "
                         "[--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] "
@@ -6069,6 +6106,34 @@ int main(int argc, char **argv)
         }
     } else if (signal_bind_count > 0) {
         fprintf(stderr, "--signal-bind given without --signal-file\n");
+        return 1;
+    }
+    if (has_signal_record) {
+        if (signal_watch_count == 0) {
+            fprintf(stderr, "--signal-record requires at least one --signal-watch\n");
+            return 1;
+        }
+        if (!has_signal_file && has_signal_trigger) {
+            mm_u32 trig_addr;
+            if (!signal_resolve_trigger_addr(opt_signal_sync, images,
+                                              image_count, &trig_addr)) {
+                return 1;
+            }
+            mm_signal_set_trigger(trig_addr);
+        }
+        for (i = 0; i < signal_watch_count; ++i) {
+            if (!mm_signal_record_watch(signal_watch_specs[i].bank, signal_watch_specs[i].pin)) {
+                fprintf(stderr, "--signal-watch: P%c%d is given twice\n",
+                        'A' + signal_watch_specs[i].bank, signal_watch_specs[i].pin);
+                return 1;
+            }
+        }
+        if (!mm_signal_record_open(opt_signal_record)) {
+            return 1;
+        }
+        atexit(signal_record_close_at_exit);
+    } else if (signal_watch_count > 0) {
+        fprintf(stderr, "--signal-watch given without --signal-record\n");
         return 1;
     }
 #ifdef M33MU_HAS_RUST_PLUGINS
@@ -6567,6 +6632,26 @@ int main(int argc, char **argv)
                         fprintf(stderr, "--signal-bind: CPU %s has no pin P%c%d\n",
                                 (cpu_name != 0) ? cpu_name : "unknown",
                                 'A' + signal_bind_specs[bi].bank, signal_bind_specs[bi].pin);
+                        rc = 1;
+                        goto cleanup;
+                    }
+                }
+            }
+            if (signal_watch_count > 0) {
+                int wi;
+                if (!mm_gpio_external_input_writer_present()) {
+                    fprintf(stderr, "--signal-watch: CPU %s has no GPIO signal recording\n",
+                            (cpu_name != 0) ? cpu_name : "unknown");
+                    rc = 1;
+                    goto cleanup;
+                }
+                for (wi = 0; wi < signal_watch_count; ++wi) {
+                    int pins = 0;
+                    if (!mm_gpio_bank_info(signal_watch_specs[wi].bank, 0, 0, &pins) ||
+                        signal_watch_specs[wi].pin >= pins) {
+                        fprintf(stderr, "--signal-watch: CPU %s has no pin P%c%d\n",
+                                (cpu_name != 0) ? cpu_name : "unknown",
+                                'A' + signal_watch_specs[wi].bank, signal_watch_specs[wi].pin);
                         rc = 1;
                         goto cleanup;
                     }
@@ -8101,7 +8186,11 @@ check_irq_pending:
             break;
         }
     }
-    if (signal_bind_count > 0 && !mm_signal_triggered()) {
+    if (has_signal_record && !mm_signal_record_close()) {
+        rc = 1;
+    }
+    if ((signal_bind_count > 0 || (has_signal_record && mm_signal_trigger_set())) &&
+        !mm_signal_triggered()) {
         fprintf(stderr, "signal: --signal-sync=%s was never reached, no trace was replayed\n",
                 opt_signal_sync);
         if (!opt_gdb && !opt_tui) {

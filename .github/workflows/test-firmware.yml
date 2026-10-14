@@ -208,6 +208,16 @@ jobs:
           build/m33mu --cpu stm32h5f4 --dualbank \
             --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
             $FW/test-stm32h5f4-signal-output-timing/app.bin
+          # PB0 toggles every 6400 cycles (100 us at 64 MHz) after the marker.
+          build/m33mu --cpu stm32h5f4 --dualbank \
+            --signal-sync=signal_trigger_marker \
+            --signal-record=/tmp/m33mu-signal-record.csv \
+            --signal-watch:target=PB0 --signal-watch:target=PB1 \
+            --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
+            $FW/test-stm32h5f4-signal-record/app.elf
+          python3 scripts/check_signal_record.py /tmp/m33mu-signal-record.csv \
+            --levels PB0=Z,0,1,0,1,0,1,0,1,0 --levels PB1=Z,0,Z \
+            --period PB0:8:100000:1000
       - name: Run M2354 firmware tests (Cortex-M23 baseline)
         # First ARMv8-M Baseline target: the console test also covers the
         # Thumb-1 "mov pc, rN" dispatch and the "add sp, rN" frame setup that
