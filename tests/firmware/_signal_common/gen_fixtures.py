@@ -76,6 +76,11 @@ tr_a = (1, "trace_a", 1, 3300, [0, 3300])
 tr_b = (2, "trace_b", 1, 3300, [0, 3300])
 write_container(os.path.join(OUT_DIR, "fixture_group_sync.sigc"), [tb], [tr_a, tr_b])
 
+# input-idle-high: starts high, one falling crossing
+tb = uniform(1, [3300, 3300, 0], 20000)
+tr = (1, "vin", 1, 3300, [3300, 3300, 0])
+write_container(os.path.join(OUT_DIR, "fixture_idle_high.sigc"), [tb], [tr])
+
 # mode-guard: 4 crossings, widely spaced (100us)
 tb = uniform(1, [0, 3300, 0, 3300, 0], 100000)
 tr = (1, "vin", 1, 3300, [0, 3300, 0, 3300, 0])

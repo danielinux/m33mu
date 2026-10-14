@@ -39,7 +39,7 @@ enum mm_signal_role {
 void mm_signal_reset(void);
 
 /* Call after each SoC reset. Replay keeps running; bound pins get their
- * level written again by the next mm_signal_advance(). */
+ * level (sample 0 before the trigger) written by the next mm_signal_advance(). */
 void mm_signal_prepare_for_run(void);
 
 mm_bool mm_signal_load(const char *path);

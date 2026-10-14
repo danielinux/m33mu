@@ -61,6 +61,7 @@ serve as a reference encoder. There is no HDF5 converter yet.
 | Traces are converted offline into a flat binary container, not read from HDF5 at run time | Keeps the emulator free of heavy format dependencies; replay only needs `(t, v)` pairs |
 | Zero-order hold between samples | A sharp edge in the source stays sharp; matches a signal generator connected to a pin |
 | Timestamps in nanoseconds | Same unit as the emulator's own pacing; independent of the core clock |
+| Before the trigger, a bound pin holds the level of the trace's first sample | Like a signal generator that is already connected at power-on. An idle-high line reads high from reset, and its first falling crossing is a real edge |
 | One master trigger starts every bound trace at `t = 0` | Timing does not depend on boot-code length, and traces bound to different peripherals stay aligned, like a scope's external trigger |
 | The trigger is a PC watch, not a breakpoint | No memory patching, no halt, no firmware change: one compare per dispatch |
 | The trigger is one-shot per emulator run, and a system reset does not rewind replay | The stimulus models the outside world, which a watchdog or software reset does not restart. Bound pins get their current level again after the reset |
@@ -125,6 +126,7 @@ execution path in `src/main.c` that advances `mm_timer_tick()`.
 | `input-hysteresis` | Noise inside the band raises no interrupt |
 | `input-sharp-edge` | A crossing 16 ns after the trigger is visible within a few polls |
 | `input-nonuniform` | Explicit timestamps |
+| `input-idle-high` | An idle-high trace reads high before the trigger and raises one falling-edge interrupt |
 | `input-mode-guard` | An output pin ignores the trace, and reads the pad level as soon as it is back in input mode |
 | `trigger-oneshot` | A second pass through the trigger PC does not restart replay |
 | `reset-keeps-running` | After a system reset the pin reads the level the trace has reached |

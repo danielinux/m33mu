@@ -524,11 +524,14 @@ void mm_signal_advance(mm_u64 cycles)
 
     for (i = 0; i < g_binding_count; ++i) {
         struct mm_signal_binding *b = &g_bindings[i];
-        if (!b->armed || !b->triggered) {
+        if (!b->armed) {
             continue;
         }
         if (g_rewrite_levels && b->role == MM_SIGNAL_ROLE_GPIO) {
             (void)mm_gpio_set_external_input(b->bank, b->pin, b->current_level);
+        }
+        if (!b->triggered) {
+            continue;
         }
         b->elapsed_ns = signal_cycles_to_ns(g_total_vcycles - b->trigger_vcycles);
         if (b->role == MM_SIGNAL_ROLE_GPIO) {

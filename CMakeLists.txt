@@ -607,6 +607,7 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-sharp-edge app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-nonuniform app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-mode-guard app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-idle-high app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-trigger-oneshot app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-trigger-midblock app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-reset-keeps-running app.bin

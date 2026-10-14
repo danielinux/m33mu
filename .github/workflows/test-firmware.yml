@@ -163,6 +163,8 @@ jobs:
             --signal-bind:trace=vin:target=PA5:role=gpio:group=0
           run_signal_test $FW/test-stm32h5f4-signal-input-mode-guard $COMMON/fixture_mode_guard.sigc \
             --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-idle-high $COMMON/fixture_idle_high.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
           run_signal_test $FW/test-stm32h5f4-signal-trigger-oneshot $COMMON/fixture_oneshot.sigc \
             --signal-bind:trace=vin:target=PA5:role=gpio:group=0
           run_signal_test $FW/test-stm32h5f4-signal-trigger-midblock $COMMON/fixture_oneshot.sigc \
