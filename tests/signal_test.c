@@ -206,36 +206,38 @@ static int test_unknown_trace_rejected(void)
     return 0;
 }
 
-static int test_prepare_for_run_rearms(void)
+static int test_reset_keeps_stimulus_running(void)
 {
-    mm_i16 samples[4] = { 0, 0, 3300, 3300 };
+    mm_i16 samples[5] = { 0, 0, 3300, 3300, 0 };
     int bid;
 
     reset_fakes();
     mm_signal_set_vdd_mv(3300);
-    if (!write_fixture(g_tmp_path, "vin4", samples, 4, 1000)) return 1;
+    if (!write_fixture(g_tmp_path, "vin4", samples, 5, 1000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
     bid = mm_signal_bind("vin4", 0, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP);
     if (bid < 0) return 1;
     mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
 
     mm_signal_check_trigger(0x08001000u);
-    mm_signal_advance(1);
-    if (!mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
-    mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(500);
-    if (g_write_calls != 1) return 1;
+    if (g_write_calls != 1 || g_last_level != MM_TRUE) return 1;
 
     mm_signal_prepare_for_run();
-    if (mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
+    if (!mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
 
+    /* The GPIO model was reset: the pad level is written again. */
     g_write_calls = 0;
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1);
-    if (!mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
+    if (g_write_calls != 1 || g_last_level != MM_TRUE) return 1;
+
+    /* No rewind: the falling crossing at 4000ns is 499 cycles away. */
     mm_signal_check_trigger(0x08001000u);
-    mm_signal_advance(500);
+    mm_signal_advance(498);
     if (g_write_calls != 1) return 1;
+    mm_signal_advance(1);
+    if (g_write_calls != 2 || g_last_level != MM_FALSE) return 1;
 
     return 0;
 }
@@ -273,7 +275,7 @@ int main(void)
         { "hysteresis_suppresses_inband_noise", test_hysteresis_suppresses_inband_noise },
         { "rejected_write_does_not_crash_or_wedge", test_rejected_write_does_not_crash_or_wedge },
         { "unknown_trace_rejected", test_unknown_trace_rejected },
-        { "prepare_for_run_rearms", test_prepare_for_run_rearms },
+        { "reset_keeps_stimulus_running", test_reset_keeps_stimulus_running },
         { "trigger_pc_and_all_triggered", test_trigger_pc_and_all_triggered },
     };
     size_t i;

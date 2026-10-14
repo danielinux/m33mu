@@ -115,6 +115,7 @@ static mm_i32 g_vdd_mv = 3300;
 
 static mm_u64 g_cpu_hz = MM_SIGNAL_DEFAULT_CPU_HZ;
 static mm_u64 g_total_vcycles = 0;
+static mm_bool g_rewrite_levels = MM_FALSE;
 
 void mm_signal_set_cpu_hz(mm_u64 hz)
 {
@@ -158,22 +159,12 @@ void mm_signal_reset(void)
     memset(g_triggers, 0, sizeof(g_triggers));
     g_vdd_mv = 3300;
     g_total_vcycles = 0;
+    g_rewrite_levels = MM_FALSE;
 }
 
 void mm_signal_prepare_for_run(void)
 {
-    mm_u32 i;
-    g_total_vcycles = 0;
-    for (i = 0; i < g_trigger_count; ++i) {
-        g_triggers[i].fired = MM_FALSE;
-    }
-    for (i = 0; i < g_binding_count; ++i) {
-        g_bindings[i].triggered = MM_FALSE;
-        g_bindings[i].elapsed_ns = 0;
-        g_bindings[i].trigger_vcycles = 0;
-        g_bindings[i].next_crossing = 0;
-        g_bindings[i].current_level = MM_FALSE;
-    }
+    g_rewrite_levels = MM_TRUE;
 }
 
 void mm_signal_set_vdd_mv(mm_i32 vdd_mv)
@@ -536,9 +527,13 @@ void mm_signal_advance(mm_u64 cycles)
         if (!b->armed || !b->triggered) {
             continue;
         }
+        if (g_rewrite_levels && b->role == MM_SIGNAL_ROLE_GPIO) {
+            (void)mm_gpio_set_external_input(b->bank, b->pin, b->current_level);
+        }
         b->elapsed_ns = signal_cycles_to_ns(g_total_vcycles - b->trigger_vcycles);
         if (b->role == MM_SIGNAL_ROLE_GPIO) {
             signal_dispatch_gpio(b);
         }
     }
+    g_rewrite_levels = MM_FALSE;
 }

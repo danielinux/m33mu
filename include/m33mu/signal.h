@@ -38,7 +38,8 @@ enum mm_signal_role {
 
 void mm_signal_reset(void);
 
-/* Re-arms triggers and rewinds bindings, keeping the loaded container. */
+/* Call after each SoC reset. Replay keeps running; bound pins get their
+ * level written again by the next mm_signal_advance(). */
 void mm_signal_prepare_for_run(void);
 
 mm_bool mm_signal_load(const char *path);

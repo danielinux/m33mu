@@ -63,7 +63,7 @@ serve as a reference encoder. There is no HDF5 converter yet.
 | Timestamps in nanoseconds | Same unit as the emulator's own pacing; independent of the core clock |
 | One master trigger starts every bound trace at `t = 0` | Timing does not depend on boot-code length, and traces bound to different peripherals stay aligned, like a scope's external trigger |
 | The trigger is a PC watch, not a breakpoint | No memory patching, no halt, no firmware change: one compare per dispatch |
-| The trigger is one-shot per boot | One run is one deterministic scenario. A system reset re-arms it |
+| The trigger is one-shot per emulator run, and a system reset does not rewind replay | The stimulus models the outside world, which a watchdog or software reset does not restart. Bound pins get their current level again after the reset |
 | GPIO crossings are precomputed at bind time | No per-cycle voltage comparison; replay only checks the next scheduled crossing |
 | Schmitt thresholds at `VDD/2 ± 125 mV` | STM32H5 datasheet typical hysteresis is 250 mV. Voltages inside the band do not change the input state |
 | Both edge directions are always forwarded | Edge selection belongs to the firmware (`EXTI_RTSR1`/`EXTI_FTSR1`) and can change at run time; the existing EXTI model gates on it and on `EXTI_IMR1` |
@@ -107,7 +107,7 @@ execution path in `src/main.c` that advances `mm_timer_tick()`.
 
 ## Tests
 
-- `tests/signal_test.c`: loader, binding, trigger, hysteresis and re-arm,
+- `tests/signal_test.c`: loader, binding, trigger, hysteresis and reset,
   against a fake GPIO writer.
 - `tests/stm32_gpio_signal_test.c`: the input-mode guard, Analog-mode `IDR`
   masking, and the pad level kept across mode changes and `ODR` writes.
@@ -127,6 +127,7 @@ execution path in `src/main.c` that advances `mm_timer_tick()`.
 | `input-nonuniform` | Explicit timestamps |
 | `input-mode-guard` | An output pin ignores the trace, and reads the pad level as soon as it is back in input mode |
 | `trigger-oneshot` | A second pass through the trigger PC does not restart replay |
+| `reset-keeps-running` | After a system reset the pin reads the level the trace has reached |
 | `trigger-midblock` | A trigger on a fall-through instruction, not a branch target, starts replay |
 | `group-sync` | Two bindings in one group change state together |
 | `output-loopback` / `output-timing` | `ODR`→`IDR` mirroring and cycle accounting are unaffected by the signal hooks |
