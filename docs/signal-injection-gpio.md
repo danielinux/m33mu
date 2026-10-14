@@ -74,7 +74,7 @@ serve as a reference encoder. There is no HDF5 converter yet.
 | Schmitt thresholds at `VDD/2 ± 125 mV` | STM32H5 datasheet typical hysteresis is 250 mV. Voltages inside the band do not change the input state |
 | Both edge directions are always forwarded | Edge selection belongs to the firmware (`EXTI_RTSR1`/`EXTI_FTSR1`) and can change at run time; the existing EXTI model gates on it and on `EXTI_IMR1` |
 | Injection writes `IDR` and calls the bank's EXTI hook | Polled reads and interrupts see the same transition through the existing paths |
-| The GPIO model keeps the pad level of every injected pin, and only Input pins show it in `IDR` | Output and AF pins are driven by the MCU. Analog pins have the Schmitt trigger disabled, so `IDR` reads 0 for them. A pin switched back to Input reads the pad at once, as on silicon |
+| The GPIO model keeps the pad level of every injected pin, and only Input pins show it in `IDR` | Output and AF pins are driven by the MCU, so their `IDR` bit reads back `ODR`. Analog pins have the Schmitt trigger disabled, so `IDR` reads 0 for them. A pin switched back to Input reads the pad at once, as on silicon |
 
 ## Timing model
 
@@ -120,7 +120,8 @@ core at its scheduled time, with or without SysTick.
 - `tests/signal_test.c`: loader, binding, trigger, hysteresis and reset,
   against a fake GPIO writer.
 - `tests/stm32_gpio_signal_test.c`: the input-mode guard, Analog-mode `IDR`
-  masking, and the pad level kept across mode changes and `ODR` writes.
+  masking, the pad level kept across mode changes and `ODR` writes, and
+  `ODR` read-back once an injected pin is an output.
 - `tests/firmware/test-stm32h5f4-signal-*`: end-to-end firmware. Each test
   ends with `bkpt #0x7f` on pass and `bkpt #0x7e` on fail. They share their
   startup code, linker script, fixtures and `signal_test.h` from

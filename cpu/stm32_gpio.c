@@ -51,36 +51,36 @@ mm_u8 stm32_gpio_get_pin_mode(const struct stm32_gpio_state *g, int pin)
     return (mm_u8)((moder >> (pin * 2)) & 0x3u);
 }
 
+#define GPIO_MODE_INPUT  0u
+#define GPIO_MODE_OUTPUT 1u
+#define GPIO_MODE_AF     2u
+#define GPIO_MODE_ANALOG 3u
+
+static mm_u32 gpio_mode_pins_mask(const struct stm32_gpio_state *g, mm_u32 mode)
+{
+    mm_u32 moder = g->regs[STM32_GPIO_MODER_OFFSET / 4];
+    mm_u32 mask = 0;
+    int pin;
+    for (pin = 0; pin < 16; ++pin) {
+        if (((moder >> (pin * 2)) & 0x3u) == mode) {
+            mask |= (1u << pin);
+        }
+    }
+    return mask;
+}
+
 static mm_u32 gpio_analog_pins_mask(const struct stm32_gpio_state *g)
 {
-    mm_u32 moder = g->regs[STM32_GPIO_MODER_OFFSET / 4];
-    mm_u32 mask = 0;
-    int pin;
-    for (pin = 0; pin < 16; ++pin) {
-        if (((moder >> (pin * 2)) & 0x3u) == 0x3u) {
-            mask |= (1u << pin);
-        }
-    }
-    return mask;
+    return gpio_mode_pins_mask(g, GPIO_MODE_ANALOG);
 }
 
-static mm_u32 gpio_input_pins_mask(const struct stm32_gpio_state *g)
-{
-    mm_u32 moder = g->regs[STM32_GPIO_MODER_OFFSET / 4];
-    mm_u32 mask = 0;
-    int pin;
-    for (pin = 0; pin < 16; ++pin) {
-        if (((moder >> (pin * 2)) & 0x3u) == 0u) {
-            mask |= (1u << pin);
-        }
-    }
-    return mask;
-}
-
-/* Input pins with an external level read the pad, not idr. */
+/* Injected Input pins read the pad; injected Output and AF pins read back ODR. */
 static mm_u32 gpio_pad_idr(const struct stm32_gpio_state *g, mm_u32 idr)
 {
-    mm_u32 pad = g->ext_driven & gpio_input_pins_mask(g);
+    mm_u32 pad = g->ext_driven & gpio_mode_pins_mask(g, GPIO_MODE_INPUT);
+    mm_u32 driven = g->ext_driven & (gpio_mode_pins_mask(g, GPIO_MODE_OUTPUT) |
+                                     gpio_mode_pins_mask(g, GPIO_MODE_AF));
+    idr = (idr & ~driven) | (g->regs[STM32_GPIO_ODR_OFFSET / 4] & driven);
     return (idr & ~pad) | (g->ext_level & pad);
 }
 
@@ -154,7 +154,7 @@ mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bo
     bit = 1u << (mm_u32)pin;
     g->ext_driven |= bit;
     g->ext_level = level ? (g->ext_level | bit) : (g->ext_level & ~bit);
-    if (stm32_gpio_get_pin_mode(g, pin) != 0u) {
+    if (stm32_gpio_get_pin_mode(g, pin) != GPIO_MODE_INPUT) {
         return MM_FALSE;
     }
     gpio_refresh_pad_inputs(ctx);

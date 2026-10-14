@@ -173,6 +173,28 @@ static int test_odr_write_keeps_driven_input(void)
     return 0;
 }
 
+static int test_output_mode_reads_back_odr(void)
+{
+    struct stm32_gpio_state g;
+    struct stm32_gpio_ctx ctx;
+    mm_u8 modes[2] = { 1u, 2u };
+    int i;
+
+    for (i = 0; i < 2; ++i) {
+        init_ctx(&g, &ctx);
+        write_moder_mode(&ctx, PIN, 0u);
+        if (!stm32_gpio_set_external_input(&ctx, PIN, MM_TRUE)) return 1;
+        if ((read_idr(&ctx) & (1u << PIN)) == 0u) return 1;
+
+        write_moder_mode(&ctx, PIN, modes[i]);
+        if ((read_idr(&ctx) & (1u << PIN)) != 0u) return 1;
+
+        write_moder_mode(&ctx, PIN, 0u);
+        if ((read_idr(&ctx) & (1u << PIN)) == 0u) return 1;
+    }
+    return 0;
+}
+
 int main(void)
 {
     struct {
@@ -184,6 +206,7 @@ int main(void)
         { "analog_mask_is_per_pin", test_analog_mask_is_per_pin },
         { "input_mode_picks_up_pad_level", test_input_mode_picks_up_pad_level },
         { "odr_write_keeps_driven_input", test_odr_write_keeps_driven_input },
+        { "output_mode_reads_back_odr", test_output_mode_reads_back_odr },
     };
     size_t i;
     int failures = 0;
