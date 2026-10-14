@@ -57,8 +57,6 @@
 #include "m33mu/table_branch.h"
 #include "m33mu/timer.h"
 #include "m33mu/signal.h"
-#include "m33mu/signal.h"
-#include "m33mu/signal.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/spiflash.h"
 #include "m33mu/usbdev.h"
@@ -4949,11 +4947,6 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
     return MM_TRUE;
 }
 
-/* Parses a "PA5"-style pin name into (bank, pin), same convention as the
- * private parse_gpio_name() helpers already used by tpm_tis.c/ta100.c/etc
- * for their own CS pin specs (kept local here rather than exported, since
- * none of those are exported either). bank 0=A, 1=B, ..., matching
- * mm_gpio_bank_read()'s indexing. */
 static mm_bool signal_parse_gpio_name(const char *s, int *bank_out, int *pin_out)
 {
     int bank;
@@ -4976,23 +4969,7 @@ static mm_bool signal_parse_gpio_name(const char *s, int *bank_out, int *pin_out
     return MM_TRUE;
 }
 
-/* Resolves the argument of --signal-sync=<symbol|address> into a Thumb-bit-
- * masked PC value suitable for mm_signal_set_master_trigger(). Replaces the
- * old --signal-master-trigger-addr=<hex> option: that one required the user
- * to resolve the marker symbol's address themselves via an out-of-band
- * `nm`/`readelf` call (see the CI step in .github/workflows/test-firmware.yml
- * and the trigger-symbol-fragility note in docs/signal-injection-gpio.md --
- * a noinline marker's address can shift by a byte or two across toolchain
- * versions or optimization changes, silently breaking a hardcoded value).
- * A symbol name is now resolved fresh, at run time, against the actual
- * loaded ELF via mm_elf_lookup_symbol() (src/covdump.c), so it always
- * matches the binary actually being emulated.
- *
- * Numeric form (0x.../decimal/octal, same as strtoul's base-0 rules) is
- * always accepted, on any execution image. Symbol-name form additionally
- * requires the loaded execution image to itself be an ELF (so its symtab
- * is available to search); with a plain .bin image, a symbol name here is
- * rejected -- there's simply no symbol table to resolve it against. */
+/* --signal-sync accepts an address, or a symbol when the image is an ELF. */
 static mm_bool signal_resolve_trigger_addr(const char *spec,
                                             const struct mm_image_spec *images,
                                             int image_count,
@@ -5015,18 +4992,10 @@ static mm_bool signal_resolve_trigger_addr(const char *spec,
             fprintf(stderr, "invalid --signal-sync address: %s\n", spec);
             return MM_FALSE;
         }
-        /* Thumb bit (bit 0) is masked here, once: cpu->r[15] as compared in
-         * mm_signal_check_trigger() never carries it (see main.c's
-         * consistent "& ~1u" convention on every other PC comparison). */
         *addr_out = (mm_u32)addr & ~1u;
         return MM_TRUE;
     }
 
-    /* Not a bare number: treat it as a symbol name, resolved against the
-     * single loaded ELF image (mirrors the --covdump-elf auto-detection in
-     * the cleanup path's cov_elf resolution above). A plain .bin execution
-     * image has no symbol table, so a symbol name is simply rejected in
-     * that case -- --signal-sync then only accepts a raw address. */
     for (i = 0; i < image_count; ++i) {
         if (images[i].path != 0 &&
             detect_image_type(images[i].path) == MM_IMAGE_ELF) {
@@ -5139,7 +5108,6 @@ int main(int argc, char **argv)
     int ta100_count = 0;
     struct mm_iotsafe_uart_cfg iotsafe_uart_cfgs[4];
     int iotsafe_uart_count = 0;
-    /* --- Signal injection (GPIO phase) --- */
     struct mm_signal_bind_spec {
         char trace_name[MM_SIGNAL_TRACE_NAME_LEN];
         int  bank;
@@ -5152,9 +5120,6 @@ int main(int argc, char **argv)
     mm_bool has_signal_file = MM_FALSE;
     mm_u32 opt_signal_trigger_group = MM_SIGNAL_MASTER_GROUP;
     mm_bool has_signal_trigger = MM_FALSE;
-    /* Raw --signal-sync argument: either a numeric address or a symbol
-     * name, disambiguated and resolved in signal_resolve_trigger_addr()
-     * once image parsing has completed (see the call site below). */
     char opt_signal_sync[256] = "";
 #ifdef M33MU_HAS_RUST_PLUGINS
     struct mm_se050_cfg se050_cfgs[4];
@@ -5659,13 +5624,6 @@ int main(int argc, char **argv)
             snprintf(opt_signal_file, sizeof(opt_signal_file), "%s", argv[i] + 14);
             has_signal_file = MM_TRUE;
         } else if (strncmp(argv[i], "--signal-sync=", 14) == 0) {
-            /* Just captures the raw string here; parsing between "numeric
-             * address" and "symbol name" (and, for the latter, the actual
-             * ELF symbol lookup) is deferred to
-             * signal_resolve_trigger_addr(), called once image parsing has
-             * finished below -- a symbol needs the loaded ELF path, which
-             * isn't necessarily known yet at this point in the argv scan
-             * (image positional args can come before or after this flag). */
             snprintf(opt_signal_sync, sizeof(opt_signal_sync), "%s", argv[i] + 14);
             if (opt_signal_sync[0] == '\0') {
                 fprintf(stderr, "invalid --signal-sync value: %s\n", argv[i]);
@@ -5693,8 +5651,6 @@ int main(int argc, char **argv)
                     have_target = MM_TRUE;
                 } else if (strncmp(tok, "role=", 5) == 0) {
                     if (strcmp(tok + 5, "gpio") != 0) {
-                        /* ADC role lands in the follow-on phase (see
-                         * m33mu-signal-injection-adc.md); not accepted here. */
                         fprintf(stderr, "unsupported --signal-bind role: %s\n", tok + 5);
                         return 1;
                     }
@@ -5800,6 +5756,8 @@ int main(int argc, char **argv)
 #endif
                         "[--uart-stdout] [--quit-on-faults] [--meminfo] [--record] [--record-start <pc>] [--record-start-dump] [--record-start-dump-ram] [--record-end-dump-ram] [--record-trace <path>] [--record-quiet] [--record-dump <n>] [--call-trace] [--dualbank] [--fault-clock N] [--no-tz] [--secwm1=<strt>:<end>] [--secwm2=<strt>:<end>] [--gdb-symbols <elf>] "
                         "[--expect-bkpt 0xNN] [--timeout seconds] "
+                        "[--signal-file=<path>] [--signal-bind:trace=<name>:target=PXn:role=gpio] "
+                        "[--signal-sync=<symbol|addr>] [--vdd_mv=<mV>] "
                         "[--boot flash|ram|spiflash] "
                         "[--boot-offset=0xN] "
                         "[--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] "
@@ -5945,16 +5903,8 @@ int main(int argc, char **argv)
         }
     }
 
-    /* --- Signal injection setup (one-time, mirrors the pattern above):
-     * load the container, set thresholds, bind, arm the master trigger.
-     * mm_signal_prepare_for_run() (called once per soft-reset inside the
-     * main loop) re-arms the triggers/cursors on every subsequent boot
-     * without re-parsing any of this. */
     if (has_signal_file) {
-        mm_signal_set_vdd_mv(opt_vdd_mv); /* must precede mm_signal_bind(): the
-                                            * GPIO crossing schedule is built at
-                                            * bind time using whatever threshold
-                                            * is in effect right now */
+        mm_signal_set_vdd_mv(opt_vdd_mv);
         if (!mm_signal_load(opt_signal_file)) {
             fprintf(stderr, "failed to load --signal-file %s\n", opt_signal_file);
             return 1;
@@ -6255,9 +6205,7 @@ int main(int argc, char **argv)
             mm_u64 hz_now = 0;
             mm_u64 last_hz = 0;
             tui_steps_offset = 0;
-            mm_signal_set_cpu_hz(cpu_hz); /* nominal default; corrected as soon as
-                                            * mm_target_cpu_hz() reports the real
-                                            * rate below, same as cpu_hz itself */
+            mm_signal_set_cpu_hz(cpu_hz);
             if (fault_clock_count > 0u) {
                 mm_u8 i;
                 if (fault_clock_count > (mm_u8)(sizeof(fault_clocks) / sizeof(fault_clocks[0]))) {
@@ -6787,11 +6735,7 @@ int main(int argc, char **argv)
                     last_hz = hz_now;
                     sync_granularity = cpu_hz / 100000u;
                     if (sync_granularity == 0) sync_granularity = 1u;
-                    mm_signal_set_cpu_hz(cpu_hz); /* keep signal replay's cycle->ns
-                                                    * conversion on the same clock
-                                                    * rate deadline_ns() uses, even
-                                                    * across a firmware-driven PLL
-                                                    * reconfiguration mid-run */
+                    mm_signal_set_cpu_hz(cpu_hz);
                     printf("[CLOCK] CPU %llu Hz\n", (unsigned long long)cpu_hz);
                 }
                 if (g_fault_pending) {

@@ -26,8 +26,6 @@
 #include "m33mu/signal.h"
 #include "m33mu/gpio.h"
 
-/* --- Container format (see m33mu-signal-injection-gpio.md, section 3) --- */
-
 #define MM_SIGNAL_MAGIC "SIGC"
 
 struct mm_signal_container_header {
@@ -47,30 +45,26 @@ struct mm_signal_trace_desc {
     mm_u32 id;
     char   name[MM_SIGNAL_TRACE_NAME_LEN];
     mm_u32 timebase_id;
-    mm_i32 full_scale_mv; /* provenance metadata only, not consumed here --
-                            * see the ADC-phase open item about this field */
+    mm_i32 full_scale_mv;
 };
-
-/* --- Loaded state --- */
 
 struct mm_signal_timebase {
     mm_u32  id;
     mm_u32  sample_count;
-    mm_u32  period_ns;    /* 0 if non-uniform */
-    mm_u64 *timestamps_ns; /* NULL if uniform (period_ns != 0) */
+    mm_u32  period_ns;
+    mm_u64 *timestamps_ns;
 };
 
 struct mm_signal_trace {
     mm_u32 id;
     char   name[MM_SIGNAL_TRACE_NAME_LEN];
-    mm_u32 timebase_id;   /* index into g_timebases, not the on-disk id */
+    mm_u32 timebase_idx;
     mm_i16 *samples_mv;
 };
 
-/* Precomputed rising/falling crossing, for GPIO bindings only. */
 struct mm_signal_crossing {
     mm_u64  at_ns;
-    mm_bool rising; /* MM_TRUE = 0->1, MM_FALSE = 1->0 */
+    mm_bool rising;
 };
 
 struct mm_signal_binding {
@@ -81,17 +75,14 @@ struct mm_signal_binding {
     int     bank;
     int     pin;
 
-    mm_u64  elapsed_ns;      /* this binding's replay cursor, recomputed from
-                               * vcycles each tick -- see signal_elapsed_ns() */
-    mm_u64  trigger_vcycles; /* g_total_vcycles at the moment this binding's
-                               * group last fired */
-    mm_bool triggered;       /* has this binding's group fired yet */
+    mm_u64  elapsed_ns;
+    mm_u64  trigger_vcycles;
+    mm_bool triggered;
 
-    /* GPIO role only */
     struct mm_signal_crossing *crossings;
     mm_u32  crossing_count;
-    mm_u32  next_crossing; /* index of the next crossing not yet dispatched */
-    mm_bool current_level; /* last level written to IDR, to avoid redundant writes */
+    mm_u32  next_crossing;
+    mm_bool current_level;
 };
 
 struct mm_signal_master_trigger {
@@ -115,22 +106,12 @@ static mm_u32 g_binding_count = 0;
 static struct mm_signal_master_trigger g_triggers[MM_SIGNAL_MAX_TRIGGERS];
 static mm_u32 g_trigger_count = 0;
 
-/* Schmitt-trigger thresholds derived from --vdd_mv (decision #17): a
- * fixed 250mV hysteresis band centered at vdd_mv/2, per the STM32H5F4
- * datasheet's typical figure, rather than a percentage-of-VDD guess. */
+/* Typical STM32H5 I/O Schmitt hysteresis is 250mV, centered at VDD/2. */
 static mm_i32 g_vdd_mv = 3300;
-#define MM_SIGNAL_HYSTERESIS_HALF_MV 125 /* 250mV band / 2 */
+#define MM_SIGNAL_HYSTERESIS_HALF_MV 125
 
-/* Cycle -> ns conversion, mirroring src/main.c's deadline_ns() exactly (same
- * __int128 multiply-then-divide, same NS_PER_SEC), since signal replay must
- * stay on the identical timebase the rest of the emulator paces against
- * (section 1 of the design doc). g_total_vcycles accumulates every call to
- * mm_signal_tick(); it is *not* the same counter as main.c's own vcycles
- * (there's no shared-state dependency), it just needs to advance at the
- * same per-instruction rate, which it does since both are incremented once
- * per mm_signal_tick()/mm_timer_tick() call at the same tick site. */
 #define MM_SIGNAL_NS_PER_SEC 1000000000ull
-#define MM_SIGNAL_DEFAULT_CPU_HZ 64000000ull /* matches MM_CPU_HZ fallback in main.c */
+#define MM_SIGNAL_DEFAULT_CPU_HZ 64000000ull
 
 static mm_u64 g_cpu_hz = MM_SIGNAL_DEFAULT_CPU_HZ;
 static mm_u64 g_total_vcycles = 0;
@@ -209,8 +190,6 @@ static mm_i32 signal_lo_threshold_mv(void)
 {
     return (g_vdd_mv / 2) - MM_SIGNAL_HYSTERESIS_HALF_MV;
 }
-
-/* --- Container loading --- */
 
 static mm_bool signal_read_exact(FILE *f, void *buf, size_t n)
 {
@@ -312,7 +291,7 @@ mm_bool mm_signal_load(const char *path)
 
         tr->id = desc.id;
         memcpy(tr->name, desc.name, MM_SIGNAL_TRACE_NAME_LEN);
-        tr->timebase_id = tb_idx;
+        tr->timebase_idx = tb_idx;
         tr->samples_mv = 0;
 
         {
@@ -341,46 +320,6 @@ fail:
     return MM_FALSE;
 }
 
-/* --- Zero-order-hold sample lookup (design doc section 3.2) --- */
-
-static mm_i16 signal_sample_at(const struct mm_signal_trace *tr, mm_u64 elapsed_ns)
-{
-    const struct mm_signal_timebase *tb = &g_timebases[tr->timebase_id];
-    mm_u32 n = tb->sample_count;
-
-    if (n == 0u) {
-        return 0;
-    }
-    if (tb->period_ns != 0u) {
-        /* Uniform timebase: O(1) index instead of a binary search. */
-        mm_u64 idx = elapsed_ns / (mm_u64)tb->period_ns;
-        if (idx >= (mm_u64)n) {
-            idx = (mm_u64)n - 1u;
-        }
-        return tr->samples_mv[idx];
-    }
-
-    /* Non-uniform: binary search for the most recent sample at or before
-     * elapsed_ns. */
-    {
-        mm_u32 lo = 0, hi = n;
-        if (elapsed_ns < tb->timestamps_ns[0]) {
-            return tr->samples_mv[0];
-        }
-        while (lo + 1u < hi) {
-            mm_u32 mid = lo + (hi - lo) / 2u;
-            if (tb->timestamps_ns[mid] <= elapsed_ns) {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
-        }
-        return tr->samples_mv[lo];
-    }
-}
-
-/* --- Binding / crossing-schedule setup --- */
-
 static mm_u64 signal_timestamp_for_index(const struct mm_signal_timebase *tb, mm_u32 idx)
 {
     if (tb->period_ns != 0u) {
@@ -389,13 +328,10 @@ static mm_u64 signal_timestamp_for_index(const struct mm_signal_timebase *tb, mm
     return tb->timestamps_ns[idx];
 }
 
-/* Walks the trace once, building the Schmitt-trigger crossing schedule
- * for a GPIO binding (design doc section 4.1). Returns MM_FALSE if the
- * trace would need more crossings than MM_SIGNAL_MAX_CROSSINGS. */
 static mm_bool signal_build_gpio_schedule(struct mm_signal_binding *b,
                                            const struct mm_signal_trace *tr)
 {
-    const struct mm_signal_timebase *tb = &g_timebases[tr->timebase_id];
+    const struct mm_signal_timebase *tb = &g_timebases[tr->timebase_idx];
     mm_u32 n = tb->sample_count;
     mm_i32 hi_thr = signal_hi_threshold_mv();
     mm_i32 lo_thr = signal_lo_threshold_mv();
@@ -446,11 +382,6 @@ static mm_bool signal_build_gpio_schedule(struct mm_signal_binding *b,
         b->crossings = 0;
         b->crossing_count = 0;
     } else {
-        /* Deliberately not shrunk with realloc(): the max-size buffer is
-         * at most MM_SIGNAL_MAX_CROSSINGS * sizeof(crossing) ~= 48KB per
-         * GPIO binding, trivial for this emulator's use case, and avoids
-         * the realloc-shrink-failure edge case entirely rather than
-         * working around it. */
         b->crossings = tmp;
         b->crossing_count = count;
     }
@@ -501,8 +432,6 @@ int mm_signal_bind(const char *trace_name, int bank, int pin,
     return (int)(g_binding_count - 1u);
 }
 
-/* --- Master trigger (decisions #7-#10) --- */
-
 void mm_signal_set_master_trigger(mm_u32 group_id, mm_u32 trigger_pc)
 {
     mm_u32 i;
@@ -549,17 +478,12 @@ mm_bool mm_signal_group_triggered(mm_u32 group_id)
     return MM_FALSE;
 }
 
-/* --- Per-instruction tick --- */
-
 static void signal_dispatch_gpio(struct mm_signal_binding *b)
 {
     while (b->next_crossing < b->crossing_count &&
            b->crossings[b->next_crossing].at_ns <= b->elapsed_ns) {
         mm_bool level = b->crossings[b->next_crossing].rising;
         if (level != b->current_level) {
-            /* No-op (returns MM_FALSE) if the pin isn't currently
-             * configured as input -- see stm32_gpio_set_external_input()
-             * and the gpio-input-mode-guard test in the design doc. */
             (void)mm_gpio_set_external_input(b->bank, b->pin, level);
             b->current_level = level;
         }
@@ -573,7 +497,7 @@ void mm_signal_check_trigger(mm_u32 pc)
     for (i = 0; i < g_trigger_count; ++i) {
         if (g_triggers[i].configured && !g_triggers[i].fired &&
             pc == g_triggers[i].trigger_pc) {
-            g_triggers[i].fired = MM_TRUE; /* one-shot: no re-arm (decision #10) */
+            g_triggers[i].fired = MM_TRUE;
             signal_group_trigger(g_triggers[i].group_id);
         }
     }
@@ -590,13 +514,9 @@ void mm_signal_advance(mm_u64 cycles)
         if (!b->armed || !b->triggered) {
             continue;
         }
-        /* Recomputed fresh from vcycles each call (not accumulated
-         * cycle-by-cycle in ns units) to avoid rounding drift across many
-         * small conversions -- matches deadline_ns()'s own approach. */
         b->elapsed_ns = signal_cycles_to_ns(g_total_vcycles - b->trigger_vcycles);
         if (b->role == MM_SIGNAL_ROLE_GPIO) {
             signal_dispatch_gpio(b);
         }
     }
-    (void)signal_sample_at; /* reserved for the ADC phase's mm_signal_sample() */
 }

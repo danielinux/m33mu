@@ -1088,11 +1088,7 @@ static mm_u32 stm32h5_gpio_bank_read(void *opaque, int bank)
     return gpio[bank].regs[0x14u / 4];
 }
 
-/* External-signal-injection entry point (src/signal.c, via the
- * mm_gpio_set_external_input() registration in gpio.h). Non-secure alias
- * (bank * 2) is used deliberately: both aliases share the same underlying
- * gpio[bank] state and the same exti_update callback, so which alias
- * drives the write makes no observable difference. */
+/* Both aliases share the bank state and EXTI hook; use the NS one. */
 static mm_bool stm32h5_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level)
 {
     (void)opaque;

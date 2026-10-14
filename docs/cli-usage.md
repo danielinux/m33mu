@@ -142,6 +142,17 @@ under `third_party/wolfssl-simulators/`.
 
 Only one Ethernet backend can be selected at a time.
 
+## Signal Injection
+
+Replay recorded voltage traces onto GPIO inputs. See
+[signal-injection-gpio.md](signal-injection-gpio.md).
+
+- `--signal-file=<path>`: load a `.sigc` signal container
+- `--signal-bind:trace=<name>:target=<PXn>:role=gpio`: drive input pin `PXn` from a trace
+- `--signal-sync=<symbol|addr>`: start replay when the PC first reaches this address
+  (a symbol requires an ELF image)
+- `--vdd_mv=<mV>`: supply voltage for the GPIO input thresholds (default 3300)
+
 ## TrustZone / Memory / Flash Options
 
 - `--no-tz`: run without TrustZone protections for the session

@@ -51,9 +51,6 @@ mm_u8 stm32_gpio_get_pin_mode(const struct stm32_gpio_state *g, int pin)
     return (mm_u8)((moder >> (pin * 2)) & 0x3u);
 }
 
-/* Bitmask (bit N set = pin N) of every pin currently configured
- * MODER=0b11 (Analog). Used by stm32_gpio_read() to force IDR bits to 0
- * for those pins, matching real silicon's disabled Schmitt trigger. */
 static mm_u32 gpio_analog_pins_mask(const struct stm32_gpio_state *g)
 {
     mm_u32 moder = g->regs[STM32_GPIO_MODER_OFFSET / 4];
@@ -122,10 +119,6 @@ mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bo
     if (pin < 0 || pin >= 16) {
         return MM_FALSE;
     }
-    /* Only pins actually configured as input (MODER == 0b00 for that pin)
-     * accept an external drive; a pin in output/AF/analog mode is owned by
-     * firmware's own ODR->IDR mirror (gpio_sync_odr) and must not be
-     * clobbered here. */
     if (stm32_gpio_get_pin_mode(g, pin) != 0u) {
         return MM_FALSE;
     }
@@ -160,19 +153,7 @@ mm_bool stm32_gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     }
 
     if (offset == STM32_GPIO_IDR_OFFSET) {
-        /* On real silicon, a pin configured MODER=0b11 (Analog) has its
-         * digital input buffer (Schmitt trigger) powered down to avoid
-         * parasitic leakage current; IDR reads 0 for that pin regardless
-         * of the actual analog voltage, and EXTI cannot fire from it.
-         * This is a physical property of the input path, not a
-         * TrustZone-visibility one, so it's applied unconditionally here
-         * -- before the secure/non-secure masking below, which is a
-         * separate, orthogonal concern. Without this, a bit set by
-         * stm32_gpio_set_external_input() while the pin was still in
-         * Input mode would otherwise remain visible (stale) in IDR after
-         * firmware reconfigures the pin to Analog, since neither that
-         * function nor gpio_sync_odr() ever clears it on a mode change
-         * away from Input. */
+        /* Analog mode disables the input Schmitt trigger: IDR reads 0. */
         v &= ~gpio_analog_pins_mask(g);
     }
 

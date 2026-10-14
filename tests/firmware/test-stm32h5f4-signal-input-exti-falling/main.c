@@ -1,16 +1,7 @@
-/* gpio-input-exti-falling: FTSR1 only (RTSR1 left clear). The trace has
- * 2 rising and 2 falling crossings; only the falling ones should produce
- * an interrupt. Validates exti_gpio_update() correctly gates on FTSR1
- * alone, ignoring rising transitions when RTSR1 isn't armed.
- *
- * bkpt #0x7f -> pass (irq_count == 2), bkpt #0x7e -> fail.
- */
+/* Falling edge only: the 4-crossing trace must raise 2 interrupts. */
 
 #include <stdint.h>
-#include "board_regs.h"
-
-extern uint32_t _sidata, _sdata, _edata, _sbss, _ebss;
-extern void __libc_init_array(void);
+#include "signal_test.h"
 
 #define PIN 5
 #define EXPECTED_COUNT 2u
@@ -25,47 +16,23 @@ void EXTI5_Handler(void)
     EXTI_FPR1 = (1u << PIN);
 }
 
-__attribute__((noinline, used))
-static void signal_trigger_marker(void)
-{
-    __asm volatile("nop");
-}
-
 void Reset_Handler(void)
 {
-    uint32_t *src, *dst;
     unsigned i;
 
-    src = &_sidata;
-    for (dst = &_sdata; dst < &_edata; ) *dst++ = *src++;
-    for (dst = &_sbss; dst < &_ebss; ) *dst++ = 0u;
-    __libc_init_array();
-
+    crt_init();
     RCC_AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
-    GPIO_MODER(GPIOA_BASE) &= ~(0x3u << (PIN * 2u));
-
-    exti_select_port(PIN, 0);
-    EXTI_FTSR1 |= (1u << PIN); /* falling only */
-    EXTI_IMR1  |= (1u << PIN);
-    nvic_enable_irq(EXTI_IRQN(PIN));
-    enable_irqs();
+    gpio_set_input(GPIOA_BASE, PIN);
+    exti_enable(PIN, 0, 0, 1);
 
     signal_trigger_marker();
 
     for (i = 0; i < POLL_ITERATIONS; ++i) {
-        /* Can't early-break on irq_count==EXPECTED_COUNT the way
-         * exti-both does: if gating were broken and falling edges also
-         * fired, we'd want to see the wrong (too-high) count rather than
-         * stop early and miss it. Burn the full budget instead. */
         __asm volatile("nop");
     }
 
     if (irq_count == EXPECTED_COUNT) {
-        __asm volatile("bkpt #0x7f");
-    } else {
-        __asm volatile("bkpt #0x7e");
+        test_pass();
     }
-    while (1) {
-        __asm volatile("wfi");
-    }
+    test_fail();
 }

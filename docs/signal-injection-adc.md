@@ -2,7 +2,7 @@
 
 Status: **design in progress — needs more work before implementation
 starts.** Not agreed to the same level as the GPIO phase.
-Depends on: `m33mu-signal-injection-gpio.md` (Phase 1) — this phase builds on
+Depends on: [signal-injection-gpio.md](signal-injection-gpio.md) (Phase 1) — this phase builds on
 top of the shared `signal.c` core, container format, and master-trigger
 mechanism established there, and doesn't change their shape. Read that doc
 first; this one only covers what's ADC-specific or still unresolved.
@@ -22,7 +22,7 @@ and a GPIO pin simultaneously from one capture.
 | 18 | ADC reference voltage | **Separate global CLI flag (`--adc-vref_mv`)**, defaults to `--vdd_mv` if omitted, but independently overridable — never assumed equal to `VDD` | On STM32H5, ADC full-scale is set by `VREF+`, which sits on a distinct supply chain (`VDD` → possibly-independent `VDDA` → possibly-independent `VREF+`) — `VREF+` can be external, sourced from the internal `VREFBUF` (configurable ~1.8V/~2.048V/~2.5V), or bonded straight to `VDDA` depending on package. Defaulting to `VDD` matches the common case (smaller packages, `VREF+` tied to `VDDA` tied to `VDD`) without hardcoding it |
 
 Note on `full_scale_mv` vs. `--adc-vref_mv`: the container's per-trace
-`full_scale_mv` field (see GPIO doc §3.1) describes the *trace's own recorded
+`full_scale_mv` field (see the GPIO doc's container format) describes the *trace's own recorded
 voltage range* (how the sample data was captured/scaled on disk), which is
 conceptually independent from `adc-vref_mv` (the *emulated ADC's*
 quantization reference). The intent is `stm32_adc.c` uses `adc-vref_mv`, not
@@ -104,7 +104,7 @@ the existing repo's primary profile."
 
 ## 3. Runtime architecture (ADC leg)
 
-Extends the GPIO phase's diagram (see that doc §4) with one more consumer of
+Adds one more consumer of
 `signal.c`'s `mm_signal_sample(binding_id)`:
 
 ```
@@ -167,7 +167,7 @@ Picks up after the GPIO phase's item 5 (first end-to-end GPIO test passing).
 - `gpio-adc-shared-trace` — one trace bound to both an ADC channel and a
   GPIO pin in the same group; firmware reads `ADC1->DR` and the GPIO `IDR`
   back-to-back and both should reflect the same instant of the same
-  physical signal. Validates decision #6 from the GPIO doc (shared timebase
+  physical signal. Validates the GPIO doc's shared-timebase decision (shared timebase
   across peripheral types) end-to-end, but depends on the ADC register
   model above being implemented first — not buildable until then.
 - Additional ADC-only test firmware (single-conversion value accuracy,

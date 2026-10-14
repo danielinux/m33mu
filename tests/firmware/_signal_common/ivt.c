@@ -1,10 +1,3 @@
-/* Shared vector table for the signal-injection GPIO test firmware family.
- * EXTI IRQn = 11 + line (see cpu/stm32h5_mmio.c's exti_raise_irq()), and
- * IRQn occupies vector_table[16 + IRQn], so EXTIn_Handler sits at
- * vector_table[27 + line]. Individual tests override the specific
- * EXTIn_Handler(s) they need via a strong definition in their own main.c;
- * everything else falls back to default_handler. */
-
 #include <stdint.h>
 
 extern void Reset_Handler(void);

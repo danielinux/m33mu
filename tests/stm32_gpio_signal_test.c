@@ -52,80 +52,62 @@ static void init_ctx(struct stm32_gpio_state *g, struct stm32_gpio_ctx *ctx)
     ctx->exti_update = 0;
 }
 
-/* --- Test: external write accepted on Input, rejected on Output/AF/Analog --- */
 static int test_write_guard_all_non_input_modes(void)
 {
     struct stm32_gpio_state g;
     struct stm32_gpio_ctx ctx;
-    mm_u8 modes[3] = { 1u /* Output */, 2u /* AF */, 3u /* Analog */ };
+    mm_u8 modes[3] = { 1u, 2u, 3u };
     int i;
 
     init_ctx(&g, &ctx);
-    set_pin_mode(&g, PIN, 0u /* Input */);
+    set_pin_mode(&g, PIN, 0u);
     if (!stm32_gpio_set_external_input(&ctx, PIN, MM_TRUE)) return 1;
     if ((read_idr(&ctx) & (1u << PIN)) == 0u) return 1;
 
     for (i = 0; i < 3; ++i) {
         init_ctx(&g, &ctx);
         set_pin_mode(&g, PIN, modes[i]);
-        if (stm32_gpio_set_external_input(&ctx, PIN, MM_TRUE)) return 1; /* must be rejected */
-        if ((read_idr(&ctx) & (1u << PIN)) != 0u) return 1; /* must not have written */
+        if (stm32_gpio_set_external_input(&ctx, PIN, MM_TRUE)) return 1;
+        if ((read_idr(&ctx) & (1u << PIN)) != 0u) return 1;
     }
     return 0;
 }
 
-/* --- Test: IDR reads 0 for a pin in Analog mode even with a stale bit
- * left in the underlying register (Schmitt trigger disabled on real
- * silicon) --- */
 static int test_analog_mode_forces_idr_zero(void)
 {
     struct stm32_gpio_state g;
     struct stm32_gpio_ctx ctx;
 
     init_ctx(&g, &ctx);
-    set_pin_mode(&g, PIN, 0u /* Input */);
+    set_pin_mode(&g, PIN, 0u);
     if (!stm32_gpio_set_external_input(&ctx, PIN, MM_TRUE)) return 1;
-    if ((read_idr(&ctx) & (1u << PIN)) == 0u) return 1; /* sanity: really set */
+    if ((read_idr(&ctx) & (1u << PIN)) == 0u) return 1;
 
-    /* Firmware reconfigures the pin to Analog without ever going through
-     * Output (so gpio_sync_odr() never gets a chance to overwrite IDR) --
-     * this is exactly the case that would leave a stale bit without the
-     * IDR-read-side mask. */
-    set_pin_mode(&g, PIN, 3u /* Analog */);
-
-    /* The underlying register word still has the stale bit -- confirms
-     * the fix is in the read path, not a side effect of the mode change
-     * itself clearing storage. */
+    set_pin_mode(&g, PIN, 3u);
     if ((g.regs[STM32_GPIO_IDR_OFFSET / 4] & (1u << PIN)) == 0u) return 1;
+    if ((read_idr(&ctx) & (1u << PIN)) != 0u) return 1;
 
-    if ((read_idr(&ctx) & (1u << PIN)) != 0u) return 1; /* must read as 0 */
-
-    /* Switching back to Input must make the (still-stale-in-storage) bit
-     * visible again immediately -- the mask is dynamic, re-evaluated on
-     * every read from live MODER state, not latched at the mode-change
-     * instant. */
-    set_pin_mode(&g, PIN, 0u /* Input */);
+    set_pin_mode(&g, PIN, 0u);
     if ((read_idr(&ctx) & (1u << PIN)) == 0u) return 1;
 
     return 0;
 }
 
-/* --- Test: analog masking doesn't disturb other pins' IDR bits --- */
 static int test_analog_mask_is_per_pin(void)
 {
     struct stm32_gpio_state g;
     struct stm32_gpio_ctx ctx;
 
     init_ctx(&g, &ctx);
-    set_pin_mode(&g, 3, 0u /* Input */);
-    set_pin_mode(&g, PIN, 0u /* Input */);
+    set_pin_mode(&g, 3, 0u);
+    set_pin_mode(&g, PIN, 0u);
     if (!stm32_gpio_set_external_input(&ctx, 3, MM_TRUE)) return 1;
     if (!stm32_gpio_set_external_input(&ctx, PIN, MM_TRUE)) return 1;
 
-    set_pin_mode(&g, PIN, 3u /* Analog -- only this pin */);
+    set_pin_mode(&g, PIN, 3u);
 
-    if ((read_idr(&ctx) & (1u << 3)) == 0u) return 1;   /* pin 3 unaffected */
-    if ((read_idr(&ctx) & (1u << PIN)) != 0u) return 1; /* pin 5 masked */
+    if ((read_idr(&ctx) & (1u << 3)) == 0u) return 1;
+    if ((read_idr(&ctx) & (1u << PIN)) != 0u) return 1;
     return 0;
 }
 

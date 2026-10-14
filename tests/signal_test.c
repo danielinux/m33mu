@@ -25,10 +25,6 @@
 #include "m33mu/signal.h"
 #include "m33mu/gpio.h"
 
-/* Mirrors the on-disk layout in src/signal.c exactly (see that file's
- * comments for the format doc reference). Kept local to the test rather
- * than shared via a header, same as the format isn't otherwise exposed
- * outside signal.c. */
 struct test_container_header {
     char   magic[4];
     mm_u32 version;
@@ -49,8 +45,6 @@ struct test_trace_desc {
 
 static const char *g_tmp_path = "/tmp/signal_test_fixture.sigc";
 
-/* Writes a single uniform-timebase (period_ns=1000) trace named "trace_name"
- * with the given millivolt samples. */
 static mm_bool write_fixture(const char *path, const char *trace_name,
                               const mm_i16 *samples, mm_u32 count, mm_u32 period_ns)
 {
@@ -84,8 +78,6 @@ static mm_bool write_fixture(const char *path, const char *trace_name,
     return MM_TRUE;
 }
 
-/* Fake GPIO external-input writer: records the last (bank, pin, level) it
- * was called with, and how many times. */
 static int g_write_calls;
 static int g_last_bank, g_last_pin;
 static mm_bool g_last_level;
@@ -108,14 +100,11 @@ static void reset_fakes(void)
     g_last_level = MM_FALSE;
     mm_gpio_set_external_input_writer(fake_gpio_writer, 0);
     mm_signal_reset();
-    mm_signal_set_cpu_hz(250000000ull); /* STM32H5F4 nominal, per design doc section 1 */
+    mm_signal_set_cpu_hz(250000000ull);
 }
 
-/* --- Test: basic load + bind + a single rising crossing dispatches once --- */
 static int test_basic_rising_crossing(void)
 {
-    /* 3300mV midpoint threshold band: hi=1650+125=1775, lo=1650-125=1525.
-     * Trace: 0mV held, then jumps to 3300mV -- one rising crossing. */
     mm_i16 samples[4] = { 0, 0, 3300, 3300 };
     int bid;
 
@@ -129,42 +118,32 @@ static int test_basic_rising_crossing(void)
 
     mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
 
-    /* Not yet triggered: ticking with an unrelated PC must not fire the
-     * binding or write anything. */
     mm_signal_check_trigger(0x08000000u);
     mm_signal_advance(1000);
     if (g_write_calls != 0) return 1;
     if (mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
 
-    /* Trigger fires exactly once (decision #10, one-shot). */
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1);
     if (!mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
 
-    /* Advance past the crossing at sample index 2 (t = 2000ns). At
-     * 250MHz, 1 cycle = 4ns, so 500 cycles = 2000ns. */
+    /* Crossing at 2000ns = 500 cycles at 250MHz. */
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(500);
     if (g_write_calls != 1) return 1;
     if (g_last_bank != 0 || g_last_pin != 5) return 1;
     if (g_last_level != MM_TRUE) return 1;
 
-    /* One-shot re-arm: hitting the trigger PC again must not re-fire or
-     * reset the cursor. */
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1);
-    if (g_write_calls != 1) return 1; /* unchanged */
+    if (g_write_calls != 1) return 1;
 
     return 0;
 }
 
-/* --- Test: in-band noise produces zero spurious crossings (decision #17) --- */
 static int test_hysteresis_suppresses_inband_noise(void)
 {
-    /* vdd=3300: hi=1775, lo=1525. Every sample sits inside [1525,1775],
-     * wobbling around the naive VDD/2=1650 midpoint. A flat single-
-     * threshold comparator would flip state repeatedly; the Schmitt
-     * state machine must not. */
+    /* All samples inside the 1525..1775mV band at vdd=3300. */
     mm_i16 samples[6] = { 1600, 1700, 1600, 1700, 1600, 1700 };
     int bid;
 
@@ -180,20 +159,18 @@ static int test_hysteresis_suppresses_inband_noise(void)
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1);
 
-    /* Run well past the end of the trace. */
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(100000);
 
-    if (g_write_calls != 0) return 1; /* zero spurious crossings */
+    if (g_write_calls != 0) return 1;
     return 0;
 }
 
-/* --- Test: external-input write is rejected when pin isn't input mode --- */
 static mm_bool fake_gpio_writer_reject(void *opaque, int bank, int pin, mm_bool level)
 {
     (void)opaque; (void)bank; (void)pin; (void)level;
     g_write_calls++;
-    return MM_FALSE; /* simulates stm32_gpio_set_external_input()'s mode guard */
+    return MM_FALSE;
 }
 
 static int test_rejected_write_does_not_crash_or_wedge(void)
@@ -215,13 +192,10 @@ static int test_rejected_write_does_not_crash_or_wedge(void)
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1000);
 
-    /* The write attempt happened (writer got called) even though it was
-     * rejected -- and critically, nothing crashed or looped. */
     if (g_write_calls < 1) return 1;
     return 0;
 }
 
-/* --- Test: unknown trace name fails bind cleanly --- */
 static int test_unknown_trace_rejected(void)
 {
     mm_i16 samples[1] = { 0 };
@@ -232,7 +206,6 @@ static int test_unknown_trace_rejected(void)
     return 0;
 }
 
-/* --- Test: prepare_for_run re-arms without needing to reload the file --- */
 static int test_prepare_for_run_rearms(void)
 {
     mm_i16 samples[4] = { 0, 0, 3300, 3300 };
@@ -253,7 +226,6 @@ static int test_prepare_for_run_rearms(void)
     mm_signal_advance(500);
     if (g_write_calls != 1) return 1;
 
-    /* Simulate a soft reset: re-arm without reloading/re-binding. */
     mm_signal_prepare_for_run();
     if (mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
 
@@ -263,7 +235,7 @@ static int test_prepare_for_run_rearms(void)
     if (!mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(500);
-    if (g_write_calls != 1) return 1; /* fires again, cleanly, from t=0 */
+    if (g_write_calls != 1) return 1;
 
     return 0;
 }

@@ -1,26 +1,28 @@
 CC=arm-none-eabi-gcc
 OBJCOPY ?= arm-none-eabi-objcopy
 
-CFLAGS := -mcpu=cortex-m33 -mthumb -mcmse -Os -ffreestanding -fdata-sections -ffunction-sections -g -ggdb -I../_signal_common
-LDFLAGS := -nostdlib -T target.ld -Wl,-gc-sections
+COMMON := ../_signal_common
+
+CFLAGS := -mcpu=cortex-m33 -mthumb -mcmse -Os -ffreestanding -fdata-sections -ffunction-sections -g -ggdb -I$(COMMON)
+LDFLAGS := -nostdlib -T $(COMMON)/target.ld -Wl,-gc-sections
 
 OBJS := ivt.o syscalls.o main.o
 
 all: app.bin
 
-app.elf: $(OBJS) target.ld
+app.elf: $(OBJS) $(COMMON)/target.ld
 	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) -Wl,--start-group -lc -lm -lgcc -lnosys -Wl,--end-group -o $@
 
 app.bin: app.elf
 	$(OBJCOPY) -O binary $< $@
 
-ivt.o: ivt.c
+ivt.o: $(COMMON)/ivt.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-syscalls.o: syscalls.c
+syscalls.o: $(COMMON)/syscalls.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-main.o: main.c
+main.o: main.c $(COMMON)/signal_test.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
