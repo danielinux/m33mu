@@ -68,7 +68,7 @@ serve as a reference encoder. There is no HDF5 converter yet.
 | Schmitt thresholds at `VDD/2 ± 125 mV` | STM32H5 datasheet typical hysteresis is 250 mV. Voltages inside the band do not change the input state |
 | Both edge directions are always forwarded | Edge selection belongs to the firmware (`EXTI_RTSR1`/`EXTI_FTSR1`) and can change at run time; the existing EXTI model gates on it and on `EXTI_IMR1` |
 | Injection writes `IDR` and calls the bank's EXTI hook | Polled reads and interrupts see the same transition through the existing paths |
-| Only pins in Input mode accept an injected level | Output and AF pins are driven by the MCU. Analog pins have the Schmitt trigger disabled, so `IDR` reads 0 for them |
+| The GPIO model keeps the pad level of every injected pin, and only Input pins show it in `IDR` | Output and AF pins are driven by the MCU. Analog pins have the Schmitt trigger disabled, so `IDR` reads 0 for them. A pin switched back to Input reads the pad at once, as on silicon |
 
 ## Timing model
 
@@ -109,8 +109,8 @@ execution path in `src/main.c` that advances `mm_timer_tick()`.
 
 - `tests/signal_test.c`: loader, binding, trigger, hysteresis and re-arm,
   against a fake GPIO writer.
-- `tests/stm32_gpio_signal_test.c`: the input-mode guard and Analog-mode
-  `IDR` masking.
+- `tests/stm32_gpio_signal_test.c`: the input-mode guard, Analog-mode `IDR`
+  masking, and the pad level kept across mode changes and `ODR` writes.
 - `tests/firmware/test-stm32h5f4-signal-*`: end-to-end firmware. Each test
   ends with `bkpt #0x7f` on pass and `bkpt #0x7e` on fail. They share their
   startup code, linker script, fixtures and `signal_test.h` from
@@ -125,7 +125,7 @@ execution path in `src/main.c` that advances `mm_timer_tick()`.
 | `input-hysteresis` | Noise inside the band raises no interrupt |
 | `input-sharp-edge` | A crossing 16 ns after the trigger is visible within a few polls |
 | `input-nonuniform` | Explicit timestamps |
-| `input-mode-guard` | An output pin ignores the trace, then follows it again once back in input mode |
+| `input-mode-guard` | An output pin ignores the trace, and reads the pad level as soon as it is back in input mode |
 | `trigger-oneshot` | A second pass through the trigger PC does not restart replay |
 | `trigger-midblock` | A trigger on a fall-through instruction, not a branch target, starts replay |
 | `group-sync` | Two bindings in one group change state together |

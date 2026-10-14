@@ -111,6 +111,68 @@ static int test_analog_mask_is_per_pin(void)
     return 0;
 }
 
+static int g_exti_calls;
+static mm_u32 g_exti_old, g_exti_new;
+
+static void fake_exti_update(int bank, mm_u32 old_level, mm_u32 new_level)
+{
+    (void)bank;
+    g_exti_calls++;
+    g_exti_old = old_level;
+    g_exti_new = new_level;
+}
+
+static void write_moder_mode(struct stm32_gpio_ctx *ctx, int pin, mm_u8 mode)
+{
+    mm_u32 moder = ctx->gpio->regs[STM32_GPIO_MODER_OFFSET / 4];
+    moder &= ~(0x3u << (pin * 2));
+    moder |= ((mm_u32)mode & 0x3u) << (pin * 2);
+    stm32_gpio_write(ctx, STM32_GPIO_MODER_OFFSET, 4, moder);
+}
+
+static int test_input_mode_picks_up_pad_level(void)
+{
+    struct stm32_gpio_state g;
+    struct stm32_gpio_ctx ctx;
+    mm_u8 modes[3] = { 1u, 2u, 3u };
+    int i;
+
+    for (i = 0; i < 3; ++i) {
+        init_ctx(&g, &ctx);
+        ctx.exti_update = fake_exti_update;
+        write_moder_mode(&ctx, PIN, modes[i]);
+        if (stm32_gpio_set_external_input(&ctx, PIN, MM_TRUE)) return 1;
+        if ((read_idr(&ctx) & (1u << PIN)) != 0u) return 1;
+
+        g_exti_calls = 0;
+        write_moder_mode(&ctx, PIN, 0u);
+        if ((read_idr(&ctx) & (1u << PIN)) == 0u) return 1;
+        if (g_exti_calls != 1) return 1;
+        if ((g_exti_old & (1u << PIN)) != 0u || (g_exti_new & (1u << PIN)) == 0u) return 1;
+    }
+    return 0;
+}
+
+static int test_odr_write_keeps_driven_input(void)
+{
+    struct stm32_gpio_state g;
+    struct stm32_gpio_ctx ctx;
+
+    init_ctx(&g, &ctx);
+    write_moder_mode(&ctx, PIN, 0u);
+    write_moder_mode(&ctx, 6, 1u);
+    if (!stm32_gpio_set_external_input(&ctx, PIN, MM_TRUE)) return 1;
+
+    stm32_gpio_write(&ctx, STM32_GPIO_ODR_OFFSET, 4, 1u << 6);
+    if ((read_idr(&ctx) & (1u << PIN)) == 0u) return 1;
+    if ((read_idr(&ctx) & (1u << 6)) == 0u) return 1;
+
+    stm32_gpio_write(&ctx, STM32_GPIO_ODR_OFFSET, 4, 0u);
+    if ((read_idr(&ctx) & (1u << PIN)) == 0u) return 1;
+    if ((read_idr(&ctx) & (1u << 6)) != 0u) return 1;
+    return 0;
+}
+
 int main(void)
 {
     struct {
@@ -120,6 +182,8 @@ int main(void)
         { "write_guard_all_non_input_modes", test_write_guard_all_non_input_modes },
         { "analog_mode_forces_idr_zero", test_analog_mode_forces_idr_zero },
         { "analog_mask_is_per_pin", test_analog_mask_is_per_pin },
+        { "input_mode_picks_up_pad_level", test_input_mode_picks_up_pad_level },
+        { "odr_write_keeps_driven_input", test_odr_write_keeps_driven_input },
     };
     size_t i;
     int failures = 0;

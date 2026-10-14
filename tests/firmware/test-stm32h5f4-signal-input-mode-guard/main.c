@@ -1,5 +1,5 @@
 /* A crossing that arrives while PA5 is an output must not change IDR, and
- * the pin must follow the trace again once it is back in input mode.
+ * IDR must show the pad level as soon as the pin is back in input mode.
  * Trace: low, high(t1), low(t2), high(t3), low(t4), 100us apart. */
 
 #include <stdint.h>
@@ -40,8 +40,11 @@ void Reset_Handler(void)
     }
 
     gpio_set_input(GPIOA_BASE, PIN);
+    if ((GPIO_IDR(GPIOA_BASE) & (1u << PIN)) != 0u) {
+        test_fail();
+    }
     for (i = 0; i < POLL2_BUDGET; ++i) {
-        if ((GPIO_IDR(GPIOA_BASE) & (1u << PIN)) == 0u) {
+        if ((GPIO_IDR(GPIOA_BASE) & (1u << PIN)) != 0u) {
             test_pass();
         }
     }
