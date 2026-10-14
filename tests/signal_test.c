@@ -113,19 +113,19 @@ static int test_basic_rising_crossing(void)
     if (!write_fixture(g_tmp_path, "vin", samples, 4, 1000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
 
-    bid = mm_signal_bind("vin", 0 /* PA */, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP);
+    bid = mm_signal_bind("vin", 0 /* PA */, 5, MM_SIGNAL_ROLE_GPIO);
     if (bid < 0) return 1;
 
-    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+    mm_signal_set_trigger(0x08001000u);
 
     mm_signal_check_trigger(0x08000000u);
     mm_signal_advance(1000);
     if (g_write_calls != 0) return 1;
-    if (mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
+    if (mm_signal_triggered()) return 1;
 
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1);
-    if (!mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
+    if (!mm_signal_triggered()) return 1;
 
     /* Crossing at 2000ns = 500 cycles at 250MHz. */
     mm_signal_check_trigger(0x08001000u);
@@ -152,10 +152,10 @@ static int test_hysteresis_suppresses_inband_noise(void)
     if (!write_fixture(g_tmp_path, "noisy", samples, 6, 1000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
 
-    bid = mm_signal_bind("noisy", 1 /* PB */, 2, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP);
+    bid = mm_signal_bind("noisy", 1 /* PB */, 2, MM_SIGNAL_ROLE_GPIO);
     if (bid < 0) return 1;
 
-    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+    mm_signal_set_trigger(0x08001000u);
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1);
 
@@ -184,9 +184,9 @@ static int test_rejected_write_does_not_crash_or_wedge(void)
     if (!write_fixture(g_tmp_path, "vin2", samples, 2, 1000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
 
-    bid = mm_signal_bind("vin2", 0, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP);
+    bid = mm_signal_bind("vin2", 0, 5, MM_SIGNAL_ROLE_GPIO);
     if (bid < 0) return 1;
-    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+    mm_signal_set_trigger(0x08001000u);
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1);
     mm_signal_check_trigger(0x08001000u);
@@ -202,7 +202,7 @@ static int test_unknown_trace_rejected(void)
     reset_fakes();
     if (!write_fixture(g_tmp_path, "vin3", samples, 1, 1000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
-    if (mm_signal_bind("does_not_exist", 0, 0, MM_SIGNAL_ROLE_GPIO, 0) != -1) return 1;
+    if (mm_signal_bind("does_not_exist", 0, 0, MM_SIGNAL_ROLE_GPIO) != -1) return 1;
     return 0;
 }
 
@@ -215,16 +215,16 @@ static int test_reset_keeps_stimulus_running(void)
     mm_signal_set_vdd_mv(3300);
     if (!write_fixture(g_tmp_path, "vin4", samples, 5, 1000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
-    bid = mm_signal_bind("vin4", 0, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP);
+    bid = mm_signal_bind("vin4", 0, 5, MM_SIGNAL_ROLE_GPIO);
     if (bid < 0) return 1;
-    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+    mm_signal_set_trigger(0x08001000u);
 
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(500);
     if (g_write_calls != 1 || g_last_level != MM_TRUE) return 1;
 
     mm_signal_prepare_for_run();
-    if (!mm_signal_group_triggered(MM_SIGNAL_MASTER_GROUP)) return 1;
+    if (!mm_signal_triggered()) return 1;
 
     /* The GPIO model was reset: the pad level is written again. */
     g_write_calls = 0;
@@ -250,8 +250,8 @@ static int test_initial_level_applied_before_trigger(void)
     mm_signal_set_vdd_mv(3300);
     if (!write_fixture(g_tmp_path, "idle_hi", samples, 3, 1000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
-    if (mm_signal_bind("idle_hi", 0, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP) < 0) return 1;
-    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+    if (mm_signal_bind("idle_hi", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
     mm_signal_prepare_for_run();
 
     mm_signal_check_trigger(0x08000000u);
@@ -277,8 +277,8 @@ static int test_cycles_until_next_event(void)
     mm_signal_set_vdd_mv(3300);
     if (!write_fixture(g_tmp_path, "vin6", samples, 4, 1000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
-    if (mm_signal_bind("vin6", 0, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP) < 0) return 1;
-    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+    if (mm_signal_bind("vin6", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
     if (mm_signal_cycles_until_next_event() != (mm_u64)-1) return 1;
 
     mm_signal_check_trigger(0x08001000u);
@@ -303,8 +303,8 @@ static int test_clock_change_keeps_elapsed_time(void)
     mm_signal_set_vdd_mv(3300);
     if (!write_fixture(g_tmp_path, "vin7", samples, 4, 500000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
-    if (mm_signal_bind("vin7", 0, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP) < 0) return 1;
-    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+    if (mm_signal_bind("vin7", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
 
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(64000u);
@@ -317,26 +317,25 @@ static int test_clock_change_keeps_elapsed_time(void)
     return 0;
 }
 
-static int test_trigger_pc_and_all_triggered(void)
+static int test_trigger_pc_and_triggered(void)
 {
     mm_i16 samples[2] = { 0, 3300 };
 
     reset_fakes();
-    if (!mm_signal_all_triggered()) return 1;
     if (!write_fixture(g_tmp_path, "vin5", samples, 2, 1000)) return 1;
     if (!mm_signal_load(g_tmp_path)) return 1;
-    if (mm_signal_bind("vin5", 0, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP) < 0) return 1;
+    if (mm_signal_bind("vin5", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
     if (mm_signal_is_trigger_pc(0x08001000u)) return 1;
-    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+    mm_signal_set_trigger(0x08001000u);
     if (!mm_signal_is_trigger_pc(0x08001000u)) return 1;
     if (mm_signal_is_trigger_pc(0x08001002u)) return 1;
 
     mm_signal_check_trigger(0x08000000u);
     mm_signal_advance(10);
-    if (mm_signal_all_triggered()) return 1;
+    if (mm_signal_triggered()) return 1;
     mm_signal_check_trigger(0x08001000u);
     mm_signal_advance(1);
-    if (!mm_signal_all_triggered()) return 1;
+    if (!mm_signal_triggered()) return 1;
     return 0;
 }
 
@@ -351,7 +350,7 @@ int main(void)
         { "rejected_write_does_not_crash_or_wedge", test_rejected_write_does_not_crash_or_wedge },
         { "unknown_trace_rejected", test_unknown_trace_rejected },
         { "reset_keeps_stimulus_running", test_reset_keeps_stimulus_running },
-        { "trigger_pc_and_all_triggered", test_trigger_pc_and_all_triggered },
+        { "trigger_pc_and_triggered", test_trigger_pc_and_triggered },
         { "initial_level_applied_before_trigger", test_initial_level_applied_before_trigger },
         { "cycles_until_next_event", test_cycles_until_next_event },
         { "clock_change_keeps_elapsed_time", test_clock_change_keeps_elapsed_time },

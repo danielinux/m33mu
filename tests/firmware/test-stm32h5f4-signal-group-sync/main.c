@@ -1,4 +1,4 @@
-/* PA5 and PB2 bound in one group to identical traces must rise together. */
+/* PA5 and PB2 bound to identical traces must rise together. */
 
 #include <stdint.h>
 #include "signal_test.h"

@@ -30,8 +30,6 @@
 #define MM_SIGNAL_MAX_CROSSINGS   4096u
 #define MM_SIGNAL_TRACE_NAME_LEN  32u
 
-#define MM_SIGNAL_MASTER_GROUP    0u
-
 enum mm_signal_role {
     MM_SIGNAL_ROLE_GPIO = 0
 };
@@ -64,13 +62,10 @@ mm_u64 mm_signal_cycles_until_next_event(void);
 
 /* bank: 0=A, 1=B, ...; returns the binding id or -1. */
 int mm_signal_bind(const char *trace_name, int bank, int pin,
-                    enum mm_signal_role role, mm_u32 group_id);
+                    enum mm_signal_role role);
 
-/* One-shot: the first time pc == trigger_pc, group_id starts at t=0. */
-void mm_signal_set_master_trigger(mm_u32 group_id, mm_u32 trigger_pc);
-mm_bool mm_signal_group_triggered(mm_u32 group_id);
-
-/* MM_FALSE if some binding is still waiting for its trigger. */
-mm_bool mm_signal_all_triggered(void);
+/* One-shot: the first time pc == trigger_pc, every binding starts at t=0. */
+void mm_signal_set_trigger(mm_u32 trigger_pc);
+mm_bool mm_signal_triggered(void);
 
 #endif /* M33MU_SIGNAL_H */

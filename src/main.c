@@ -5113,13 +5113,11 @@ int main(int argc, char **argv)
         char trace_name[MM_SIGNAL_TRACE_NAME_LEN];
         int  bank;
         int  pin;
-        mm_u32 group_id;
     } signal_bind_specs[MM_SIGNAL_MAX_BINDINGS];
     int signal_bind_count = 0;
     mm_i32 opt_vdd_mv = 3300;
     char opt_signal_file[512] = "";
     mm_bool has_signal_file = MM_FALSE;
-    mm_u32 opt_signal_trigger_group = MM_SIGNAL_MASTER_GROUP;
     mm_bool has_signal_trigger = MM_FALSE;
     char opt_signal_sync[256] = "";
 #ifdef M33MU_HAS_RUST_PLUGINS
@@ -5637,7 +5635,6 @@ int main(int argc, char **argv)
             mm_bool have_trace = MM_FALSE, have_target = MM_FALSE, have_role = MM_FALSE;
             struct mm_signal_bind_spec spec;
             memset(&spec, 0, sizeof(spec));
-            spec.group_id = MM_SIGNAL_MASTER_GROUP;
             snprintf(tmp, sizeof(tmp), "%s", argv[i] + 14);
             tok = strtok(tmp, ":");
             while (tok != 0) {
@@ -5656,14 +5653,6 @@ int main(int argc, char **argv)
                         return 1;
                     }
                     have_role = MM_TRUE;
-                } else if (strncmp(tok, "group=", 6) == 0) {
-                    char *gendp;
-                    unsigned long g = strtoul(tok + 6, &gendp, 0);
-                    if (*gendp != '\0') {
-                        fprintf(stderr, "invalid --signal-bind group: %s\n", tok + 6);
-                        return 1;
-                    }
-                    spec.group_id = (mm_u32)g;
                 } else {
                     fprintf(stderr, "unrecognised --signal-bind field: %s\n", tok);
                     return 1;
@@ -5914,8 +5903,7 @@ int main(int argc, char **argv)
             int bid = mm_signal_bind(signal_bind_specs[i].trace_name,
                                       signal_bind_specs[i].bank,
                                       signal_bind_specs[i].pin,
-                                      MM_SIGNAL_ROLE_GPIO,
-                                      signal_bind_specs[i].group_id);
+                                      MM_SIGNAL_ROLE_GPIO);
             if (bid < 0) {
                 fprintf(stderr, "failed to bind signal trace '%s'\n",
                         signal_bind_specs[i].trace_name);
@@ -5932,7 +5920,7 @@ int main(int argc, char **argv)
                                               image_count, &trig_addr)) {
                 return 1;
             }
-            mm_signal_set_master_trigger(opt_signal_trigger_group, trig_addr);
+            mm_signal_set_trigger(trig_addr);
         }
     } else if (signal_bind_count > 0) {
         fprintf(stderr, "--signal-bind given without --signal-file\n");
@@ -7797,7 +7785,7 @@ check_irq_pending:
             break;
         }
     }
-    if (!mm_signal_all_triggered()) {
+    if (signal_bind_count > 0 && !mm_signal_triggered()) {
         fprintf(stderr, "signal: --signal-sync=%s was never reached, no trace was replayed\n",
                 opt_signal_sync);
         if (!opt_gdb && !opt_tui) {

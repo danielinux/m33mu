@@ -122,7 +122,7 @@ Adds one more consumer of
 ```
 
 `include/m33mu/signal.h`'s existing surface (`mm_signal_bind`,
-`mm_signal_sample`, `mm_signal_group_trigger`) is reused as-is; the only
+`mm_signal_sample`, `mm_signal_set_trigger`) is reused as-is; the only
 addition needed there is the ADC reference-voltage setter:
 
 ```c
@@ -165,7 +165,7 @@ Picks up after the GPIO phase's item 5 (first end-to-end GPIO test passing).
 ## 5. Testing (ADC phase — deferred until the register model lands)
 
 - `gpio-adc-shared-trace` — one trace bound to both an ADC channel and a
-  GPIO pin in the same group; firmware reads `ADC1->DR` and the GPIO `IDR`
+  GPIO pin; firmware reads `ADC1->DR` and the GPIO `IDR`
   back-to-back and both should reflect the same instant of the same
   physical signal. Validates the GPIO doc's shared-timebase decision (shared timebase
   across peripheral types) end-to-end, but depends on the ADC register
