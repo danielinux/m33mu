@@ -424,6 +424,32 @@ APIs can be exercised without hardware.
 
 The optional backing file is used for NV persistence of file slots and key slots.
 .TP
+.BR --signal-file= PATH
+Load a
+.B .sigc
+signal container for pin signal injection (see
+.IR docs/signal-injection-gpio.md ).
+.TP
+.BR --signal-bind:trace=NAME:target=PXn:role=gpio
+Replay the named trace onto input pin
+.BR PXn .
+May be repeated.
+.TP
+.BR --signal-sync= SYMBOL|ADDR
+Start replay of all bound traces the first time the PC reaches this address.
+A symbol name requires an ELF image. Required with
+.BR --signal-bind ;
+the run exits with status 1 if the address is never reached.
+.TP
+.BR --vdd-mv= MV
+Supply voltage used to derive GPIO input thresholds (default 3300).
+.TP
+.BR --gpio-vil-mv= "MV, " --gpio-vih-mv= MV
+GPIO input low and high thresholds for bound pins.
+Each flag overrides its side only; the other keeps its default of
+VDD/2 \- 125 mV (VIL) or VDD/2 + 125 mV (VIH).
+The effective VIL must be below the effective VIH, otherwise the run exits with status 1.
+.TP
 .BR --atecc608:SPIx:cs=GPIONAME[:file=PATH]
 Attach a Microchip ATECC608A secure element simulator to the selected SPI bus.
 Requires Rust plugin support (cargo must be available at build time).

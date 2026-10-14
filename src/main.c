@@ -56,6 +56,8 @@
 #include "m33mu/exception.h"
 #include "m33mu/table_branch.h"
 #include "m33mu/timer.h"
+#include "m33mu/signal.h"
+#include "m33mu/gpio.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/spiflash.h"
 #include "m33mu/usbdev.h"
@@ -3905,6 +3907,8 @@ static mm_bool step_core_simple(struct mm_cpu *cpu,
         if (cycles_since_poll) *cycles_since_poll += insn_cycles;
         mm_scs_systick_advance(scs, insn_cycles);
         mm_timer_tick(cfg, insn_cycles);
+        mm_signal_check_trigger(cpu->r[15] & ~1u);
+        mm_signal_advance((mm_u64)insn_cycles);
         if (cycle_total && fault_clock_hit(*cycle_total, fault_clocks, fault_clock_count)) {
             fault_skip = MM_TRUE;
         }
@@ -4944,6 +4948,82 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
     return MM_TRUE;
 }
 
+static mm_bool signal_parse_gpio_name(const char *s, int *bank_out, int *pin_out)
+{
+    int bank;
+    int pin = 0;
+    const char *p;
+    if (s == 0 || bank_out == 0 || pin_out == 0) return MM_FALSE;
+    if (s[0] != 'P' && s[0] != 'p') return MM_FALSE;
+    if (s[1] < 'A' || (s[1] > 'Z' && s[1] < 'a') || s[1] > 'z') return MM_FALSE;
+    bank = (s[1] >= 'a') ? (s[1] - 'a') : (s[1] - 'A');
+    p = s + 2;
+    if (*p < '0' || *p > '9') return MM_FALSE;
+    while (*p >= '0' && *p <= '9') {
+        pin = (pin * 10) + (*p - '0');
+        p++;
+    }
+    if (*p != '\0') return MM_FALSE;
+    if (pin < 0 || pin > 15) return MM_FALSE;
+    *bank_out = bank;
+    *pin_out = pin;
+    return MM_TRUE;
+}
+
+/* --signal-sync accepts an address, or a symbol when the image is an ELF. */
+static mm_bool signal_resolve_trigger_addr(const char *spec,
+                                            const struct mm_image_spec *images,
+                                            int image_count,
+                                            mm_u32 *addr_out)
+{
+    char *endp;
+    unsigned long addr;
+    const char *elf_path = 0;
+    char err[MM_COVDUMP_ERRSZ];
+    int i;
+
+    if (spec == 0 || spec[0] == '\0' || addr_out == 0) {
+        fprintf(stderr, "invalid --signal-sync value\n");
+        return MM_FALSE;
+    }
+
+    addr = strtoul(spec, &endp, 0);
+    if (endp != spec && *endp == '\0') {
+        if (addr > 0xFFFFFFFFul) {
+            fprintf(stderr, "invalid --signal-sync address: %s\n", spec);
+            return MM_FALSE;
+        }
+        *addr_out = (mm_u32)addr & ~1u;
+        return MM_TRUE;
+    }
+
+    for (i = 0; i < image_count; ++i) {
+        if (images[i].path != 0 &&
+            detect_image_type(images[i].path) == MM_IMAGE_ELF) {
+            if (elf_path != 0) {
+                fprintf(stderr, "--signal-sync=%s: several ELF images are "
+                                "loaded; pass a raw address instead\n", spec);
+                return MM_FALSE;
+            }
+            elf_path = images[i].path;
+        }
+    }
+    if (elf_path == 0) {
+        fprintf(stderr, "--signal-sync=%s: a symbol name requires the "
+                        "execution image to be an ELF (a plain .bin has no "
+                        "symbol table); pass a raw address instead\n", spec);
+        return MM_FALSE;
+    }
+
+    err[0] = '\0';
+    if (!mm_elf_lookup_symbol(elf_path, spec, addr_out, err, sizeof(err))) {
+        fprintf(stderr, "--signal-sync=%s: %s\n", spec, err);
+        return MM_FALSE;
+    }
+    *addr_out &= ~1u;
+    return MM_TRUE;
+}
+
 int main(int argc, char **argv)
 {
     struct mm_image_spec images[16];
@@ -5029,6 +5109,21 @@ int main(int argc, char **argv)
     int ta100_count = 0;
     struct mm_iotsafe_uart_cfg iotsafe_uart_cfgs[4];
     int iotsafe_uart_count = 0;
+    struct mm_signal_bind_spec {
+        char trace_name[MM_SIGNAL_TRACE_NAME_LEN];
+        int  bank;
+        int  pin;
+    } signal_bind_specs[MM_SIGNAL_MAX_BINDINGS];
+    int signal_bind_count = 0;
+    mm_i32 opt_vdd_mv = 3300;
+    mm_i32 opt_gpio_vil_mv = 0;
+    mm_i32 opt_gpio_vih_mv = 0;
+    mm_bool has_gpio_vil = MM_FALSE;
+    mm_bool has_gpio_vih = MM_FALSE;
+    char opt_signal_file[512] = "";
+    mm_bool has_signal_file = MM_FALSE;
+    mm_bool has_signal_trigger = MM_FALSE;
+    char opt_signal_sync[256] = "";
 #ifdef M33MU_HAS_RUST_PLUGINS
     struct mm_se050_cfg se050_cfgs[4];
     int se050_count = 0;
@@ -5520,6 +5615,84 @@ int main(int argc, char **argv)
                 return 1;
             }
             iotsafe_uart_count++;
+        } else if (strncmp(argv[i], "--vdd-mv=", 9) == 0) {
+            char *endp;
+            long v = strtol(argv[i] + 9, &endp, 0);
+            if (*endp != '\0') {
+                fprintf(stderr, "invalid --vdd-mv value: %s\n", argv[i]);
+                return 1;
+            }
+            opt_vdd_mv = (mm_i32)v;
+        } else if (strncmp(argv[i], "--gpio-vil-mv=", 14) == 0 ||
+                   strncmp(argv[i], "--gpio-vih-mv=", 14) == 0) {
+            char *endp;
+            long v = strtol(argv[i] + 14, &endp, 0);
+            if (argv[i][14] == '\0' || *endp != '\0' || v < 0 || v > 32767) {
+                fprintf(stderr, "invalid %.13s value: %s\n", argv[i], argv[i]);
+                return 1;
+            }
+            if (strncmp(argv[i], "--gpio-vil-mv=", 14) == 0) {
+                opt_gpio_vil_mv = (mm_i32)v;
+                has_gpio_vil = MM_TRUE;
+            } else {
+                opt_gpio_vih_mv = (mm_i32)v;
+                has_gpio_vih = MM_TRUE;
+            }
+        } else if (strncmp(argv[i], "--signal-file=", 14) == 0) {
+            snprintf(opt_signal_file, sizeof(opt_signal_file), "%s", argv[i] + 14);
+            has_signal_file = MM_TRUE;
+        } else if (strncmp(argv[i], "--signal-sync=", 14) == 0) {
+            snprintf(opt_signal_sync, sizeof(opt_signal_sync), "%s", argv[i] + 14);
+            if (opt_signal_sync[0] == '\0') {
+                fprintf(stderr, "invalid --signal-sync value: %s\n", argv[i]);
+                return 1;
+            }
+            has_signal_trigger = MM_TRUE;
+        } else if (strncmp(argv[i], "--signal-bind:", 14) == 0) {
+            char tmp[512];
+            char *tok;
+            mm_bool have_trace = MM_FALSE, have_target = MM_FALSE, have_role = MM_FALSE;
+            struct mm_signal_bind_spec spec;
+            memset(&spec, 0, sizeof(spec));
+            snprintf(tmp, sizeof(tmp), "%s", argv[i] + 14);
+            tok = strtok(tmp, ":");
+            while (tok != 0) {
+                if (strncmp(tok, "trace=", 6) == 0) {
+                    if (strlen(tok + 6) >= sizeof(spec.trace_name)) {
+                        fprintf(stderr, "--signal-bind trace name too long (max %u chars): %s\n",
+                                (unsigned)(sizeof(spec.trace_name) - 1u), tok + 6);
+                        return 1;
+                    }
+                    snprintf(spec.trace_name, sizeof(spec.trace_name), "%s", tok + 6);
+                    have_trace = MM_TRUE;
+                } else if (strncmp(tok, "target=", 7) == 0) {
+                    if (!signal_parse_gpio_name(tok + 7, &spec.bank, &spec.pin)) {
+                        fprintf(stderr, "invalid --signal-bind target: %s\n", tok + 7);
+                        return 1;
+                    }
+                    have_target = MM_TRUE;
+                } else if (strncmp(tok, "role=", 5) == 0) {
+                    if (strcmp(tok + 5, "gpio") != 0) {
+                        fprintf(stderr, "unsupported --signal-bind role: %s\n", tok + 5);
+                        return 1;
+                    }
+                    have_role = MM_TRUE;
+                } else {
+                    fprintf(stderr, "unrecognised --signal-bind field: %s\n", tok);
+                    return 1;
+                }
+                tok = strtok(0, ":");
+            }
+            if (!have_trace || !have_target || !have_role) {
+                fprintf(stderr, "--signal-bind requires trace=, target=, and role=\n");
+                return 1;
+            }
+            if (signal_bind_count >= (int)(sizeof(signal_bind_specs) / sizeof(signal_bind_specs[0]))) {
+                fprintf(stderr, "too many --signal-bind entries\n");
+                return 1;
+            }
+            signal_bind_specs[signal_bind_count] = spec;
+            signal_bind_count++;
 #ifdef M33MU_HAS_RUST_PLUGINS
         } else if (strncmp(argv[i], "--se050:", 8) == 0) {
             if (se050_count >= (int)(sizeof(se050_cfgs) / sizeof(se050_cfgs[0]))) {
@@ -5597,6 +5770,9 @@ int main(int argc, char **argv)
 #endif
                         "[--uart-stdout] [--quit-on-faults] [--meminfo] [--record] [--record-start <pc>] [--record-start-dump] [--record-start-dump-ram] [--record-end-dump-ram] [--record-trace <path>] [--record-quiet] [--record-dump <n>] [--call-trace] [--dualbank] [--fault-clock N] [--no-tz] [--secwm1=<strt>:<end>] [--secwm2=<strt>:<end>] [--gdb-symbols <elf>] "
                         "[--expect-bkpt 0xNN] [--timeout seconds] "
+                        "[--signal-file=<path>] [--signal-bind:trace=<name>:target=PXn:role=gpio] "
+                        "[--signal-sync=<symbol|addr>] [--vdd-mv=<mV>] "
+                        "[--gpio-vil-mv=<mV>] [--gpio-vih-mv=<mV>] "
                         "[--boot flash|ram|spiflash] "
                         "[--boot-offset=0xN] "
                         "[--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] "
@@ -5740,6 +5916,52 @@ int main(int argc, char **argv)
             fprintf(stderr, "failed to register iotsafe-uart\n");
             return 1;
         }
+    }
+
+    if (has_signal_file) {
+        mm_signal_set_vdd_mv(opt_vdd_mv);
+        if (has_gpio_vil) {
+            mm_signal_set_gpio_vil_mv(opt_gpio_vil_mv);
+        }
+        if (has_gpio_vih) {
+            mm_signal_set_gpio_vih_mv(opt_gpio_vih_mv);
+        }
+        if (mm_signal_gpio_vil_mv() >= mm_signal_gpio_vih_mv()) {
+            fprintf(stderr, "GPIO VIL (%d mV) must be below VIH (%d mV); "
+                            "check --gpio-vil-mv, --gpio-vih-mv and --vdd-mv\n",
+                    (int)mm_signal_gpio_vil_mv(), (int)mm_signal_gpio_vih_mv());
+            return 1;
+        }
+        if (!mm_signal_load(opt_signal_file)) {
+            fprintf(stderr, "failed to load --signal-file %s\n", opt_signal_file);
+            return 1;
+        }
+        for (i = 0; i < signal_bind_count; ++i) {
+            int bid = mm_signal_bind(signal_bind_specs[i].trace_name,
+                                      signal_bind_specs[i].bank,
+                                      signal_bind_specs[i].pin,
+                                      MM_SIGNAL_ROLE_GPIO);
+            if (bid < 0) {
+                fprintf(stderr, "failed to bind signal trace '%s'\n",
+                        signal_bind_specs[i].trace_name);
+                return 1;
+            }
+        }
+        if (signal_bind_count > 0 && !has_signal_trigger) {
+            fprintf(stderr, "--signal-bind requires --signal-sync\n");
+            return 1;
+        }
+        if (has_signal_trigger) {
+            mm_u32 trig_addr;
+            if (!signal_resolve_trigger_addr(opt_signal_sync, images,
+                                              image_count, &trig_addr)) {
+                return 1;
+            }
+            mm_signal_set_trigger(trig_addr);
+        }
+    } else if (signal_bind_count > 0) {
+        fprintf(stderr, "--signal-bind given without --signal-file\n");
+        return 1;
     }
 #ifdef M33MU_HAS_RUST_PLUGINS
     for (i = 0; i < se050_count; ++i) {
@@ -6013,6 +6235,7 @@ int main(int argc, char **argv)
             mm_u64 hz_now = 0;
             mm_u64 last_hz = 0;
             tui_steps_offset = 0;
+            mm_signal_set_cpu_hz(cpu_hz);
             if (fault_clock_count > 0u) {
                 mm_u8 i;
                 if (fault_clock_count > (mm_u8)(sizeof(fault_clocks) / sizeof(fault_clocks[0]))) {
@@ -6032,6 +6255,7 @@ int main(int argc, char **argv)
             g_timeout_map = &map;
             mm_target_soc_reset(&cfg);
             mm_timer_reset(&cfg);
+            mm_signal_prepare_for_run();
             mm_spiflash_reset_all();
 #ifdef M33MU_HAS_LIBTPMS
             mm_tpm_tis_reset_all();
@@ -6184,6 +6408,26 @@ int main(int argc, char **argv)
                 fprintf(stderr, "Failed to register MMIO for CPU %s\n", (cpu_name != 0) ? cpu_name : "unknown");
                 rc = 1;
                 goto cleanup;
+            }
+            if (signal_bind_count > 0) {
+                int bi;
+                if (!mm_gpio_external_input_writer_present()) {
+                    fprintf(stderr, "--signal-bind: CPU %s has no GPIO signal injection\n",
+                            (cpu_name != 0) ? cpu_name : "unknown");
+                    rc = 1;
+                    goto cleanup;
+                }
+                for (bi = 0; bi < signal_bind_count; ++bi) {
+                    int pins = 0;
+                    if (!mm_gpio_bank_info(signal_bind_specs[bi].bank, 0, 0, &pins) ||
+                        signal_bind_specs[bi].pin >= pins) {
+                        fprintf(stderr, "--signal-bind: CPU %s has no pin P%c%d\n",
+                                (cpu_name != 0) ? cpu_name : "unknown",
+                                'A' + signal_bind_specs[bi].bank, signal_bind_specs[bi].pin);
+                        rc = 1;
+                        goto cleanup;
+                    }
+                }
             }
             mm_spiflash_register_mmap_regions(&map.mmio);
             mm_target_flash_bind(&cfg, &map, flash, cfg.flash_size_s, opt_persist ? &persist : 0);
@@ -6541,6 +6785,7 @@ int main(int argc, char **argv)
                     last_hz = hz_now;
                     sync_granularity = cpu_hz / 100000u;
                     if (sync_granularity == 0) sync_granularity = 1u;
+                    mm_signal_set_cpu_hz(cpu_hz);
                     printf("[CLOCK] CPU %llu Hz\n", (unsigned long long)cpu_hz);
                 }
                 if (g_fault_pending) {
@@ -6828,6 +7073,10 @@ int main(int argc, char **argv)
                         continue;
                     } else {
                         mm_u64 delta = mm_scs_systick_cycles_until_fire(&scs);
+                        mm_u64 signal_delta = mm_signal_cycles_until_next_event();
+                        if (signal_delta < delta) {
+                            delta = (signal_delta != 0u) ? signal_delta : 1u;
+                        }
                         if (delta == (mm_u64)-1) {
                             mm_u64 idle_cycles = 0;
                             struct timespec req;
@@ -6842,6 +7091,7 @@ int main(int argc, char **argv)
                             }
                             mm_scs_systick_advance(&scs, idle_cycles);
                             mm_timer_tick(&cfg, idle_cycles);
+                            mm_signal_advance(idle_cycles);
                             vcycles += idle_cycles;
                             cycle_total += idle_cycles;
                             cycles_since_poll += idle_cycles;
@@ -6873,6 +7123,7 @@ int main(int argc, char **argv)
                         } else {
                             mm_scs_systick_advance(&scs, delta);
                             mm_timer_tick(&cfg, delta);
+                            mm_signal_advance(delta);
                             vcycles += delta;
                             cycle_total += delta;
                             cycles_since_poll += delta;
@@ -7064,6 +7315,7 @@ check_irq_pending:
 
                             cpu.r[13] = mm_cpu_get_active_sp(&cpu);
 
+                            mm_signal_check_trigger(cpu.r[15] & ~1u);
                             (void)mm_tb_run(tb, &exec_ctx, &done, &tb_bkpt_hit, &tb_bkpt_imm, &ops_executed);
                             if (ops_executed != 0u) {
                                 cycles_since_poll += ops_executed;
@@ -7071,6 +7323,7 @@ check_irq_pending:
                                 vcycles += ops_executed;
                                 mm_scs_systick_advance(&scs, ops_executed);
                                 mm_timer_tick(&cfg, ops_executed);
+                                mm_signal_advance((mm_u64)ops_executed);
                             }
                             if (tb_bkpt_hit) {
                                 printf("[BKPT] imm=0x%02lx\n", (unsigned long)tb_bkpt_imm);
@@ -7203,6 +7456,8 @@ check_irq_pending:
                     vcycles += insn_cycles;
                     mm_scs_systick_advance(&scs, insn_cycles);
                     mm_timer_tick(&cfg, insn_cycles);
+                    mm_signal_check_trigger(cpu.r[15] & ~1u);
+                    mm_signal_advance((mm_u64)insn_cycles);
                     if (opt_gdb || opt_tui) {
                         mm_u8 i;
                         fault_clock_count = gdb.fault_clock_count;
@@ -7565,6 +7820,13 @@ check_irq_pending:
             covdump_cycles = cycle_total;
             mm_code_cache_release(&code_cache);
             break;
+        }
+    }
+    if (signal_bind_count > 0 && !mm_signal_triggered()) {
+        fprintf(stderr, "signal: --signal-sync=%s was never reached, no trace was replayed\n",
+                opt_signal_sync);
+        if (!opt_gdb && !opt_tui) {
+            rc = 1;
         }
     }
 

@@ -547,6 +547,7 @@ static void gpdma_configure_and_reset(void)
 }
 
 static mm_u32 stm32h5_gpio_bank_read(void *opaque, int bank);
+static mm_bool stm32h5_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level);
 static mm_u32 stm32h5_gpio_bank_read_moder(void *opaque, int bank);
 static mm_bool stm32h5_gpio_bank_clock(void *opaque, int bank);
 static mm_u32 stm32h5_gpio_bank_read_seccfgr(void *opaque, int bank);
@@ -800,6 +801,7 @@ static void stm32h5_mmio_reset_impl(void)
     }
     stm32h5_i2c_reset();
     mm_gpio_bank_set_reader(stm32h5_gpio_bank_read, 0);
+    mm_gpio_set_external_input_writer(stm32h5_gpio_set_external_input_cb, 0);
     mm_gpio_bank_set_moder_reader(stm32h5_gpio_bank_read_moder, 0);
     mm_gpio_bank_set_clock_reader(stm32h5_gpio_bank_clock, 0);
     mm_gpio_bank_set_seccfgr_reader(stm32h5_gpio_bank_read_seccfgr, 0);
@@ -1084,6 +1086,16 @@ static mm_u32 stm32h5_gpio_bank_read(void *opaque, int bank)
         return 0u;
     }
     return gpio[bank].regs[0x14u / 4];
+}
+
+/* Both aliases share the bank state and EXTI hook; use the NS one. */
+static mm_bool stm32h5_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)(sizeof(gpio) / sizeof(gpio[0]))) {
+        return MM_FALSE;
+    }
+    return stm32_gpio_set_external_input(&gpio_ctx_data[bank * 2], pin, level);
 }
 
 static mm_u32 stm32h5_gpio_bank_read_moder(void *opaque, int bank)

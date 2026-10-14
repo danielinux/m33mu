@@ -35,6 +35,7 @@ typedef mm_bool (*mm_gpio_bank_clock_fn)(void *opaque, int bank);
 typedef mm_u32 (*mm_gpio_bank_read_seccfgr_fn)(void *opaque, int bank);
 typedef mm_bool (*mm_rcc_clock_list_fn)(void *opaque, int line, char *out, size_t out_len);
 typedef mm_bool (*mm_gpio_bank_info_fn)(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out);
+typedef mm_bool (*mm_gpio_set_external_input_fn)(void *opaque, int bank, int pin, mm_bool level);
 
 struct mm_gpio_line {
     mm_gpio_listener_fn listener;
@@ -61,5 +62,10 @@ mm_bool mm_rcc_clock_list_line(int line, char *out, size_t out_len);
 
 void mm_gpio_set_bank_info_reader(mm_gpio_bank_info_fn reader, void *opaque);
 mm_bool mm_gpio_bank_info(int bank, char *name_out, size_t name_len, int *pins_out);
+
+/* Drive an input pin as an external signal would; MM_FALSE if rejected. */
+void mm_gpio_set_external_input_writer(mm_gpio_set_external_input_fn writer, void *opaque);
+mm_bool mm_gpio_set_external_input(int bank, int pin, mm_bool level);
+mm_bool mm_gpio_external_input_writer_present(void);
 
 #endif /* M33MU_GPIO_H */
