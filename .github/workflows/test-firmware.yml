@@ -155,6 +155,8 @@ jobs:
             --signal-bind:trace=vin:target=PA5:role=gpio:group=0
           run_signal_test $FW/test-stm32h5f4-signal-input-exti-masked $COMMON/fixture_1cross.sigc \
             --signal-bind:trace=vin:target=PA5:role=gpio:group=0
+          run_signal_test $FW/test-stm32h5f4-signal-input-exti-wfi $COMMON/fixture_4cross.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio:group=0
           run_signal_test $FW/test-stm32h5f4-signal-input-hysteresis $COMMON/fixture_hysteresis.sigc \
             --signal-bind:trace=vin:target=PA5:role=gpio:group=0
           run_signal_test $FW/test-stm32h5f4-signal-input-sharp-edge $COMMON/fixture_sharp_edge.sigc \

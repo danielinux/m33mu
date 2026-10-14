@@ -7027,6 +7027,10 @@ int main(int argc, char **argv)
                         continue;
                     } else {
                         mm_u64 delta = mm_scs_systick_cycles_until_fire(&scs);
+                        mm_u64 signal_delta = mm_signal_cycles_until_next_event();
+                        if (signal_delta < delta) {
+                            delta = (signal_delta != 0u) ? signal_delta : 1u;
+                        }
                         if (delta == (mm_u64)-1) {
                             mm_u64 idle_cycles = 0;
                             struct timespec req;
@@ -7041,6 +7045,7 @@ int main(int argc, char **argv)
                             }
                             mm_scs_systick_advance(&scs, idle_cycles);
                             mm_timer_tick(&cfg, idle_cycles);
+                            mm_signal_advance(idle_cycles);
                             vcycles += idle_cycles;
                             cycle_total += idle_cycles;
                             cycles_since_poll += idle_cycles;
@@ -7072,6 +7077,7 @@ int main(int argc, char **argv)
                         } else {
                             mm_scs_systick_advance(&scs, delta);
                             mm_timer_tick(&cfg, delta);
+                            mm_signal_advance(delta);
                             vcycles += delta;
                             cycle_total += delta;
                             cycles_since_poll += delta;

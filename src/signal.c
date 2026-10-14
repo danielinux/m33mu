@@ -129,6 +129,14 @@ static mm_u64 signal_cycles_to_ns(mm_u64 cycles)
     return (mm_u64)prod;
 }
 
+static mm_u64 signal_ns_to_cycles_ceil(mm_u64 ns)
+{
+    __int128 prod = (__int128)ns * (__int128)g_cpu_hz;
+    prod += (__int128)(MM_SIGNAL_NS_PER_SEC - 1u);
+    prod /= (__int128)MM_SIGNAL_NS_PER_SEC;
+    return (mm_u64)prod;
+}
+
 static void signal_free_loaded(void)
 {
     mm_u32 i;
@@ -514,6 +522,29 @@ void mm_signal_check_trigger(mm_u32 pc)
             signal_group_trigger(g_triggers[i].group_id);
         }
     }
+}
+
+mm_u64 mm_signal_cycles_until_next_event(void)
+{
+    mm_u64 best = (mm_u64)-1;
+    mm_u32 i;
+
+    for (i = 0; i < g_binding_count; ++i) {
+        const struct mm_signal_binding *b = &g_bindings[i];
+        mm_u64 due;
+        mm_u64 done;
+        if (!b->armed || !b->triggered || b->role != MM_SIGNAL_ROLE_GPIO ||
+            b->next_crossing >= b->crossing_count) {
+            continue;
+        }
+        due = signal_ns_to_cycles_ceil(b->crossings[b->next_crossing].at_ns);
+        done = g_total_vcycles - b->trigger_vcycles;
+        due = (due > done) ? (due - done) : 0u;
+        if (due < best) {
+            best = due;
+        }
+    }
+    return best;
 }
 
 void mm_signal_advance(mm_u64 cycles)

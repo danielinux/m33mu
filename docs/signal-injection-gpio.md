@@ -78,7 +78,10 @@ instruction is one cycle) and the target's current core clock. It is not
 derived from the host clock. `mm_signal_check_trigger()` runs before each
 dispatch with the PC about to execute. `mm_signal_advance()` runs after
 execution with the number of cycles executed. Both must be called from every
-execution path in `src/main.c` that advances `mm_timer_tick()`.
+execution path in `src/main.c` that advances `mm_timer_tick()`, including the
+WFI/WFE idle paths. Idle fast-forwarding stops at
+`mm_signal_cycles_until_next_event()`, so an injected edge wakes a sleeping
+core at its scheduled time, with or without SysTick.
 
 ## Constraints
 
@@ -122,6 +125,7 @@ execution path in `src/main.c` that advances `mm_timer_tick()`.
 |---|---|
 | `gpio-basic` | Polled `IDR` follows a rising crossing |
 | `input-exti-rising` / `-falling` / `-both` | EXTI edge selection: 2, 2 and 4 interrupts from 4 crossings |
+| `input-exti-wfi` | With SysTick off, injected edges wake the core from WFI |
 | `input-exti-masked` | A masked line never runs its ISR |
 | `input-hysteresis` | Noise inside the band raises no interrupt |
 | `input-sharp-edge` | A crossing 16 ns after the trigger is visible within a few polls |

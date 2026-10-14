@@ -58,6 +58,10 @@ mm_bool mm_signal_is_trigger_pc(mm_u32 pc);
 /* Call after execution with the cycles just executed. */
 void mm_signal_advance(mm_u64 cycles);
 
+/* Cycles until the next scheduled pin change, or (mm_u64)-1 if none.
+ * Idle fast-forwarding must not skip past it. */
+mm_u64 mm_signal_cycles_until_next_event(void);
+
 /* bank: 0=A, 1=B, ...; returns the binding id or -1. */
 int mm_signal_bind(const char *trace_name, int bank, int pin,
                     enum mm_signal_role role, mm_u32 group_id);

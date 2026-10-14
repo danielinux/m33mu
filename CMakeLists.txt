@@ -603,6 +603,7 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-exti-falling app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-exti-both app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-exti-masked app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-exti-wfi app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-hysteresis app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-sharp-edge app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-input-nonuniform app.bin
