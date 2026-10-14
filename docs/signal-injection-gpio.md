@@ -53,8 +53,8 @@ multi-channel capture. `period_ns != 0` is a uniform timebase, and
 GPIO bindings.
 
 The loader accepts only `version == 1`. It rejects duplicate timebase ids,
-explicit timestamps that go backwards, a file shorter than its counts claim,
-and trailing bytes after the last trace.
+duplicate trace ids or names, explicit timestamps that go backwards, a file
+shorter than its counts claim, and trailing bytes after the last trace.
 
 `tests/firmware/_signal_common/gen_fixtures.py` writes this format and can
 serve as a reference encoder. There is no HDF5 converter yet.

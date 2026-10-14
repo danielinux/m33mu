@@ -272,6 +272,16 @@ static mm_bool signal_load_trace(struct signal_reader *r, const char *path, mm_u
         return MM_FALSE;
     }
     tr->name[MM_SIGNAL_TRACE_NAME_LEN - 1] = '\0';
+    for (j = 0; j < i; ++j) {
+        if (g_traces[j].id == tr->id) {
+            fprintf(stderr, "signal: %s: duplicate trace id %u\n", path, tr->id);
+            return MM_FALSE;
+        }
+        if (strcmp(g_traces[j].name, tr->name) == 0) {
+            fprintf(stderr, "signal: %s: duplicate trace name '%s'\n", path, tr->name);
+            return MM_FALSE;
+        }
+    }
     for (j = 0; j < g_timebase_count; ++j) {
         if (g_timebases[j].id == timebase_id) {
             break;

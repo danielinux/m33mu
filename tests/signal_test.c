@@ -75,6 +75,38 @@ static mm_bool write_fixture(const char *path, const char *trace_name,
     return write_container(path, 1, trace_name, count, period_ns, 0, samples, count, 0);
 }
 
+/* One uniform two-sample timebase shared by two traces. */
+static mm_bool write_two_traces(const char *path, mm_u32 id_a, const char *name_a,
+                                mm_u32 id_b, const char *name_b)
+{
+    FILE *f = fopen(path, "wb");
+    const mm_u32 ids[2] = { id_a, id_b };
+    const char *names[2] = { name_a, name_b };
+    char name[32];
+    int t;
+
+    if (f == 0) return MM_FALSE;
+    fwrite("SIGC", 1, 4, f);
+    put_le(f, 1, 4);
+    put_le(f, 1, 4);
+    put_le(f, 2, 4);
+    put_le(f, 1, 4);
+    put_le(f, 2, 4);
+    put_le(f, 1000, 4);
+    for (t = 0; t < 2; ++t) {
+        memset(name, 0, sizeof(name));
+        snprintf(name, sizeof(name), "%s", names[t]);
+        put_le(f, ids[t], 4);
+        fwrite(name, 1, sizeof(name), f);
+        put_le(f, 1, 4);
+        put_le(f, 3300, 4);
+        put_le(f, 0, 2);
+        put_le(f, 3300, 2);
+    }
+    fclose(f);
+    return MM_TRUE;
+}
+
 static int g_write_calls;
 static int g_last_bank, g_last_pin;
 static mm_bool g_last_level;
@@ -354,6 +386,12 @@ static int test_loader_rejects_bad_containers(void)
     if (!write_container(g_tmp_path, 1, "v", 0x40000000u, 1000, 0, samples, 3, 0)) return 1;
     if (mm_signal_load(g_tmp_path)) return 1;
     if (!write_container(g_tmp_path, 1, "v", 3, 1000, 0, samples, 3, 1)) return 1;
+    if (mm_signal_load(g_tmp_path)) return 1;
+    if (!write_two_traces(g_tmp_path, 1, "a", 2, "b")) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (!write_two_traces(g_tmp_path, 1, "a", 2, "a")) return 1;
+    if (mm_signal_load(g_tmp_path)) return 1;
+    if (!write_two_traces(g_tmp_path, 1, "a", 1, "b")) return 1;
     if (mm_signal_load(g_tmp_path)) return 1;
     return 0;
 }
