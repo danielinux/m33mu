@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "stm32_gpio.h"
+#include "m33mu/gpio.h"
 
 #define PIN 5
 
@@ -195,6 +196,108 @@ static int test_output_mode_reads_back_odr(void)
     return 0;
 }
 
+#define PAD_EVENTS_MAX 64
+
+static int g_pad_count;
+static int g_pad_bank[PAD_EVENTS_MAX];
+static int g_pad_pin[PAD_EVENTS_MAX];
+static mm_u8 g_pad_level[PAD_EVENTS_MAX];
+
+static void fake_pad_listener(void *opaque, int bank, int pin, mm_u8 level)
+{
+    (void)opaque;
+    if (g_pad_count < PAD_EVENTS_MAX) {
+        g_pad_bank[g_pad_count] = bank;
+        g_pad_pin[g_pad_count] = pin;
+        g_pad_level[g_pad_count] = level;
+    }
+    g_pad_count++;
+}
+
+static int pad_event_is(int idx, int pin, mm_u8 level)
+{
+    return (idx < g_pad_count && g_pad_bank[idx] == 0 && g_pad_pin[idx] == pin &&
+            g_pad_level[idx] == level) ? 1 : 0;
+}
+
+static int test_pad_events_follow_odr(void)
+{
+    struct stm32_gpio_state g;
+    struct stm32_gpio_ctx ctx;
+    int rc = 1;
+
+    init_ctx(&g, &ctx);
+    mm_gpio_set_pad_listener(fake_pad_listener, 0);
+    g_pad_count = 0;
+    write_moder_mode(&ctx, PIN, 1u);
+    if (g_pad_count != 1 || !pad_event_is(0, PIN, 0u)) goto out;
+    stm32_gpio_write(&ctx, STM32_GPIO_BSRR_OFFSET, 4, 1u << PIN);
+    if (g_pad_count != 2 || !pad_event_is(1, PIN, 1u)) goto out;
+    stm32_gpio_write(&ctx, STM32_GPIO_ODR_OFFSET, 4, 1u << PIN);
+    if (g_pad_count != 2) goto out;
+    stm32_gpio_write(&ctx, STM32_GPIO_BRR_OFFSET, 4, 1u << PIN);
+    if (g_pad_count != 3 || !pad_event_is(2, PIN, 0u)) goto out;
+    stm32_gpio_write(&ctx, STM32_GPIO_BSRR_OFFSET, 4, 1u << (PIN + 16));
+    if (g_pad_count != 3) goto out;
+    rc = 0;
+out:
+    mm_gpio_set_pad_listener(0, 0);
+    return rc;
+}
+
+static int test_pad_events_open_drain_and_modes(void)
+{
+    struct stm32_gpio_state g;
+    struct stm32_gpio_ctx ctx;
+    int rc = 1;
+
+    init_ctx(&g, &ctx);
+    mm_gpio_set_pad_listener(fake_pad_listener, 0);
+    g_pad_count = 0;
+    stm32_gpio_write(&ctx, STM32_GPIO_OTYPER_OFFSET, 4, 1u << PIN);
+    stm32_gpio_write(&ctx, STM32_GPIO_ODR_OFFSET, 4, 1u << PIN);
+    if (g_pad_count != 0) goto out;
+    write_moder_mode(&ctx, PIN, 1u);
+    if (g_pad_count != 0) goto out;
+    stm32_gpio_write(&ctx, STM32_GPIO_ODR_OFFSET, 4, 0u);
+    if (g_pad_count != 1 || !pad_event_is(0, PIN, 0u)) goto out;
+    stm32_gpio_write(&ctx, STM32_GPIO_ODR_OFFSET, 4, 1u << PIN);
+    if (g_pad_count != 2 || !pad_event_is(1, PIN, MM_GPIO_LEVEL_Z)) goto out;
+    stm32_gpio_write(&ctx, STM32_GPIO_OTYPER_OFFSET, 4, 0u);
+    if (g_pad_count != 3 || !pad_event_is(2, PIN, 1u)) goto out;
+    write_moder_mode(&ctx, PIN, 2u);
+    if (g_pad_count != 4 || !pad_event_is(3, PIN, MM_GPIO_LEVEL_Z)) goto out;
+    write_moder_mode(&ctx, PIN, 0u);
+    if (g_pad_count != 4) goto out;
+    rc = 0;
+out:
+    mm_gpio_set_pad_listener(0, 0);
+    return rc;
+}
+
+static int test_pad_events_on_reset(void)
+{
+    struct stm32_gpio_state g;
+    struct stm32_gpio_ctx ctx;
+    int rc = 1;
+    int pin;
+
+    init_ctx(&g, &ctx);
+    write_moder_mode(&ctx, PIN, 1u);
+    stm32_gpio_write(&ctx, STM32_GPIO_ODR_OFFSET, 4, 1u << PIN);
+    mm_gpio_set_pad_listener(fake_pad_listener, 0);
+    g_pad_count = 0;
+    stm32_gpio_reset(&g, 0);
+    if (g_pad_count != 16) goto out;
+    for (pin = 0; pin < 16; ++pin) {
+        if (!pad_event_is(pin, pin, MM_GPIO_LEVEL_Z)) goto out;
+    }
+    rc = 0;
+out:
+    mm_gpio_set_pad_listener(0, 0);
+    return rc;
+}
+
 int main(void)
 {
     struct {
@@ -207,6 +310,9 @@ int main(void)
         { "input_mode_picks_up_pad_level", test_input_mode_picks_up_pad_level },
         { "odr_write_keeps_driven_input", test_odr_write_keeps_driven_input },
         { "output_mode_reads_back_odr", test_output_mode_reads_back_odr },
+        { "pad_events_follow_odr", test_pad_events_follow_odr },
+        { "pad_events_open_drain_and_modes", test_pad_events_open_drain_and_modes },
+        { "pad_events_on_reset", test_pad_events_on_reset },
     };
     size_t i;
     int failures = 0;

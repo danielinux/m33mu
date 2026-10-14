@@ -712,6 +712,27 @@ mm_bool mm_gpio_external_input_writer_present(void)
     return (g_gpio_external_input_writer != 0) ? MM_TRUE : MM_FALSE;
 }
 
+static mm_gpio_pad_listener_fn g_gpio_pad_listener = 0;
+static void *g_gpio_pad_listener_opaque = 0;
+
+void mm_gpio_set_pad_listener(mm_gpio_pad_listener_fn listener, void *opaque)
+{
+    g_gpio_pad_listener = listener;
+    g_gpio_pad_listener_opaque = opaque;
+}
+
+mm_bool mm_gpio_pad_listener_present(void)
+{
+    return (g_gpio_pad_listener != 0) ? MM_TRUE : MM_FALSE;
+}
+
+void mm_gpio_notify_pad(int bank, int pin, mm_u8 level)
+{
+    if (g_gpio_pad_listener != 0) {
+        g_gpio_pad_listener(g_gpio_pad_listener_opaque, bank, pin, level);
+    }
+}
+
 mm_bool mm_rcc_clock_list_present(void)
 {
     return (g_rcc_clock_list_reader != 0) ? MM_TRUE : MM_FALSE;

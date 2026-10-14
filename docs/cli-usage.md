@@ -151,12 +151,17 @@ Replay recorded voltage traces onto GPIO inputs. See
 - `--signal-file=<path>`: load a `.sigc` signal container
 - `--signal-bind:trace=<name>:target=<PXn>:role=gpio`: drive input pin `PXn` from a trace
 - `--signal-sync=<symbol|addr>`: start replay when the PC first reaches this address
-  (a symbol requires an ELF image). Required with `--signal-bind`; the run exits with 1
-  if the address is never reached
+  (a symbol requires an ELF image). Required with `--signal-bind`, optional with
+  `--signal-record`; the run exits with 1 if the address is never reached
 - `--vdd-mv=<mV>`: supply voltage for the GPIO input thresholds (default 3300)
 - `--gpio-vil-mv=<mV>`, `--gpio-vih-mv=<mV>`: GPIO input low/high thresholds. Each one
   overrides its side only; the other keeps its default of `VDD/2 - 125 mV` / `VDD/2 + 125 mV`.
   The effective VIL must be below the effective VIH
+- `--signal-record=<path>`: write the levels driven on watched output pins to a CSV
+  (`t_ns,pin,level`). Times count from `--signal-sync` when given, otherwise from the
+  first instruction. See [signal-record-gpio.md](signal-record-gpio.md)
+- `--signal-watch:target=<PXn>`: record pin `PXn` (repeatable, up to 32). Required with
+  `--signal-record`
 
 ## TrustZone / Memory / Flash Options
 

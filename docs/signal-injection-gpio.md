@@ -4,7 +4,9 @@ m33mu can replay a recorded voltage-vs-time trace onto an emulated pin, so
 firmware that reads GPIO inputs (polled or through EXTI) can be tested in CI
 against real-world stimuli. This document covers the GPIO input path and the
 shared signal core it is built on. The ADC path is a later phase, described
-in [signal-injection-adc.md](signal-injection-adc.md).
+in [signal-injection-adc.md](signal-injection-adc.md). Recording the levels
+firmware drives on output pins is described in
+[signal-record-gpio.md](signal-record-gpio.md).
 
 Supported target: STM32H5 (`stm32h563`, `stm32h533`, `stm32h5f4`), through the
 shared `cpu/stm32_gpio.c` model. On other targets, or for a pin the target

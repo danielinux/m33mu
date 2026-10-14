@@ -47,6 +47,8 @@ struct stm32_gpio_state {
     mm_bool locked;    /* LCKR lock sequence completed */
     mm_u32 ext_driven; /* pins with an external level on the pad */
     mm_u32 ext_level;
+    mm_u32 pad_driven; /* output pins the firmware drives, last reported */
+    mm_u32 pad_level;
 };
 
 /* Context structure passed to read/write functions */

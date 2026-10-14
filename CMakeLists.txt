@@ -617,6 +617,7 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-multi-binding app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-output-loopback app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-output-timing app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-record app.bin
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
