@@ -247,7 +247,10 @@ static mm_bool signal_load_timebase(struct signal_reader *r, const char *path, m
         return MM_FALSE;
     }
     for (j = 0; j < tb->sample_count; ++j) {
-        (void)signal_read_le(r, &tb->timestamps_ns[j], 8);
+        if (!signal_read_le(r, &tb->timestamps_ns[j], 8)) {
+            fprintf(stderr, "signal: %s: timebase %u is truncated\n", path, i);
+            return MM_FALSE;
+        }
         if (j > 0u && tb->timestamps_ns[j] < tb->timestamps_ns[j - 1u]) {
             fprintf(stderr, "signal: %s: timebase %u timestamps go backwards at sample %u\n",
                     path, i, j);
@@ -311,7 +314,10 @@ static mm_bool signal_load_trace(struct signal_reader *r, const char *path, mm_u
     }
     for (j = 0; j < n; ++j) {
         mm_u64 v = 0;
-        (void)signal_read_le(r, &v, 2);
+        if (!signal_read_le(r, &v, 2)) {
+            fprintf(stderr, "signal: %s: trace %u is truncated\n", path, i);
+            return MM_FALSE;
+        }
         tr->samples_mv[j] = (mm_i16)(mm_u16)v;
     }
     return MM_TRUE;
