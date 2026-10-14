@@ -25,57 +25,54 @@
 #include "m33mu/signal.h"
 #include "m33mu/gpio.h"
 
-struct test_container_header {
-    char   magic[4];
-    mm_u32 version;
-    mm_u32 num_timebases;
-    mm_u32 num_traces;
-};
-struct test_timebase_desc {
-    mm_u32 id;
-    mm_u32 sample_count;
-    mm_u32 period_ns;
-};
-struct test_trace_desc {
-    mm_u32 id;
-    char   name[32];
-    mm_u32 timebase_id;
-    mm_i32 full_scale_mv;
-};
-
 static const char *g_tmp_path = "/tmp/signal_test_fixture.sigc";
+
+static void put_le(FILE *f, mm_u64 v, int bytes)
+{
+    int i;
+    for (i = 0; i < bytes; ++i) {
+        fputc((int)((v >> (8 * i)) & 0xFFu), f);
+    }
+}
+
+/* One timebase declaring sample_count samples, one trace with count samples. */
+static mm_bool write_container(const char *path, mm_u32 version, const char *trace_name,
+                               mm_u32 sample_count, mm_u32 period_ns, const mm_u64 *timestamps,
+                               const mm_i16 *samples, mm_u32 count, mm_u32 trailing_bytes)
+{
+    FILE *f = fopen(path, "wb");
+    char name[32];
+    mm_u32 i;
+
+    if (f == 0) return MM_FALSE;
+    fwrite("SIGC", 1, 4, f);
+    put_le(f, version, 4);
+    put_le(f, 1, 4);
+    put_le(f, 1, 4);
+
+    put_le(f, 1, 4);
+    put_le(f, sample_count, 4);
+    put_le(f, period_ns, 4);
+    if (period_ns == 0u) {
+        for (i = 0; i < sample_count; ++i) put_le(f, timestamps[i], 8);
+    }
+
+    memset(name, 0, sizeof(name));
+    snprintf(name, sizeof(name), "%s", trace_name);
+    put_le(f, 1, 4);
+    fwrite(name, 1, sizeof(name), f);
+    put_le(f, 1, 4);
+    put_le(f, 3300, 4);
+    for (i = 0; i < count; ++i) put_le(f, (mm_u16)samples[i], 2);
+    for (i = 0; i < trailing_bytes; ++i) fputc(0, f);
+    fclose(f);
+    return MM_TRUE;
+}
 
 static mm_bool write_fixture(const char *path, const char *trace_name,
                               const mm_i16 *samples, mm_u32 count, mm_u32 period_ns)
 {
-    FILE *f = fopen(path, "wb");
-    struct test_container_header hdr;
-    struct test_timebase_desc tb;
-    struct test_trace_desc tr;
-
-    if (f == 0) return MM_FALSE;
-
-    memcpy(hdr.magic, "SIGC", 4);
-    hdr.version = 1;
-    hdr.num_timebases = 1;
-    hdr.num_traces = 1;
-    fwrite(&hdr, sizeof(hdr), 1, f);
-
-    tb.id = 1;
-    tb.sample_count = count;
-    tb.period_ns = period_ns;
-    fwrite(&tb, sizeof(tb), 1, f);
-
-    memset(&tr, 0, sizeof(tr));
-    tr.id = 1;
-    snprintf(tr.name, sizeof(tr.name), "%s", trace_name);
-    tr.timebase_id = 1;
-    tr.full_scale_mv = 3300;
-    fwrite(&tr, sizeof(tr), 1, f);
-
-    fwrite(samples, sizeof(mm_i16), count, f);
-    fclose(f);
-    return MM_TRUE;
+    return write_container(path, 1, trace_name, count, period_ns, 0, samples, count, 0);
 }
 
 static int g_write_calls;
@@ -339,6 +336,47 @@ static int test_trigger_pc_and_triggered(void)
     return 0;
 }
 
+static int test_loader_rejects_bad_containers(void)
+{
+    mm_i16 samples[3] = { 0, 3300, 0 };
+    mm_u64 ts_ok[3] = { 0, 1000, 2000 };
+    mm_u64 ts_back[3] = { 0, 2000, 1000 };
+
+    reset_fakes();
+    if (!write_container(g_tmp_path, 1, "v", 3, 0, ts_ok, samples, 3, 0)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+
+    if (!write_container(g_tmp_path, 2, "v", 3, 1000, 0, samples, 3, 0)) return 1;
+    if (mm_signal_load(g_tmp_path)) return 1;
+    if (!write_container(g_tmp_path, 1, "v", 3, 0, ts_back, samples, 3, 0)) return 1;
+    if (mm_signal_load(g_tmp_path)) return 1;
+    if (!write_container(g_tmp_path, 1, "v", 0x40000000u, 1000, 0, samples, 3, 0)) return 1;
+    if (mm_signal_load(g_tmp_path)) return 1;
+    if (!write_container(g_tmp_path, 1, "v", 3, 1000, 0, samples, 3, 1)) return 1;
+    if (mm_signal_load(g_tmp_path)) return 1;
+    return 0;
+}
+
+static int test_many_crossings(void)
+{
+    static mm_i16 samples[10000];
+    mm_u32 i;
+
+    for (i = 0; i < 10000u; ++i) {
+        samples[i] = (i & 1u) ? 3300 : 0;
+    }
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    if (!write_fixture(g_tmp_path, "square", samples, 10000, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("square", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+    mm_signal_advance(250u * 10000u);
+    if (g_write_calls != 9999) return 1;
+    return 0;
+}
+
 int main(void)
 {
     struct {
@@ -351,6 +389,8 @@ int main(void)
         { "unknown_trace_rejected", test_unknown_trace_rejected },
         { "reset_keeps_stimulus_running", test_reset_keeps_stimulus_running },
         { "trigger_pc_and_triggered", test_trigger_pc_and_triggered },
+        { "loader_rejects_bad_containers", test_loader_rejects_bad_containers },
+        { "many_crossings", test_many_crossings },
         { "initial_level_applied_before_trigger", test_initial_level_applied_before_trigger },
         { "cycles_until_next_event", test_cycles_until_next_event },
         { "clock_change_keeps_elapsed_time", test_clock_change_keeps_elapsed_time },

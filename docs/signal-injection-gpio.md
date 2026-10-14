@@ -52,6 +52,10 @@ multi-channel capture. `period_ns != 0` is a uniform timebase, and
 `period_ns == 0` means explicit timestamps. `full_scale_mv` is not used by
 GPIO bindings.
 
+The loader accepts only `version == 1`. It rejects duplicate timebase ids,
+explicit timestamps that go backwards, a file shorter than its counts claim,
+and trailing bytes after the last trace.
+
 `tests/firmware/_signal_common/gen_fixtures.py` writes this format and can
 serve as a reference encoder. There is no HDF5 converter yet.
 
@@ -101,8 +105,8 @@ core at its scheduled time, with or without SysTick.
   about 20 µs apart.
 - **Pending bits on a masked line are not modelled precisely.** Tests assert
   only that a masked line's ISR never runs.
-- **Limits:** 16 timebases, 32 traces, 32 bindings, and 4096 crossings per
-  GPIO binding.
+- **Limits:** 16 timebases, 32 traces and 32 bindings. The number of
+  crossings per binding is limited only by memory.
 
 ## Not implemented
 

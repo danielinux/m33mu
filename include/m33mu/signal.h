@@ -27,7 +27,6 @@
 #define MM_SIGNAL_MAX_TIMEBASES   16u
 #define MM_SIGNAL_MAX_TRACES      32u
 #define MM_SIGNAL_MAX_BINDINGS    32u
-#define MM_SIGNAL_MAX_CROSSINGS   4096u
 #define MM_SIGNAL_TRACE_NAME_LEN  32u
 
 enum mm_signal_role {

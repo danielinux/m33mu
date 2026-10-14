@@ -27,26 +27,7 @@
 #include "m33mu/gpio.h"
 
 #define MM_SIGNAL_MAGIC "SIGC"
-
-struct mm_signal_container_header {
-    char   magic[4];
-    mm_u32 version;
-    mm_u32 num_timebases;
-    mm_u32 num_traces;
-};
-
-struct mm_signal_timebase_desc {
-    mm_u32 id;
-    mm_u32 sample_count;
-    mm_u32 period_ns; /* 0 => non-uniform: mm_u64 timestamps_ns[] follows inline */
-};
-
-struct mm_signal_trace_desc {
-    mm_u32 id;
-    char   name[MM_SIGNAL_TRACE_NAME_LEN];
-    mm_u32 timebase_id;
-    mm_i32 full_scale_mv;
-};
+#define MM_SIGNAL_VERSION 1u
 
 struct mm_signal_timebase {
     mm_u32  id;
@@ -195,131 +176,206 @@ static mm_i32 signal_lo_threshold_mv(void)
     return (g_vdd_mv / 2) - MM_SIGNAL_HYSTERESIS_HALF_MV;
 }
 
-static mm_bool signal_read_exact(FILE *f, void *buf, size_t n)
+struct signal_reader {
+    FILE  *f;
+    mm_u64 remaining;
+};
+
+static mm_bool signal_read_bytes(struct signal_reader *r, void *buf, mm_u64 n)
 {
-    return (fread(buf, 1u, n, f) == n) ? MM_TRUE : MM_FALSE;
+    if (n > r->remaining || fread(buf, 1u, (size_t)n, r->f) != (size_t)n) {
+        return MM_FALSE;
+    }
+    r->remaining -= n;
+    return MM_TRUE;
+}
+
+static mm_bool signal_read_le(struct signal_reader *r, mm_u64 *out, int bytes)
+{
+    mm_u8 buf[8];
+    int i;
+
+    if (!signal_read_bytes(r, buf, (mm_u64)bytes)) {
+        return MM_FALSE;
+    }
+    *out = 0;
+    for (i = bytes - 1; i >= 0; --i) {
+        *out = (*out << 8) | buf[i];
+    }
+    return MM_TRUE;
+}
+
+static mm_bool signal_read_u32(struct signal_reader *r, mm_u32 *out)
+{
+    mm_u64 v;
+    if (!signal_read_le(r, &v, 4)) {
+        return MM_FALSE;
+    }
+    *out = (mm_u32)v;
+    return MM_TRUE;
+}
+
+static mm_bool signal_load_timebase(struct signal_reader *r, const char *path, mm_u32 i)
+{
+    struct mm_signal_timebase *tb = &g_timebases[i];
+    mm_u32 j;
+
+    if (!signal_read_u32(r, &tb->id) || !signal_read_u32(r, &tb->sample_count) ||
+        !signal_read_u32(r, &tb->period_ns)) {
+        fprintf(stderr, "signal: %s: short read on timebase %u\n", path, i);
+        return MM_FALSE;
+    }
+    for (j = 0; j < i; ++j) {
+        if (g_timebases[j].id == tb->id) {
+            fprintf(stderr, "signal: %s: duplicate timebase id %u\n", path, tb->id);
+            return MM_FALSE;
+        }
+    }
+    if (tb->period_ns != 0u) {
+        return MM_TRUE;
+    }
+    if (tb->sample_count == 0u) {
+        fprintf(stderr, "signal: %s: timebase %u is non-uniform with 0 samples\n", path, i);
+        return MM_FALSE;
+    }
+    if ((mm_u64)tb->sample_count * 8u > r->remaining) {
+        fprintf(stderr, "signal: %s: timebase %u is truncated\n", path, i);
+        return MM_FALSE;
+    }
+    tb->timestamps_ns = (mm_u64 *)malloc(sizeof(mm_u64) * (size_t)tb->sample_count);
+    if (tb->timestamps_ns == 0) {
+        fprintf(stderr, "signal: %s: out of memory (timebase %u timestamps)\n", path, i);
+        return MM_FALSE;
+    }
+    for (j = 0; j < tb->sample_count; ++j) {
+        (void)signal_read_le(r, &tb->timestamps_ns[j], 8);
+        if (j > 0u && tb->timestamps_ns[j] < tb->timestamps_ns[j - 1u]) {
+            fprintf(stderr, "signal: %s: timebase %u timestamps go backwards at sample %u\n",
+                    path, i, j);
+            return MM_FALSE;
+        }
+    }
+    return MM_TRUE;
+}
+
+static mm_bool signal_load_trace(struct signal_reader *r, const char *path, mm_u32 i)
+{
+    struct mm_signal_trace *tr = &g_traces[i];
+    mm_u32 timebase_id;
+    mm_u32 full_scale_mv;
+    mm_u32 n;
+    mm_u32 j;
+
+    if (!signal_read_u32(r, &tr->id) ||
+        !signal_read_bytes(r, tr->name, MM_SIGNAL_TRACE_NAME_LEN) ||
+        !signal_read_u32(r, &timebase_id) || !signal_read_u32(r, &full_scale_mv)) {
+        fprintf(stderr, "signal: %s: short read on trace %u\n", path, i);
+        return MM_FALSE;
+    }
+    tr->name[MM_SIGNAL_TRACE_NAME_LEN - 1] = '\0';
+    for (j = 0; j < g_timebase_count; ++j) {
+        if (g_timebases[j].id == timebase_id) {
+            break;
+        }
+    }
+    if (j == g_timebase_count) {
+        fprintf(stderr, "signal: %s: trace %u references unknown timebase id %u\n",
+                path, i, timebase_id);
+        return MM_FALSE;
+    }
+    tr->timebase_idx = j;
+    n = g_timebases[j].sample_count;
+    if (n == 0u) {
+        return MM_TRUE;
+    }
+    if ((mm_u64)n * 2u > r->remaining) {
+        fprintf(stderr, "signal: %s: trace %u is truncated\n", path, i);
+        return MM_FALSE;
+    }
+    tr->samples_mv = (mm_i16 *)malloc(sizeof(mm_i16) * (size_t)n);
+    if (tr->samples_mv == 0) {
+        fprintf(stderr, "signal: %s: out of memory (trace %u samples)\n", path, i);
+        return MM_FALSE;
+    }
+    for (j = 0; j < n; ++j) {
+        mm_u64 v = 0;
+        (void)signal_read_le(r, &v, 2);
+        tr->samples_mv[j] = (mm_i16)(mm_u16)v;
+    }
+    return MM_TRUE;
 }
 
 mm_bool mm_signal_load(const char *path)
 {
-    FILE *f;
-    struct mm_signal_container_header hdr;
+    struct signal_reader r;
+    char magic[4];
+    mm_u32 version;
+    mm_u32 num_timebases;
+    mm_u32 num_traces;
+    long size;
     mm_u32 i;
 
     if (path == 0) {
         return MM_FALSE;
     }
-
-    f = fopen(path, "rb");
-    if (f == 0) {
+    r.f = fopen(path, "rb");
+    if (r.f == 0) {
         fprintf(stderr, "signal: failed to open %s\n", path);
         return MM_FALSE;
     }
+    if (fseek(r.f, 0, SEEK_END) != 0 || (size = ftell(r.f)) < 0 ||
+        fseek(r.f, 0, SEEK_SET) != 0) {
+        fprintf(stderr, "signal: %s: cannot read file size\n", path);
+        fclose(r.f);
+        return MM_FALSE;
+    }
+    r.remaining = (mm_u64)size;
 
-    if (!signal_read_exact(f, &hdr, sizeof(hdr))) {
+    if (!signal_read_bytes(&r, magic, 4) || !signal_read_u32(&r, &version) ||
+        !signal_read_u32(&r, &num_timebases) || !signal_read_u32(&r, &num_traces)) {
         fprintf(stderr, "signal: %s: short read on header\n", path);
-        fclose(f);
+        fclose(r.f);
         return MM_FALSE;
     }
-    if (memcmp(hdr.magic, MM_SIGNAL_MAGIC, 4) != 0) {
+    if (memcmp(magic, MM_SIGNAL_MAGIC, 4) != 0) {
         fprintf(stderr, "signal: %s: bad magic\n", path);
-        fclose(f);
+        fclose(r.f);
         return MM_FALSE;
     }
-    if (hdr.num_timebases > MM_SIGNAL_MAX_TIMEBASES ||
-        hdr.num_traces > MM_SIGNAL_MAX_TRACES) {
+    if (version != MM_SIGNAL_VERSION) {
+        fprintf(stderr, "signal: %s: unsupported version %u\n", path, version);
+        fclose(r.f);
+        return MM_FALSE;
+    }
+    if (num_timebases > MM_SIGNAL_MAX_TIMEBASES || num_traces > MM_SIGNAL_MAX_TRACES) {
         fprintf(stderr, "signal: %s: exceeds timebase/trace limits (%u/%u)\n",
-                path, hdr.num_timebases, hdr.num_traces);
-        fclose(f);
+                path, num_timebases, num_traces);
+        fclose(r.f);
         return MM_FALSE;
     }
 
     signal_free_loaded();
-
-    for (i = 0; i < hdr.num_timebases; ++i) {
-        struct mm_signal_timebase_desc desc;
-        struct mm_signal_timebase *tb = &g_timebases[i];
-
-        if (!signal_read_exact(f, &desc, sizeof(desc))) {
-            fprintf(stderr, "signal: %s: short read on timebase %u\n", path, i);
+    for (i = 0; i < num_timebases; ++i) {
+        g_timebase_count = i + 1u;
+        if (!signal_load_timebase(&r, path, i)) {
             goto fail;
         }
-        tb->id = desc.id;
-        tb->sample_count = desc.sample_count;
-        tb->period_ns = desc.period_ns;
-        tb->timestamps_ns = 0;
-
-        if (desc.period_ns == 0u) {
-            if (desc.sample_count == 0u) {
-                fprintf(stderr, "signal: %s: timebase %u is non-uniform with 0 samples\n",
-                        path, i);
-                goto fail;
-            }
-            tb->timestamps_ns = (mm_u64 *)malloc(sizeof(mm_u64) * (size_t)desc.sample_count);
-            if (tb->timestamps_ns == 0) {
-                fprintf(stderr, "signal: %s: out of memory (timebase %u timestamps)\n", path, i);
-                goto fail;
-            }
-            if (!signal_read_exact(f, tb->timestamps_ns,
-                                    sizeof(mm_u64) * (size_t)desc.sample_count)) {
-                fprintf(stderr, "signal: %s: short read on timebase %u timestamps\n", path, i);
-                goto fail;
-            }
-        }
-        g_timebase_count = i + 1;
     }
-
-    for (i = 0; i < hdr.num_traces; ++i) {
-        struct mm_signal_trace_desc desc;
-        struct mm_signal_trace *tr = &g_traces[i];
-        mm_u32 tb_idx;
-        mm_bool found_tb = MM_FALSE;
-
-        if (!signal_read_exact(f, &desc, sizeof(desc))) {
-            fprintf(stderr, "signal: %s: short read on trace %u\n", path, i);
+    for (i = 0; i < num_traces; ++i) {
+        g_trace_count = i + 1u;
+        if (!signal_load_trace(&r, path, i)) {
             goto fail;
         }
-        desc.name[MM_SIGNAL_TRACE_NAME_LEN - 1] = '\0';
-
-        for (tb_idx = 0; tb_idx < g_timebase_count; ++tb_idx) {
-            if (g_timebases[tb_idx].id == desc.timebase_id) {
-                found_tb = MM_TRUE;
-                break;
-            }
-        }
-        if (!found_tb) {
-            fprintf(stderr, "signal: %s: trace %u references unknown timebase id %u\n",
-                    path, i, desc.timebase_id);
-            goto fail;
-        }
-
-        tr->id = desc.id;
-        memcpy(tr->name, desc.name, MM_SIGNAL_TRACE_NAME_LEN);
-        tr->timebase_idx = tb_idx;
-        tr->samples_mv = 0;
-
-        {
-            mm_u32 n = g_timebases[tb_idx].sample_count;
-            if (n > 0u) {
-                tr->samples_mv = (mm_i16 *)malloc(sizeof(mm_i16) * (size_t)n);
-                if (tr->samples_mv == 0) {
-                    fprintf(stderr, "signal: %s: out of memory (trace %u samples)\n", path, i);
-                    goto fail;
-                }
-                if (!signal_read_exact(f, tr->samples_mv, sizeof(mm_i16) * (size_t)n)) {
-                    fprintf(stderr, "signal: %s: short read on trace %u samples\n", path, i);
-                    goto fail;
-                }
-            }
-        }
-        g_trace_count = i + 1;
     }
-
-    fclose(f);
+    if (r.remaining != 0u) {
+        fprintf(stderr, "signal: %s: trailing data after the last trace\n", path);
+        goto fail;
+    }
+    fclose(r.f);
     return MM_TRUE;
 
 fail:
-    fclose(f);
+    fclose(r.f);
     signal_free_loaded();
     return MM_FALSE;
 }
@@ -332,36 +388,18 @@ static mm_u64 signal_timestamp_for_index(const struct mm_signal_timebase *tb, mm
     return tb->timestamps_ns[idx];
 }
 
-static mm_bool signal_build_gpio_schedule(struct mm_signal_binding *b,
-                                           const struct mm_signal_trace *tr)
+/* Counts the trace's crossings, and stores them if out is not null. */
+static mm_u32 signal_walk_crossings(const struct mm_signal_trace *tr,
+                                    struct mm_signal_crossing *out)
 {
     const struct mm_signal_timebase *tb = &g_timebases[tr->timebase_idx];
-    mm_u32 n = tb->sample_count;
     mm_i32 hi_thr = signal_hi_threshold_mv();
     mm_i32 lo_thr = signal_lo_threshold_mv();
-    struct mm_signal_crossing *tmp;
+    mm_bool state = (tr->samples_mv[0] >= hi_thr) ? MM_TRUE : MM_FALSE;
     mm_u32 count = 0;
-    mm_bool state;
     mm_u32 i;
 
-    if (n == 0u) {
-        b->crossings = 0;
-        b->crossing_count = 0;
-        b->current_level = MM_FALSE;
-        return MM_TRUE;
-    }
-
-    tmp = (struct mm_signal_crossing *)malloc(
-        sizeof(struct mm_signal_crossing) * (size_t)MM_SIGNAL_MAX_CROSSINGS);
-    if (tmp == 0) {
-        fprintf(stderr, "signal: out of memory building crossing schedule\n");
-        return MM_FALSE;
-    }
-
-    state = (tr->samples_mv[0] >= hi_thr) ? MM_TRUE : MM_FALSE;
-    b->current_level = state;
-
-    for (i = 1; i < n; ++i) {
+    for (i = 1; i < tb->sample_count; ++i) {
         mm_i16 v = tr->samples_mv[i];
         if (!state && v >= hi_thr) {
             state = MM_TRUE;
@@ -370,26 +408,39 @@ static mm_bool signal_build_gpio_schedule(struct mm_signal_binding *b,
         } else {
             continue;
         }
-        if (count >= MM_SIGNAL_MAX_CROSSINGS) {
-            fprintf(stderr, "signal: trace '%s' exceeds MM_SIGNAL_MAX_CROSSINGS (%u)\n",
-                    tr->name, MM_SIGNAL_MAX_CROSSINGS);
-            free(tmp);
-            return MM_FALSE;
+        if (out != 0) {
+            out[count].at_ns = signal_timestamp_for_index(tb, i);
+            out[count].rising = state;
         }
-        tmp[count].at_ns = signal_timestamp_for_index(tb, i);
-        tmp[count].rising = state;
         ++count;
     }
+    return count;
+}
 
-    if (count == 0u) {
-        free(tmp);
-        b->crossings = 0;
-        b->crossing_count = 0;
-    } else {
-        b->crossings = tmp;
-        b->crossing_count = count;
-    }
+static mm_bool signal_build_gpio_schedule(struct mm_signal_binding *b,
+                                           const struct mm_signal_trace *tr)
+{
+    mm_u32 count;
+
+    b->crossings = 0;
+    b->crossing_count = 0;
     b->next_crossing = 0;
+    b->current_level = MM_FALSE;
+    if (g_timebases[tr->timebase_idx].sample_count == 0u) {
+        return MM_TRUE;
+    }
+    b->current_level = (tr->samples_mv[0] >= signal_hi_threshold_mv()) ? MM_TRUE : MM_FALSE;
+    count = signal_walk_crossings(tr, 0);
+    if (count == 0u) {
+        return MM_TRUE;
+    }
+    b->crossings = (struct mm_signal_crossing *)malloc(sizeof(struct mm_signal_crossing) *
+                                                        (size_t)count);
+    if (b->crossings == 0) {
+        fprintf(stderr, "signal: out of memory building crossing schedule\n");
+        return MM_FALSE;
+    }
+    b->crossing_count = signal_walk_crossings(tr, b->crossings);
     return MM_TRUE;
 }
 
