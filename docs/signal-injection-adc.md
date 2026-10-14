@@ -19,13 +19,13 @@ and a GPIO pin simultaneously from one capture.
 | # | Question | Decision | Rationale |
 |---|---|---|---|
 | 12 | ADC conversion trigger model | Start with **software single-conversion** (`CR.ADSTART` → delay → `ISR.EOC` → `DR`), then **continuous mode** (`CFGR.CONT`) as a trivial extension, then **timer-triggered** (`EXTSEL`/`EXTEN`) later, reusing the same tick hook | Covers the majority of firmware ADC usage first; timer-trigger needs no new time source, just a new caller of the same tick |
-| 18 | ADC reference voltage | **Separate global CLI flag (`--adc-vref_mv`)**, defaults to `--vdd_mv` if omitted, but independently overridable — never assumed equal to `VDD` | On STM32H5, ADC full-scale is set by `VREF+`, which sits on a distinct supply chain (`VDD` → possibly-independent `VDDA` → possibly-independent `VREF+`) — `VREF+` can be external, sourced from the internal `VREFBUF` (configurable ~1.8V/~2.048V/~2.5V), or bonded straight to `VDDA` depending on package. Defaulting to `VDD` matches the common case (smaller packages, `VREF+` tied to `VDDA` tied to `VDD`) without hardcoding it |
+| 18 | ADC reference voltage | **Separate global CLI flag (`--adc-vref-mv`)**, defaults to `--vdd-mv` if omitted, but independently overridable — never assumed equal to `VDD` | On STM32H5, ADC full-scale is set by `VREF+`, which sits on a distinct supply chain (`VDD` → possibly-independent `VDDA` → possibly-independent `VREF+`) — `VREF+` can be external, sourced from the internal `VREFBUF` (configurable ~1.8V/~2.048V/~2.5V), or bonded straight to `VDDA` depending on package. Defaulting to `VDD` matches the common case (smaller packages, `VREF+` tied to `VDDA` tied to `VDD`) without hardcoding it |
 
-Note on `full_scale_mv` vs. `--adc-vref_mv`: the container's per-trace
+Note on `full_scale_mv` vs. `--adc-vref-mv`: the container's per-trace
 `full_scale_mv` field (see the GPIO doc's container format) describes the *trace's own recorded
 voltage range* (how the sample data was captured/scaled on disk), which is
-conceptually independent from `adc-vref_mv` (the *emulated ADC's*
-quantization reference). The intent is `stm32_adc.c` uses `adc-vref_mv`, not
+conceptually independent from `adc-vref-mv` (the *emulated ADC's*
+quantization reference). The intent is `stm32_adc.c` uses `adc-vref-mv`, not
 a trace's `full_scale_mv`, when converting a sampled millivolt value into a
 digital code — but see open item below, since nothing currently consumes
 `full_scale_mv` at all.
@@ -54,10 +54,10 @@ implicit gap.
 
 ### 2.2 No clamping/saturation rule for the ADC quantizer
 
-"Quantize sampled mV against `adc-vref_mv`" (decision #12, and the
+"Quantize sampled mV against `adc-vref-mv`" (decision #12, and the
 implementation trace below) needs an explicit formula, and, more
 importantly, explicit behavior for out-of-range input — a trace sample above
-`adc-vref_mv` or below 0 mV. Real ADCs saturate at `0x000`/`0xFFF` (for
+`adc-vref-mv` or below 0 mV. Real ADCs saturate at `0x000`/`0xFFF` (for
 12-bit); they don't wrap or produce undefined codes. This should be a stated
 rule (`code = clamp(round(v_mv / vref_mv * 4095), 0, 4095)`, or similar) so
 the implementer isn't guessing.
@@ -65,7 +65,7 @@ the implementer isn't guessing.
 ### 2.3 `full_scale_mv`'s actual role is unclear
 
 As noted above, the container format defines `full_scale_mv` per trace, and
-the design narrative distinguishes it from `adc-vref_mv`, but no code shown
+the design narrative distinguishes it from `adc-vref-mv`, but no code shown
 anywhere — sample lookup, GPIO threshold logic, or the sketch of the ADC
 quantization path — actually reads it. Before implementing `stm32_adc.c`'s
 quantization step, decide: is this field pure provenance metadata from the
@@ -139,7 +139,7 @@ Picks up after the GPIO phase's item 5 (first end-to-end GPIO test passing).
      (`EOC`), `DR`, `SQR1` — **plus `ADRDY`/`ADCAL` per open item 2.1 above,
      to be resolved before writing this**.
    - On `ADSTART`: `mm_signal_sample(binding)` → quantize against
-     `adc-vref_mv` (not a trace's own `full_scale_mv` — see open item 2.3)
+     `adc-vref-mv` (not a trace's own `full_scale_mv` — see open item 2.3)
      → clamp per open item 2.2 → `DR`, set `EOC`, optional NVIC IRQ.
    - `stm32_adc_soc` struct for per-chip RCC/IRQ config (same shape as
      `stm32_timers_soc`).

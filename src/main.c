@@ -5611,11 +5611,11 @@ int main(int argc, char **argv)
                 return 1;
             }
             iotsafe_uart_count++;
-        } else if (strncmp(argv[i], "--vdd_mv=", 9) == 0) {
+        } else if (strncmp(argv[i], "--vdd-mv=", 9) == 0) {
             char *endp;
             long v = strtol(argv[i] + 9, &endp, 0);
             if (*endp != '\0') {
-                fprintf(stderr, "invalid --vdd_mv value: %s\n", argv[i]);
+                fprintf(stderr, "invalid --vdd-mv value: %s\n", argv[i]);
                 return 1;
             }
             opt_vdd_mv = (mm_i32)v;
@@ -5747,7 +5747,7 @@ int main(int argc, char **argv)
                         "[--uart-stdout] [--quit-on-faults] [--meminfo] [--record] [--record-start <pc>] [--record-start-dump] [--record-start-dump-ram] [--record-end-dump-ram] [--record-trace <path>] [--record-quiet] [--record-dump <n>] [--call-trace] [--dualbank] [--fault-clock N] [--no-tz] [--secwm1=<strt>:<end>] [--secwm2=<strt>:<end>] [--gdb-symbols <elf>] "
                         "[--expect-bkpt 0xNN] [--timeout seconds] "
                         "[--signal-file=<path>] [--signal-bind:trace=<name>:target=PXn:role=gpio] "
-                        "[--signal-sync=<symbol|addr>] [--vdd_mv=<mV>] "
+                        "[--signal-sync=<symbol|addr>] [--vdd-mv=<mV>] "
                         "[--boot flash|ram|spiflash] "
                         "[--boot-offset=0xN] "
                         "[--spiflash:SPIx:file=<path>:size=<n>[:mmap=0xaddr][:cs=GPIONAME]] "

@@ -152,7 +152,7 @@ Replay recorded voltage traces onto GPIO inputs. See
 - `--signal-sync=<symbol|addr>`: start replay when the PC first reaches this address
   (a symbol requires an ELF image). Required with `--signal-bind`; the run exits with 1
   if the address is never reached
-- `--vdd_mv=<mV>`: supply voltage for the GPIO input thresholds (default 3300)
+- `--vdd-mv=<mV>`: supply voltage for the GPIO input thresholds (default 3300)
 
 ## TrustZone / Memory / Flash Options
 

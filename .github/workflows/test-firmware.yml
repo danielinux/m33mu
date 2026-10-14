@@ -138,7 +138,7 @@ jobs:
           COMMON=$FW/_signal_common
           run_signal_test() {
             local dir="$1" fixture="$2"; shift 2
-            build/m33mu --cpu stm32h5f4 --dualbank --vdd_mv=3300 \
+            build/m33mu --cpu stm32h5f4 --dualbank --vdd-mv=3300 \
               --signal-file="$fixture" \
               --signal-sync="${SIGNAL_SYNC:-signal_trigger_marker}" \
               --expect-bkpt 0x7f --timeout 60 --quit-on-faults \

@@ -14,7 +14,7 @@ does not have, `--signal-bind` is an error.
 
 ```sh
 build/m33mu --cpu stm32h5f4 \
-    --vdd_mv=3300 \
+    --vdd-mv=3300 \
     --signal-file=stimulus.sigc \
     --signal-bind:trace=vin:target=PA5:role=gpio \
     --signal-sync=signal_trigger_marker \
@@ -30,7 +30,7 @@ build/m33mu --cpu stm32h5f4 \
   numeric address works with any image format. The Thumb bit is ignored. If
   the PC never reaches it, m33mu prints an error and exits with 1 (only a
   warning under `--gdb` or `--tui`).
-- `--vdd_mv=<mV>`: supply voltage used to derive the input thresholds
+- `--vdd-mv=<mV>`: supply voltage used to derive the input thresholds
   (default 3300).
 
 ## Container format
