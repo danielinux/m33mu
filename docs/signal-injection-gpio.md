@@ -103,9 +103,10 @@ core at its scheduled time, with or without SysTick.
   `__attribute__((noinline, used))` marker function is the most robust
   choice, because a HAL function can be inlined away.
 - **Dispatch granularity.** On the fast path, crossings are applied after each
-  translation block, and pending interrupts are taken when a block chain
-  breaks (at most 512 blocks). Tests should wait for an interrupt with a
-  generous budget, not assert exact interrupt latency.
+  translation block, and the block chain is left as soon as an interrupt can
+  be taken, so latency is at most one translation block. Tests should wait
+  for an interrupt with a generous budget, not assert exact interrupt
+  latency.
 - **Edges coalesce.** EXTI pending and NVIC pending are single bits, so
   crossings that arrive faster than the ISR can service them merge into one
   interrupt, as on hardware. Edge-counting fixtures space their crossings
