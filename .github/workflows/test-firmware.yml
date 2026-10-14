@@ -218,6 +218,17 @@ jobs:
           python3 scripts/check_signal_record.py /tmp/m33mu-signal-record.csv \
             --levels PB0=Z,0,1,0,1,0,1,0,1,0 --levels PB1=Z,0,Z \
             --period PB0:8:100000:1000
+          # The shared encoder must reproduce the committed fixtures byte for byte.
+          REGEN=$(mktemp -d)
+          python3 $COMMON/gen_fixtures.py "$REGEN" > /dev/null
+          for f in $COMMON/*.sigc; do
+            cmp "$f" "$REGEN/$(basename "$f")"
+          done
+          # A converted scope capture must load and drive the input.
+          python3 scripts/sigc_convert.py $COMMON/sample_capture.csv -o /tmp/m33mu-capture.sigc \
+            --skip-rows 2 --crop-before 0 --rename "CH1 (V)=vin"
+          run_signal_test $FW/test-stm32h5f4-signal-gpio-basic /tmp/m33mu-capture.sigc \
+            --signal-bind:trace=vin:target=PA5:role=gpio
       - name: Run M2354 firmware tests (Cortex-M23 baseline)
         # First ARMv8-M Baseline target: the console test also covers the
         # Thumb-1 "mov pc, rN" dispatch and the "add sp, rN" frame setup that

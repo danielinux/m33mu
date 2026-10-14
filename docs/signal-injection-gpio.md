@@ -65,8 +65,10 @@ The loader accepts only `version == 1`. It rejects duplicate timebase ids,
 duplicate trace ids or names, explicit timestamps that go backwards, a file
 shorter than its counts claim, and trailing bytes after the last trace.
 
-`tests/firmware/_signal_common/gen_fixtures.py` writes this format and can
-serve as a reference encoder. There is no HDF5 converter yet.
+`scripts/sigc.py` reads and writes this format, and `scripts/sigc_convert.py`
+turns a CSV capture from a scope or logic analyser into a container; see
+[signal-sigc-convert.md](signal-sigc-convert.md). There is no HDF5 converter
+yet.
 
 ## Design decisions
 

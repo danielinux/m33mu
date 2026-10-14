@@ -559,6 +559,14 @@ if(M33MU_BUILD_TESTS)
       target_link_libraries("${test_name}" PRIVATE m)
     endif()
   endforeach()
+  find_package(Python3 COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME sigc_python_test
+      COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s scripts -p "test_*.py")
+    set_tests_properties(sigc_python_test PROPERTIES
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+  endif()
 endif()
 
 # -----------------------------------------------------------------------------
