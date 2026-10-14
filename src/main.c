@@ -5639,6 +5639,11 @@ int main(int argc, char **argv)
             tok = strtok(tmp, ":");
             while (tok != 0) {
                 if (strncmp(tok, "trace=", 6) == 0) {
+                    if (strlen(tok + 6) >= sizeof(spec.trace_name)) {
+                        fprintf(stderr, "--signal-bind trace name too long (max %u chars): %s\n",
+                                (unsigned)(sizeof(spec.trace_name) - 1u), tok + 6);
+                        return 1;
+                    }
                     snprintf(spec.trace_name, sizeof(spec.trace_name), "%s", tok + 6);
                     have_trace = MM_TRUE;
                 } else if (strncmp(tok, "target=", 7) == 0) {

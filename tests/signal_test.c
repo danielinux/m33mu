@@ -42,6 +42,7 @@ static mm_bool write_container(const char *path, mm_u32 version, const char *tra
 {
     FILE *f = fopen(path, "wb");
     char name[32];
+    size_t name_len = strlen(trace_name);
     mm_u32 i;
 
     if (f == 0) return MM_FALSE;
@@ -58,7 +59,7 @@ static mm_bool write_container(const char *path, mm_u32 version, const char *tra
     }
 
     memset(name, 0, sizeof(name));
-    snprintf(name, sizeof(name), "%s", trace_name);
+    memcpy(name, trace_name, name_len < sizeof(name) ? name_len : sizeof(name));
     put_le(f, 1, 4);
     fwrite(name, 1, sizeof(name), f);
     put_le(f, 1, 4);
@@ -396,6 +397,22 @@ static int test_loader_rejects_bad_containers(void)
     return 0;
 }
 
+static int test_loader_rejects_unterminated_name(void)
+{
+    mm_i16 samples[2] = { 0, 3300 };
+    const char *name31 = "abcdefghijklmnopqrstuvwxyz01234";
+    const char *name32 = "abcdefghijklmnopqrstuvwxyz012345";
+
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    if (!write_fixture(g_tmp_path, name31, samples, 2, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind(name31, 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    if (!write_fixture(g_tmp_path, name32, samples, 2, 1000)) return 1;
+    if (mm_signal_load(g_tmp_path)) return 1;
+    return 0;
+}
+
 static int test_long_times_convert_exactly(void)
 {
     mm_i16 samples[3] = { 0, 3300, 0 };
@@ -451,6 +468,7 @@ int main(void)
         { "reset_keeps_stimulus_running", test_reset_keeps_stimulus_running },
         { "trigger_pc_and_triggered", test_trigger_pc_and_triggered },
         { "loader_rejects_bad_containers", test_loader_rejects_bad_containers },
+        { "loader_rejects_unterminated_name", test_loader_rejects_unterminated_name },
         { "many_crossings", test_many_crossings },
         { "long_times_convert_exactly", test_long_times_convert_exactly },
         { "initial_level_applied_before_trigger", test_initial_level_applied_before_trigger },

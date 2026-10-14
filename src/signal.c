@@ -271,7 +271,10 @@ static mm_bool signal_load_trace(struct signal_reader *r, const char *path, mm_u
         fprintf(stderr, "signal: %s: short read on trace %u\n", path, i);
         return MM_FALSE;
     }
-    tr->name[MM_SIGNAL_TRACE_NAME_LEN - 1] = '\0';
+    if (memchr(tr->name, '\0', MM_SIGNAL_TRACE_NAME_LEN) == 0) {
+        fprintf(stderr, "signal: %s: trace %u name is not NUL-terminated\n", path, i);
+        return MM_FALSE;
+    }
     for (j = 0; j < i; ++j) {
         if (g_traces[j].id == tr->id) {
             fprintf(stderr, "signal: %s: duplicate trace id %u\n", path, tr->id);
