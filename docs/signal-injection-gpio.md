@@ -94,7 +94,9 @@ execution with the number of cycles executed. Both must be called from every
 execution path in `src/main.c` that advances `mm_timer_tick()`, including the
 WFI/WFE idle paths. Idle fast-forwarding stops at
 `mm_signal_cycles_until_next_event()`, so an injected edge wakes a sleeping
-core at its scheduled time, with or without SysTick.
+core at its scheduled time, with or without SysTick. Under `--gdb` or
+`--tui`, no cycles advance while the core is halted, so replay pauses with it
+and resumes where it left off; this is intended and keeps runs deterministic.
 
 ## Constraints
 
