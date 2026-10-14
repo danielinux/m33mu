@@ -74,8 +74,9 @@ serve as a reference encoder. There is no HDF5 converter yet.
 ## Timing model
 
 Replay time is derived from the emulator's virtual cycle count (one
-instruction is one cycle) and the target's current core clock. It is not
-derived from the host clock. `mm_signal_check_trigger()` runs before each
+instruction is one cycle) and the target's core clock. It is not derived from
+the host clock. A clock change only affects the cycles that follow it, so
+time already elapsed is not rescaled when the firmware switches PLLs. `mm_signal_check_trigger()` runs before each
 dispatch with the PC about to execute. `mm_signal_advance()` runs after
 execution with the number of cycles executed. Both must be called from every
 execution path in `src/main.c` that advances `mm_timer_tick()`, including the

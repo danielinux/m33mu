@@ -293,6 +293,30 @@ static int test_cycles_until_next_event(void)
     return 0;
 }
 
+static int test_clock_change_keeps_elapsed_time(void)
+{
+    /* Rising crossing at 1.5ms. */
+    mm_i16 samples[4] = { 0, 0, 0, 3300 };
+
+    reset_fakes();
+    mm_signal_set_cpu_hz(64000000ull);
+    mm_signal_set_vdd_mv(3300);
+    if (!write_fixture(g_tmp_path, "vin7", samples, 4, 500000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("vin7", 0, 5, MM_SIGNAL_ROLE_GPIO, MM_SIGNAL_MASTER_GROUP) < 0) return 1;
+    mm_signal_set_master_trigger(MM_SIGNAL_MASTER_GROUP, 0x08001000u);
+
+    mm_signal_check_trigger(0x08001000u);
+    mm_signal_advance(64000u);
+    mm_signal_set_cpu_hz(250000000ull);
+    if (mm_signal_cycles_until_next_event() != 125000u) return 1;
+    mm_signal_advance(124999u);
+    if (g_write_calls != 0) return 1;
+    mm_signal_advance(1u);
+    if (g_write_calls != 1 || g_last_level != MM_TRUE) return 1;
+    return 0;
+}
+
 static int test_trigger_pc_and_all_triggered(void)
 {
     mm_i16 samples[2] = { 0, 3300 };
@@ -330,6 +354,7 @@ int main(void)
         { "trigger_pc_and_all_triggered", test_trigger_pc_and_all_triggered },
         { "initial_level_applied_before_trigger", test_initial_level_applied_before_trigger },
         { "cycles_until_next_event", test_cycles_until_next_event },
+        { "clock_change_keeps_elapsed_time", test_clock_change_keeps_elapsed_time },
     };
     size_t i;
     int failures = 0;
