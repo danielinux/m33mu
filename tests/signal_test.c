@@ -108,17 +108,62 @@ static mm_bool write_two_traces(const char *path, mm_u32 id_a, const char *name_
     return MM_TRUE;
 }
 
+/* One uniform timebase shared by two traces of count samples each. */
+static mm_bool write_two_waveforms(const char *path, const char *name_a, const mm_i16 *samples_a,
+                                   const char *name_b, const mm_i16 *samples_b, mm_u32 count,
+                                   mm_u32 period_ns)
+{
+    FILE *f = fopen(path, "wb");
+    const char *names[2] = { name_a, name_b };
+    const mm_i16 *samples[2] = { samples_a, samples_b };
+    char name[32];
+    mm_u32 i;
+    int t;
+
+    if (f == 0) return MM_FALSE;
+    fwrite("SIGC", 1, 4, f);
+    put_le(f, 1, 4);
+    put_le(f, 1, 4);
+    put_le(f, 2, 4);
+    put_le(f, 1, 4);
+    put_le(f, count, 4);
+    put_le(f, period_ns, 4);
+    for (t = 0; t < 2; ++t) {
+        memset(name, 0, sizeof(name));
+        snprintf(name, sizeof(name), "%s", names[t]);
+        put_le(f, (mm_u64)(t + 1), 4);
+        fwrite(name, 1, sizeof(name), f);
+        put_le(f, 1, 4);
+        put_le(f, 3300, 4);
+        for (i = 0; i < count; ++i) put_le(f, (mm_u16)samples[t][i], 2);
+    }
+    fclose(f);
+    return MM_TRUE;
+}
+
+#define LOG_MAX 16
+
 static int g_write_calls;
 static int g_last_bank, g_last_pin;
 static mm_bool g_last_level;
+static mm_u64 g_last_late;
+static int g_log_pin[LOG_MAX];
+static mm_bool g_log_level[LOG_MAX];
+static mm_u64 g_log_late[LOG_MAX];
 
-static mm_bool fake_gpio_writer(void *opaque, int bank, int pin, mm_bool level)
+static mm_bool fake_gpio_writer(void *opaque, int bank, int pin, mm_bool level, mm_u64 late_cycles)
 {
     (void)opaque;
+    if (g_write_calls < LOG_MAX) {
+        g_log_pin[g_write_calls] = pin;
+        g_log_level[g_write_calls] = level;
+        g_log_late[g_write_calls] = late_cycles;
+    }
     g_write_calls++;
     g_last_bank = bank;
     g_last_pin = pin;
     g_last_level = level;
+    g_last_late = late_cycles;
     return MM_TRUE;
 }
 
@@ -128,6 +173,7 @@ static void reset_fakes(void)
     g_last_bank = -1;
     g_last_pin = -1;
     g_last_level = MM_FALSE;
+    g_last_late = 0u;
     mm_gpio_set_external_input_writer(fake_gpio_writer, 0);
     mm_signal_reset();
     mm_signal_set_cpu_hz(250000000ull);
@@ -196,9 +242,10 @@ static int test_hysteresis_suppresses_inband_noise(void)
     return 0;
 }
 
-static mm_bool fake_gpio_writer_reject(void *opaque, int bank, int pin, mm_bool level)
+static mm_bool fake_gpio_writer_reject(void *opaque, int bank, int pin, mm_bool level,
+                                       mm_u64 late_cycles)
 {
-    (void)opaque; (void)bank; (void)pin; (void)level;
+    (void)opaque; (void)bank; (void)pin; (void)level; (void)late_cycles;
     g_write_calls++;
     return MM_FALSE;
 }
@@ -347,6 +394,96 @@ static int test_clock_change_keeps_elapsed_time(void)
     return 0;
 }
 
+static int test_crossings_across_bindings_in_time_order(void)
+{
+    /* PA0 rises at 1us and falls at 3us, PA1 rises at 2us and falls at 4us. */
+    mm_i16 a[5] = { 0, 3300, 3300, 0, 0 };
+    mm_i16 b[5] = { 0, 0, 3300, 3300, 0 };
+    const int pins[4] = { 0, 1, 0, 1 };
+    const mm_bool levels[4] = { MM_TRUE, MM_TRUE, MM_FALSE, MM_FALSE };
+    const mm_u64 lates[4] = { 1000u, 750u, 500u, 250u };
+    int i;
+
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    if (!write_two_waveforms(g_tmp_path, "a", a, "b", b, 5, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("a", 0, 0, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    if (mm_signal_bind("b", 0, 1, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+    if (mm_signal_cycles_until_next_event() != 250u) return 1;
+
+    mm_signal_advance(1250u);
+    if (g_write_calls != 4) return 1;
+    for (i = 0; i < 4; ++i) {
+        if (g_log_pin[i] != pins[i] || g_log_level[i] != levels[i] || g_log_late[i] != lates[i]) {
+            return 1;
+        }
+    }
+    if (mm_signal_cycles_until_next_event() != (mm_u64)-1) return 1;
+    return 0;
+}
+
+static int test_idle_advances_keep_initial_rewrite(void)
+{
+    mm_i16 samples[3] = { 3300, 3300, 0 };
+    int i;
+
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    if (!write_fixture(g_tmp_path, "idle_hi2", samples, 3, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("idle_hi2", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+
+    for (i = 0; i < 10; ++i) {
+        mm_signal_check_trigger(0x08000000u);
+        mm_signal_advance(100u);
+    }
+    if (g_write_calls != 0) return 1;
+
+    mm_signal_prepare_for_run();
+    mm_signal_advance(1u);
+    if (g_write_calls != 1 || g_last_level != MM_TRUE || g_last_late != 0u) return 1;
+    mm_signal_advance(100u);
+    if (g_write_calls != 1) return 1;
+
+    mm_signal_prepare_for_run();
+    mm_signal_advance(0u);
+    if (g_write_calls != 2 || g_last_level != MM_TRUE) return 1;
+    if (mm_signal_triggered()) return 1;
+    return 0;
+}
+
+static int test_clock_drop_between_crossings(void)
+{
+    /* Rises at 1ms and falls at 2ms. */
+    mm_i16 samples[5] = { 0, 0, 3300, 3300, 0 };
+
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    if (!write_fixture(g_tmp_path, "vin9", samples, 5, 500000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("vin9", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+
+    if (mm_signal_cycles_until_next_event() != 250000u) return 1;
+    mm_signal_advance(250000u);
+    if (g_write_calls != 1 || g_last_level != MM_TRUE || g_last_late != 0u) return 1;
+
+    /* 0.5ms at 250MHz, then the remaining 0.5ms at 64MHz. */
+    mm_signal_advance(125000u);
+    mm_signal_set_cpu_hz(64000000ull);
+    if (mm_signal_cycles_until_next_event() != 32000u) return 1;
+    mm_signal_advance(31999u);
+    if (g_write_calls != 1) return 1;
+    mm_signal_advance(1u);
+    if (g_write_calls != 2 || g_last_level != MM_FALSE || g_last_late != 0u) return 1;
+    return 0;
+}
+
 static int test_trigger_pc_and_triggered(void)
 {
     mm_i16 samples[2] = { 0, 3300 };
@@ -432,6 +569,28 @@ static int test_long_times_convert_exactly(void)
     mm_signal_advance(1u);
     if (g_write_calls != 1 || g_last_level != MM_TRUE) return 1;
     if (mm_signal_cycles_until_next_event() != 96000001u) return 1;
+    return 0;
+}
+
+static int test_late_cycles_reported(void)
+{
+    mm_i16 samples[5] = { 0, 0, 3300, 3300, 0 };
+    mm_u64 due;
+
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    if (!write_fixture(g_tmp_path, "late", samples, 5, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("late", 0, 5, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+
+    due = mm_signal_cycles_until_next_event();
+    mm_signal_advance(due);
+    if (g_write_calls != 1 || g_last_level != MM_TRUE || g_last_late != 0u) return 1;
+    due = mm_signal_cycles_until_next_event();
+    mm_signal_advance(due + 100u);
+    if (g_write_calls != 2 || g_last_level != MM_FALSE || g_last_late != 100u) return 1;
     return 0;
 }
 
@@ -546,11 +705,15 @@ int main(void)
         { "loader_rejects_unterminated_name", test_loader_rejects_unterminated_name },
         { "many_crossings", test_many_crossings },
         { "long_times_convert_exactly", test_long_times_convert_exactly },
+        { "late_cycles_reported", test_late_cycles_reported },
         { "initial_level_applied_before_trigger", test_initial_level_applied_before_trigger },
         { "cycles_until_next_event", test_cycles_until_next_event },
         { "clock_change_keeps_elapsed_time", test_clock_change_keeps_elapsed_time },
         { "thresholds_move_crossings", test_thresholds_move_crossings },
         { "inverted_thresholds_rejected", test_inverted_thresholds_rejected },
+        { "crossings_across_bindings_in_time_order", test_crossings_across_bindings_in_time_order },
+        { "idle_advances_keep_initial_rewrite", test_idle_advances_keep_initial_rewrite },
+        { "clock_drop_between_crossings", test_clock_drop_between_crossings },
     };
     size_t i;
     int failures = 0;

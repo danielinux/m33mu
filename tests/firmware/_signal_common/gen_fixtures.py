@@ -75,3 +75,10 @@ write_container(os.path.join(OUT_DIR, "fixture_idle_high.sigc"), [tb], [tr])
 tb = uniform(1, [0, 3300, 0, 3300, 0], 100000)
 tr = sigc.Trace(1, "vin", 1, 3300, [0, 3300, 0, 3300, 0])
 write_container(os.path.join(OUT_DIR, "fixture_mode_guard.sigc"), [tb], [tr])
+
+# timer-capture: 100us square wave, 20 periods; linear ramps keep the
+# rising and falling crossings exactly 100us apart and 50us high.
+samples = [0, 3300] * 20
+tb = uniform(1, samples, 50000)
+tr = sigc.Trace(1, "vin", 1, 3300, samples)
+write_container(os.path.join(OUT_DIR, "fixture_square.sigc"), [tb], [tr])

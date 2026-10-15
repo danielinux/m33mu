@@ -91,6 +91,11 @@ static mm_u64 g_total_vcycles = 0;
 static mm_u64 g_base_vcycles = 0;
 static mm_u64 g_base_ns = 0;
 static mm_bool g_rewrite_levels = MM_FALSE;
+#define MM_SIGNAL_NO_EVENT ((mm_u64)-1)
+/* g_total_vcycles value at which the earliest pending crossing is due. */
+static mm_u64 g_next_due_vcycles = MM_SIGNAL_NO_EVENT;
+
+static void signal_refresh_next_due(void);
 
 /* Split at whole seconds so the products fit in 64 bits for any clock below 18 GHz. */
 static mm_u64 signal_cycles_to_ns(mm_u64 cycles)
@@ -115,6 +120,7 @@ void mm_signal_set_cpu_hz(mm_u64 hz)
     g_base_ns = signal_now_ns();
     g_base_vcycles = g_total_vcycles;
     g_cpu_hz = hz;
+    signal_refresh_next_due();
 }
 
 static mm_u64 signal_ns_to_cycles_ceil(mm_u64 ns)
@@ -122,6 +128,12 @@ static mm_u64 signal_ns_to_cycles_ceil(mm_u64 ns)
     return (ns / MM_SIGNAL_NS_PER_SEC) * g_cpu_hz +
            ((ns % MM_SIGNAL_NS_PER_SEC) * g_cpu_hz + MM_SIGNAL_NS_PER_SEC - 1u) /
                MM_SIGNAL_NS_PER_SEC;
+}
+
+static mm_u64 signal_ns_to_cycles_floor(mm_u64 ns)
+{
+    return (ns / MM_SIGNAL_NS_PER_SEC) * g_cpu_hz +
+           ((ns % MM_SIGNAL_NS_PER_SEC) * g_cpu_hz) / MM_SIGNAL_NS_PER_SEC;
 }
 
 static void signal_free_loaded(void)
@@ -144,6 +156,7 @@ static void signal_free_loaded(void)
     g_binding_count = 0;
     g_trigger_set = MM_FALSE;
     g_triggered = MM_FALSE;
+    g_next_due_vcycles = MM_SIGNAL_NO_EVENT;
 }
 
 void mm_signal_reset(void)
@@ -523,6 +536,7 @@ int mm_signal_bind(const char *trace_name, int bank, int pin,
     }
 
     g_binding_count++;
+    signal_refresh_next_due();
     return (int)(g_binding_count - 1u);
 }
 
@@ -531,6 +545,7 @@ void mm_signal_set_trigger(mm_u32 trigger_pc)
     g_trigger_set = MM_TRUE;
     g_trigger_pc = trigger_pc;
     g_triggered = MM_FALSE;
+    g_next_due_vcycles = MM_SIGNAL_NO_EVENT;
 }
 
 mm_bool mm_signal_trigger_set(void)
@@ -557,16 +572,70 @@ mm_bool mm_signal_trigger_ns(mm_u64 *ns_out)
     return MM_TRUE;
 }
 
-static void signal_dispatch_gpio(struct mm_signal_binding *b, mm_u64 elapsed_ns)
+static mm_bool signal_binding_pending(const struct mm_signal_binding *b)
 {
-    while (b->next_crossing < b->crossing_count &&
-           b->crossings[b->next_crossing].at_ns <= elapsed_ns) {
-        mm_bool level = b->crossings[b->next_crossing].rising;
-        if (level != b->current_level) {
-            (void)mm_gpio_set_external_input(b->bank, b->pin, level);
-            b->current_level = level;
+    return (b->role == MM_SIGNAL_ROLE_GPIO && b->next_crossing < b->crossing_count)
+               ? MM_TRUE : MM_FALSE;
+}
+
+static mm_u64 signal_crossing_due_vcycles(const struct mm_signal_binding *b)
+{
+    mm_u64 due_ns = g_trigger_ns + b->crossings[b->next_crossing].at_ns;
+
+    if (due_ns <= g_base_ns) {
+        return g_base_vcycles;
+    }
+    return g_base_vcycles + signal_ns_to_cycles_ceil(due_ns - g_base_ns);
+}
+
+static void signal_refresh_next_due(void)
+{
+    mm_u32 i;
+
+    g_next_due_vcycles = MM_SIGNAL_NO_EVENT;
+    if (!g_triggered) {
+        return;
+    }
+    for (i = 0; i < g_binding_count; ++i) {
+        mm_u64 due;
+        if (!signal_binding_pending(&g_bindings[i])) {
+            continue;
         }
-        b->next_crossing++;
+        due = signal_crossing_due_vcycles(&g_bindings[i]);
+        if (due < g_next_due_vcycles) {
+            g_next_due_vcycles = due;
+        }
+    }
+}
+
+/* Merges the due crossings of all bindings by time; ties keep binding order. */
+static void signal_dispatch_due(mm_u64 elapsed_ns)
+{
+    for (;;) {
+        struct mm_signal_binding *first = 0;
+        const struct mm_signal_crossing *c;
+        mm_u32 i;
+
+        for (i = 0; i < g_binding_count; ++i) {
+            struct mm_signal_binding *b = &g_bindings[i];
+            if (!signal_binding_pending(b) || b->crossings[b->next_crossing].at_ns > elapsed_ns) {
+                continue;
+            }
+            if (first == 0 || b->crossings[b->next_crossing].at_ns <
+                                  first->crossings[first->next_crossing].at_ns) {
+                first = b;
+            }
+        }
+        if (first == 0) {
+            return;
+        }
+        c = &first->crossings[first->next_crossing];
+        if (c->rising != first->current_level) {
+            (void)mm_gpio_set_external_input(first->bank, first->pin, c->rising,
+                                             signal_ns_to_cycles_floor(elapsed_ns - c->at_ns));
+            first->current_level = c->rising;
+        }
+        first->next_crossing++;
     }
 }
 
@@ -580,57 +649,37 @@ void mm_signal_check_trigger(mm_u32 pc)
     if (g_trigger_set && !g_triggered && pc == g_trigger_pc) {
         g_triggered = MM_TRUE;
         g_trigger_ns = signal_now_ns();
+        signal_refresh_next_due();
     }
 }
 
 mm_u64 mm_signal_cycles_until_next_event(void)
 {
-    mm_u64 best = (mm_u64)-1;
-    mm_u32 i;
-
-    if (!g_triggered) {
-        return best;
+    if (!g_triggered || g_next_due_vcycles == MM_SIGNAL_NO_EVENT) {
+        return MM_SIGNAL_NO_EVENT;
     }
-    for (i = 0; i < g_binding_count; ++i) {
-        const struct mm_signal_binding *b = &g_bindings[i];
-        mm_u64 due;
-        mm_u64 done;
-        if (b->role != MM_SIGNAL_ROLE_GPIO || b->next_crossing >= b->crossing_count) {
-            continue;
-        }
-        due = g_trigger_ns + b->crossings[b->next_crossing].at_ns;
-        due = (due > g_base_ns) ? signal_ns_to_cycles_ceil(due - g_base_ns) : 0u;
-        done = g_total_vcycles - g_base_vcycles;
-        due = (due > done) ? (due - done) : 0u;
-        if (due < best) {
-            best = due;
-        }
-    }
-    return best;
+    return (g_next_due_vcycles > g_total_vcycles) ? (g_next_due_vcycles - g_total_vcycles) : 0u;
 }
 
 void mm_signal_advance(mm_u64 cycles)
 {
-    mm_u32 i;
-    mm_u64 now_ns;
-
     g_total_vcycles += cycles;
-    if (g_binding_count == 0u) {
+    if (g_binding_count == 0u || (!g_triggered && !g_rewrite_levels)) {
         return;
     }
-    now_ns = g_triggered ? signal_now_ns() : 0u;
-
-    for (i = 0; i < g_binding_count; ++i) {
-        struct mm_signal_binding *b = &g_bindings[i];
-        if (b->role != MM_SIGNAL_ROLE_GPIO) {
-            continue;
+    if (g_rewrite_levels) {
+        mm_u32 i;
+        for (i = 0; i < g_binding_count; ++i) {
+            const struct mm_signal_binding *b = &g_bindings[i];
+            if (b->role == MM_SIGNAL_ROLE_GPIO) {
+                (void)mm_gpio_set_external_input(b->bank, b->pin, b->current_level, 0u);
+            }
         }
-        if (g_rewrite_levels) {
-            (void)mm_gpio_set_external_input(b->bank, b->pin, b->current_level);
-        }
-        if (g_triggered) {
-            signal_dispatch_gpio(b, now_ns - g_trigger_ns);
-        }
+        g_rewrite_levels = MM_FALSE;
     }
-    g_rewrite_levels = MM_FALSE;
+    if (!g_triggered || g_total_vcycles < g_next_due_vcycles) {
+        return;
+    }
+    signal_dispatch_due(signal_now_ns() - g_trigger_ns);
+    signal_refresh_next_due();
 }

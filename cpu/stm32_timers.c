@@ -22,22 +22,43 @@
 #include <string.h>
 #include "stm32_timers.h"
 
-#define TIM_CR1  0x00u
-#define TIM_DIER 0x0Cu
-#define TIM_SR   0x10u
-#define TIM_EGR  0x14u
-#define TIM_CNT  0x24u
-#define TIM_PSC  0x28u
-#define TIM_ARR  0x2Cu
+#define TIM_CR1   0x00u
+#define TIM_SMCR  0x08u
+#define TIM_DIER  0x0Cu
+#define TIM_SR    0x10u
+#define TIM_EGR   0x14u
+#define TIM_CCMR1 0x18u
+#define TIM_CCMR2 0x1Cu
+#define TIM_CCER  0x20u
+#define TIM_CNT   0x24u
+#define TIM_PSC   0x28u
+#define TIM_ARR   0x2Cu
+#define TIM_CCR1  0x34u
+#define TIM_CCR4  0x40u
 
 #define CR1_CEN  (1u << 0)
 #define CR1_UDIS (1u << 1)
+#define CR1_URS  (1u << 2)
 #define CR1_OPM  (1u << 3)
 #define CR1_DIR  (1u << 4)
 
 #define DIER_UIE (1u << 0)
+#define DIER_TIE (1u << 6)
 #define SR_UIF   (1u << 0)
+#define SR_TIF   (1u << 6)
 #define EGR_UG   (1u << 0)
+#define EGR_TG   (1u << 6)
+
+#define CC_BIT(c)  (1u << (c))        /* CCxIE, CCxIF, CCxG for c = 1..4 */
+#define CC_OF(c)   (1u << ((c) + 8u)) /* CCxOF */
+
+#define CCS_OUTPUT   0u
+#define CCS_DIRECT   1u
+#define CCS_INDIRECT 2u
+
+#define SMS_RESET    4u
+#define TS_TI1FP1    5u
+#define TS_TI2FP2    6u
 
 static mm_u32 read_slice(mm_u32 reg, mm_u32 offset_in_reg, mm_u32 size_bytes)
 {
@@ -178,6 +199,139 @@ static void tim_tick(struct stm32_timer_inst *t, mm_u64 cycles)
     }
 }
 
+static void tim_flag(struct stm32_timer_inst *t, mm_u32 sr_bits, mm_u32 dier_bit)
+{
+    t->sr |= sr_bits;
+    if (t->owner != 0 && t->owner->nvic != 0 && (t->dier & dier_bit) != 0u) {
+        mm_nvic_set_pending(t->owner->nvic, (mm_u32)t->irq, MM_TRUE);
+    }
+}
+
+static mm_u32 tim_ccs(const struct stm32_timer_inst *t, int c)
+{
+    return (t->ccmr[(c - 1) / 2] >> (8 * ((c - 1) % 2))) & 0x3u;
+}
+
+static mm_u32 tim_icpsc(const struct stm32_timer_inst *t, int c)
+{
+    return (t->ccmr[(c - 1) / 2] >> (8 * ((c - 1) % 2) + 2)) & 0x3u;
+}
+
+/* The TIx input a capture channel listens to: its own, or its pair's. */
+static int tim_capture_source(const struct stm32_timer_inst *t, int c)
+{
+    mm_u32 ccs = tim_ccs(t, c);
+    if (ccs == CCS_DIRECT) {
+        return c;
+    }
+    if (ccs == CCS_INDIRECT) {
+        return ((c - 1) ^ 1) + 1;
+    }
+    return 0;
+}
+
+/* CCxP/CCxNP: 00 rising, 01 falling, 11 both edges. */
+static mm_bool tim_edge_selected(const struct stm32_timer_inst *t, int c, mm_bool rising)
+{
+    mm_u32 p = (t->ccer >> (4 * (c - 1) + 1)) & 1u;
+    mm_u32 np = (t->ccer >> (4 * (c - 1) + 3)) & 1u;
+    if (p != 0u && np != 0u) {
+        return MM_TRUE;
+    }
+    return (p != 0u) ? !rising : rising;
+}
+
+static mm_u64 tim_period(const struct stm32_timer_inst *t)
+{
+    return (mm_u64)(t->arr & t->arr_mask) + 1u;
+}
+
+/* Counter ticks in the last late_cycles; the last tick was psc_accum cycles ago. */
+static mm_u64 tim_ticks_since(const struct stm32_timer_inst *t, mm_u64 late_cycles)
+{
+    if ((t->cr1 & CR1_CEN) == 0u || !tim_clock_enabled(t) || late_cycles <= t->psc_accum) {
+        return 0u;
+    }
+    return 1u + (late_cycles - t->psc_accum - 1u) / ((mm_u64)t->psc + 1u);
+}
+
+static mm_u32 tim_count_at(const struct stm32_timer_inst *t, mm_u64 late_cycles)
+{
+    mm_u64 period = tim_period(t);
+    mm_u64 cnt = (mm_u64)(t->cnt & t->arr_mask);
+    mm_u64 back = tim_ticks_since(t, late_cycles) % period;
+    if ((t->cr1 & CR1_DIR) != 0u) {
+        return (mm_u32)((cnt + back) % period);
+    }
+    return (mm_u32)((cnt + period - back) % period);
+}
+
+static void tim_capture(struct stm32_timer_inst *t, int c, mm_u32 value)
+{
+    t->ccr[c - 1] = value & t->arr_mask;
+    if ((t->sr & CC_BIT(c)) != 0u) {
+        t->sr |= CC_OF(c);
+    }
+    tim_flag(t, CC_BIT(c), CC_BIT(c));
+}
+
+/* Slave reset mode: the trigger edge restarts counter and prescaler. */
+static void tim_slave_reset(struct stm32_timer_inst *t, mm_u64 late_cycles)
+{
+    mm_u64 div = (mm_u64)t->psc + 1u;
+    mm_u64 period = tim_period(t);
+    mm_u64 ticks = 0u;
+    mm_u64 arr = (mm_u64)(t->arr & t->arr_mask);
+
+    t->psc_accum = 0u;
+    if ((t->cr1 & CR1_CEN) != 0u && tim_clock_enabled(t)) {
+        ticks = (late_cycles / div) % period;
+        t->psc_accum = late_cycles % div;
+    }
+    t->cnt = (mm_u32)(((t->cr1 & CR1_DIR) != 0u) ? (arr + period - ticks) % period : ticks);
+    if ((t->cr1 & (CR1_URS | CR1_UDIS)) == 0u) {
+        tim_flag(t, SR_UIF, DIER_UIE);
+    }
+    tim_flag(t, SR_TIF, DIER_TIE);
+}
+
+void stm32_timers_input_edge(struct stm32_timers_state *state, mm_u32 tim, int ti,
+                             mm_bool rising, mm_u64 late_cycles)
+{
+    struct stm32_timer_inst *t;
+    mm_u32 sms;
+    mm_u32 ts;
+    int c;
+
+    if (state == 0 || tim >= sizeof(state->timers) / sizeof(state->timers[0]) ||
+        ti < 1 || ti > 4) {
+        return;
+    }
+    t = &state->timers[tim];
+    if (!tim_clock_enabled(t)) {
+        return;
+    }
+    for (c = 1; c <= 4; ++c) {
+        mm_u32 div;
+        if (tim_capture_source(t, c) != ti || (t->ccer & (1u << (4 * (c - 1)))) == 0u ||
+            !tim_edge_selected(t, c, rising)) {
+            continue;
+        }
+        div = 1u << tim_icpsc(t, c);
+        if (++t->icpsc_count[c - 1] < div) {
+            continue;
+        }
+        t->icpsc_count[c - 1] = 0u;
+        tim_capture(t, c, tim_count_at(t, late_cycles));
+    }
+    sms = (t->smcr & 0x7u) | (((t->smcr >> 16) & 0x1u) << 3);
+    ts = ((t->smcr >> 4) & 0x7u) | (((t->smcr >> 20) & 0x3u) << 3);
+    if (sms == SMS_RESET && ((ts == TS_TI1FP1 && ti == 1) || (ts == TS_TI2FP2 && ti == 2)) &&
+        tim_edge_selected(t, ti, rising)) {
+        tim_slave_reset(t, late_cycles);
+    }
+}
+
 static mm_bool tim_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
 {
     struct stm32_timer_inst *t = (struct stm32_timer_inst *)opaque;
@@ -223,6 +377,29 @@ static mm_bool tim_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *
         *value_out = read_slice(reg, offset - TIM_ARR, size_bytes);
         return MM_TRUE;
     }
+    if (offset >= TIM_SMCR && (offset + size_bytes) <= (TIM_SMCR + 4u)) {
+        *value_out = read_slice(t->smcr, offset - TIM_SMCR, size_bytes);
+        return MM_TRUE;
+    }
+    if (offset >= TIM_CCMR1 && (offset + size_bytes) <= (TIM_CCMR2 + 4u)) {
+        mm_u32 i = (offset - TIM_CCMR1) / 4u;
+        *value_out = read_slice(t->ccmr[i], offset - TIM_CCMR1 - i * 4u, size_bytes);
+        return MM_TRUE;
+    }
+    if (offset >= TIM_CCER && (offset + size_bytes) <= (TIM_CCER + 4u)) {
+        *value_out = read_slice(t->ccer, offset - TIM_CCER, size_bytes);
+        return MM_TRUE;
+    }
+    if (offset >= TIM_CCR1 && (offset + size_bytes) <= (TIM_CCR4 + 4u)) {
+        int c = (int)((offset - TIM_CCR1) / 4u) + 1;
+        *value_out = read_slice(t->ccr[c - 1] & t->arr_mask,
+                                offset - TIM_CCR1 - (mm_u32)(c - 1) * 4u, size_bytes);
+        /* Reading the captured value acknowledges the capture. */
+        if (tim_ccs(t, c) != CCS_OUTPUT && !mmio_peek_mode()) {
+            t->sr &= ~CC_BIT(c);
+        }
+        return MM_TRUE;
+    }
 
     *value_out = 0u;
     return MM_TRUE;
@@ -256,6 +433,20 @@ static mm_bool tim_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     }
     if (offset >= TIM_EGR && (offset + size_bytes) <= (TIM_EGR + 4u)) {
         mm_u32 egr = apply_write(0u, offset - TIM_EGR, size_bytes, value);
+        int c;
+        for (c = 1; c <= 4; ++c) {
+            if ((egr & CC_BIT(c)) == 0u) {
+                continue;
+            }
+            if (tim_ccs(t, c) != CCS_OUTPUT) {
+                tim_capture(t, c, t->cnt);
+            } else {
+                tim_flag(t, CC_BIT(c), CC_BIT(c));
+            }
+        }
+        if ((egr & EGR_TG) != 0u) {
+            tim_flag(t, SR_TIF, DIER_TIE);
+        }
         if ((egr & EGR_UG) != 0u) {
             if ((t->cr1 & CR1_DIR) != 0u) {
                 t->cnt = t->arr & t->arr_mask;
@@ -277,6 +468,28 @@ static mm_bool tim_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     }
     if (offset >= TIM_ARR && (offset + size_bytes) <= (TIM_ARR + 4u)) {
         t->arr = apply_write(t->arr, offset - TIM_ARR, size_bytes, value) & t->arr_mask;
+        return MM_TRUE;
+    }
+    if (offset >= TIM_SMCR && (offset + size_bytes) <= (TIM_SMCR + 4u)) {
+        t->smcr = apply_write(t->smcr, offset - TIM_SMCR, size_bytes, value);
+        return MM_TRUE;
+    }
+    if (offset >= TIM_CCMR1 && (offset + size_bytes) <= (TIM_CCMR2 + 4u)) {
+        mm_u32 i = (offset - TIM_CCMR1) / 4u;
+        t->ccmr[i] = apply_write(t->ccmr[i], offset - TIM_CCMR1 - i * 4u, size_bytes, value);
+        return MM_TRUE;
+    }
+    if (offset >= TIM_CCER && (offset + size_bytes) <= (TIM_CCER + 4u)) {
+        t->ccer = apply_write(t->ccer, offset - TIM_CCER, size_bytes, value) & 0xFFFFu;
+        return MM_TRUE;
+    }
+    if (offset >= TIM_CCR1 && (offset + size_bytes) <= (TIM_CCR4 + 4u)) {
+        int c = (int)((offset - TIM_CCR1) / 4u) + 1;
+        /* CCRx is read-only while the channel captures. */
+        if (tim_ccs(t, c) == CCS_OUTPUT) {
+            t->ccr[c - 1] = apply_write(t->ccr[c - 1], offset - TIM_CCR1 - (mm_u32)(c - 1) * 4u,
+                                        size_bytes, value) & t->arr_mask;
+        }
         return MM_TRUE;
     }
 
@@ -364,6 +577,11 @@ void stm32_timers_reset(struct stm32_timers_state *state)
         t->cnt = 0u;
         t->psc = 0u;
         t->arr = t->arr_mask;
+        t->smcr = 0u;
+        memset(t->ccmr, 0, sizeof(t->ccmr));
+        t->ccer = 0u;
+        memset(t->ccr, 0, sizeof(t->ccr));
+        memset(t->icpsc_count, 0, sizeof(t->icpsc_count));
         t->psc_accum = 0u;
         t->secure_only = MM_FALSE;
         t->current_sec = MM_SECURE;

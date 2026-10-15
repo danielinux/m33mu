@@ -47,6 +47,11 @@ struct stm32_timer_inst {
     mm_u32 psc;
     mm_u32 arr;
     mm_u32 arr_mask;
+    mm_u32 smcr;
+    mm_u32 ccmr[2];
+    mm_u32 ccer;
+    mm_u32 ccr[4];
+    mm_u8 icpsc_count[4];
     mm_u64 psc_accum;
     int irq;
     mm_u32 *rcc_regs;
@@ -68,5 +73,10 @@ void stm32_timers_init(struct stm32_timers_state *state,
                        struct mm_nvic *nvic);
 void stm32_timers_reset(struct stm32_timers_state *state);
 void stm32_timers_tick(struct stm32_timers_state *state, mm_u64 cycles);
+
+/* An edge on input TIti (1..4) of timer tim (0 = TIM2), late_cycles ago.
+ * Feeds the capture channels and the slave reset mode. */
+void stm32_timers_input_edge(struct stm32_timers_state *state, mm_u32 tim, int ti,
+                             mm_bool rising, mm_u64 late_cycles);
 
 #endif /* M33MU_STM32_TIMERS_H */
