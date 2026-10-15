@@ -8,9 +8,11 @@ in [signal-injection-adc.md](signal-injection-adc.md). Recording the levels
 firmware drives on output pins is described in
 [signal-record-gpio.md](signal-record-gpio.md).
 
-Supported target: STM32H5 (`stm32h563`, `stm32h533`, `stm32h5f4`), through the
-shared `cpu/stm32_gpio.c` model. On other targets, or for a pin the target
-does not have, `--signal-bind` is an error.
+Supported targets: STM32H5 (`stm32h563`, `stm32h533`, `stm32h5f4`), STM32U5
+(`stm32u585`) and STM32L5 (`stm32l552`), through the shared
+`cpu/stm32_gpio.c` model and each part's EXTI. On other targets, or for a pin
+the target does not have, `--signal-bind` is an error. Other families (nRF,
+LPC, RP2350, MCXN, i.MX RT) need a pad model of their own first.
 
 ## Usage
 
@@ -151,10 +153,11 @@ and resumes where it left off; this is intended and keeps runs deterministic.
   Analog-mode `IDR` masking, the pad level kept across mode changes and `ODR`
   writes, `ODR` read-back on push-pull outputs, AF pins and released
   open-drain outputs following the pad, and EXTI edges from mode changes.
-- `tests/firmware/test-stm32h5f4-signal-*`: end-to-end firmware. Each test
+- `tests/firmware/test-stm32*-signal-*`: end-to-end firmware. Each test
   ends with `bkpt #0x7f` on pass and `bkpt #0x7e` on fail. They share their
-  startup code, linker script, fixtures and `signal_test.h` from
-  `tests/firmware/_signal_common/`. The command lines are in
+  startup code, linker scripts, fixtures and `signal_test.h` from
+  `tests/firmware/_signal_common/`; `SIGNAL_TARGET` (`h5f4`, `h563`, `h533`, `u585`, `l552`)
+  picks the part's addresses and memory map. The command lines are in
   `.github/workflows/test-firmware.yml`.
 
 | Test | Checks |
@@ -174,3 +177,5 @@ and resumes where it left off; this is intended and keeps runs deterministic.
 | `multi-binding` | Two bindings started by the one trigger change state together |
 | `output-loopback` / `output-timing` | `ODR`→`IDR` mirroring and cycle accounting are unaffected by the signal hooks |
 | `timer-capture` | TIM2 CH1 on PA5 measures a square wave's period by capture and its period and pulse width in PWM input mode, each within one tick, see [signal-timer-capture.md](signal-timer-capture.md) |
+| `test-stm32{h563,h533,u585,l552}-signal-exti-both` | The `input-exti-both` source built for H563, H533, U5 and L5 (`SIGNAL_TARGET` in `common.mk`): 4 crossings raise 4 EXTI interrupts |
+| `test-stm32h563-signal-timer-capture`, `test-stm32h533-signal-timer-capture` | The `timer-capture` source built for H563 and H533, which checks their own TIM2 pin tables |
