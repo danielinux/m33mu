@@ -85,7 +85,8 @@ yet.
 | Default Schmitt thresholds at `VDD/2 ± 125 mV`, overridable with `--gpio-vil-mv`/`--gpio-vih-mv` | A model choice inside the datasheet band. The STM32H5 datasheets (DS14258 Rev 6 Table 58, and the same rows in the H533, H523 and H5Fxxx datasheets) guarantee only VIL max = 0.3·VDDIO and VIH min = 0.7·VDDIO (CMOS levels, tested in production), with wider by-design limits of 0.4·VDDIO − 0.1 V and 0.52·VDDIO + 0.18 V. The 250 mV hysteresis is a typical value, not tested. The real switching point can lie anywhere in the band, which matters for slow edges. Voltages between VIL and VIH do not change the input state |
 | Both edge directions are always forwarded | Edge selection belongs to the firmware (`EXTI_RTSR1`/`EXTI_FTSR1`) and can change at run time; the existing EXTI model gates on it and on `EXTI_IMR1` |
 | Injection writes `IDR` and calls the bank's EXTI hook | Polled reads and interrupts see the same transition through the existing paths |
-| The GPIO model keeps the pad level of every injected pin, and only Input pins show it in `IDR` | Output and AF pins are driven by the MCU, so their `IDR` bit reads back `ODR`. Analog pins have the Schmitt trigger disabled, so `IDR` reads 0 for them. A pin switched back to Input reads the pad at once, as on silicon |
+| The GPIO model keeps the pad level of every injected pin, and `IDR` is derived from the registers and that level on every write | Input, AF and released open-drain pins (`ODR` = 1) read the pad, since their Schmitt trigger stays on. A push-pull output reads `ODR` (the model lets it win over an external driver), and an open-drain output with `ODR` = 0 reads 0. A released open-drain pin with nothing injected reads 1, since board pull-ups are not modelled. An AF pin with nothing injected reads `ODR`, since the peripheral's output is not modelled; an AF pin whose AFR selects a TIM2..TIM5 channel also feeds that timer's input, see [signal-timer-capture.md](signal-timer-capture.md). Analog pins have the Schmitt trigger disabled, so `IDR` reads 0 for them. A pin switched back to Input reads the pad at once, as on silicon |
+| An injected level beats the pin's pull resistor | An external driver overrides the internal ~40 kΩ pull on silicon. Input pins that nothing drives read their `PUPDR` pull, see [gpio-pull-resistors.md](gpio-pull-resistors.md) |
 
 ## Timing model
 
@@ -140,9 +141,10 @@ and resumes where it left off; this is intended and keeps runs deterministic.
 
 - `tests/signal_test.c`: loader, binding, trigger, hysteresis, configurable
   thresholds and reset, against a fake GPIO writer.
-- `tests/stm32_gpio_signal_test.c`: the input-mode guard, Analog-mode `IDR`
-  masking, the pad level kept across mode changes and `ODR` writes, and
-  `ODR` read-back once an injected pin is an output.
+- `tests/stm32_gpio_signal_test.c`: which modes show the injected level,
+  Analog-mode `IDR` masking, the pad level kept across mode changes and `ODR`
+  writes, `ODR` read-back on push-pull outputs, AF pins and released
+  open-drain outputs following the pad, and EXTI edges from mode changes.
 - `tests/firmware/test-stm32h5f4-signal-*`: end-to-end firmware. Each test
   ends with `bkpt #0x7f` on pass and `bkpt #0x7e` on fail. They share their
   startup code, linker script, fixtures and `signal_test.h` from
@@ -159,7 +161,7 @@ and resumes where it left off; this is intended and keeps runs deterministic.
 | `input-sharp-edge` | A crossing 16 ns after the trigger is visible within a few polls |
 | `input-nonuniform` | Explicit timestamps |
 | `input-idle-high` | An idle-high trace reads high before the trigger and raises one falling-edge interrupt |
-| `input-mode-guard` | An output pin ignores the trace, and reads the pad level as soon as it is back in input mode |
+| `input-mode-guard` | A push-pull output pin ignores the trace, and reads the pad level as soon as it is back in input mode |
 | `trigger-oneshot` | A second pass through the trigger PC does not restart replay |
 | `reset-keeps-running` | After a system reset the pin reads the level the trace has reached |
 | `trigger-midblock` | A trigger on a fall-through instruction, not a branch target, starts replay |

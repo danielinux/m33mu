@@ -70,8 +70,8 @@ mm_bool stm32_gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
 mm_bool stm32_gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                          mm_u32 value);
 
-/* Records the pad level; IDR and EXTI follow it while the pin is an input.
- * Returns MM_FALSE if the pin is not an input right now. */
+/* Records the pad level; IDR and EXTI follow it on Input, AF and released open-drain pins.
+ * Returns MM_FALSE if the level is not visible on IDR right now. */
 mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bool level);
 
 #endif /* M33MU_STM32_GPIO_H */

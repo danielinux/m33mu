@@ -57,17 +57,27 @@ mm_u8 stm32_gpio_get_pin_mode(const struct stm32_gpio_state *g, int pin)
 #define GPIO_MODE_AF     2u
 #define GPIO_MODE_ANALOG 3u
 
+/* Packs the even bits of a 32-bit word into the low 16 bits. */
+static mm_u32 gpio_compress_even_bits(mm_u32 x)
+{
+    x &= 0x55555555u;
+    x = (x | (x >> 1)) & 0x33333333u;
+    x = (x | (x >> 2)) & 0x0F0F0F0Fu;
+    x = (x | (x >> 4)) & 0x00FF00FFu;
+    x = (x | (x >> 8)) & 0x0000FFFFu;
+    return x;
+}
+
+/* Pins whose 2-bit field in reg equals field. */
+static mm_u32 gpio_fields_equal(mm_u32 reg, mm_u32 field)
+{
+    mm_u32 diff = reg ^ ((field & 0x3u) * 0x55555555u);
+    return gpio_compress_even_bits(~(diff | (diff >> 1)));
+}
+
 static mm_u32 gpio_mode_pins_mask(const struct stm32_gpio_state *g, mm_u32 mode)
 {
-    mm_u32 moder = g->regs[STM32_GPIO_MODER_OFFSET / 4];
-    mm_u32 mask = 0;
-    int pin;
-    for (pin = 0; pin < 16; ++pin) {
-        if (((moder >> (pin * 2)) & 0x3u) == mode) {
-            mask |= (1u << pin);
-        }
-    }
-    return mask;
+    return gpio_fields_equal(g->regs[STM32_GPIO_MODER_OFFSET / 4], mode);
 }
 
 static mm_u32 gpio_analog_pins_mask(const struct stm32_gpio_state *g)
@@ -75,14 +85,30 @@ static mm_u32 gpio_analog_pins_mask(const struct stm32_gpio_state *g)
     return gpio_mode_pins_mask(g, GPIO_MODE_ANALOG);
 }
 
-/* Injected Input pins read the pad; injected Output and AF pins read back ODR. */
-static mm_u32 gpio_pad_idr(const struct stm32_gpio_state *g, mm_u32 idr)
+static mm_u32 gpio_pull_up_pins_mask(const struct stm32_gpio_state *g)
 {
-    mm_u32 pad = g->ext_driven & gpio_mode_pins_mask(g, GPIO_MODE_INPUT);
-    mm_u32 driven = g->ext_driven & (gpio_mode_pins_mask(g, GPIO_MODE_OUTPUT) |
-                                     gpio_mode_pins_mask(g, GPIO_MODE_AF));
-    idr = (idr & ~driven) | (g->regs[STM32_GPIO_ODR_OFFSET / 4] & driven);
-    return (idr & ~pad) | (g->ext_level & pad);
+    return gpio_fields_equal(g->regs[STM32_GPIO_PUPDR_OFFSET / 4], 0x1u);
+}
+
+/* Pins whose IDR follows the pad: Input, AF and released open-drain outputs. */
+static mm_u32 gpio_pad_visible_pins(const struct stm32_gpio_state *g)
+{
+    return gpio_mode_pins_mask(g, GPIO_MODE_INPUT) | gpio_mode_pins_mask(g, GPIO_MODE_AF) |
+           (gpio_mode_pins_mask(g, GPIO_MODE_OUTPUT) & g->regs[STM32_GPIO_OTYPER_OFFSET / 4] &
+            g->regs[STM32_GPIO_ODR_OFFSET / 4]);
+}
+
+/* An undriven Input pad sits at its pull; AF and released open-drain pads read ODR. */
+static mm_u32 gpio_pad_idr(const struct stm32_gpio_state *g)
+{
+    mm_u32 odr = g->regs[STM32_GPIO_ODR_OFFSET / 4];
+    mm_u32 otyper = g->regs[STM32_GPIO_OTYPER_OFFSET / 4];
+    mm_u32 output = gpio_mode_pins_mask(g, GPIO_MODE_OUTPUT);
+    mm_u32 odr_follow = gpio_mode_pins_mask(g, GPIO_MODE_AF) | (output & otyper);
+    mm_u32 undriven = (odr_follow & odr) | (~odr_follow & gpio_pull_up_pins_mask(g));
+    mm_u32 pad = (g->ext_driven & g->ext_level) | (~g->ext_driven & undriven);
+    mm_u32 push_pull = output & ~otyper;
+    return (gpio_pad_visible_pins(g) & pad) | (push_pull & odr);
 }
 
 static void gpio_set_idr(struct stm32_gpio_ctx *ctx, mm_u32 new_idr)
@@ -98,7 +124,7 @@ static void gpio_set_idr(struct stm32_gpio_ctx *ctx, mm_u32 new_idr)
 
 static void gpio_refresh_pad_inputs(struct stm32_gpio_ctx *ctx)
 {
-    gpio_set_idr(ctx, gpio_pad_idr(ctx->gpio, ctx->gpio->regs[STM32_GPIO_IDR_OFFSET / 4]));
+    gpio_set_idr(ctx, gpio_pad_idr(ctx->gpio));
 }
 
 /* Output pins drive ODR onto the pad, except open-drain pins with ODR set. */
@@ -142,9 +168,15 @@ void stm32_gpio_reset(struct stm32_gpio_state *gpio, int bank)
     memset(gpio, 0, sizeof(*gpio));
     /* Default MODER: analog mode for all pins (0xFFFFFFFF) */
     gpio->regs[STM32_GPIO_MODER_OFFSET / 4] = 0xFFFFFFFFu;
-    /* GPIOA: PA13=AF0(JTMS), PA14=AF0(JTCK), PA15=AF0(JTDI) */
+    /* GPIOA: PA13=AF0(JTMS) pull-up, PA14=AF0(JTCK) pull-down, PA15=AF0(JTDI) pull-up */
     if (bank == 0) {
         gpio->regs[STM32_GPIO_MODER_OFFSET / 4] = 0xABFFFFFFu;
+        gpio->regs[STM32_GPIO_PUPDR_OFFSET / 4] = 0x64000000u;
+    }
+    /* GPIOB: PB3=AF0(JTDO), PB4=AF0(NJTRST) pull-up */
+    if (bank == 1) {
+        gpio->regs[STM32_GPIO_MODER_OFFSET / 4] = 0xFFFFFEBFu;
+        gpio->regs[STM32_GPIO_PUPDR_OFFSET / 4] = 0x00000100u;
     }
     gpio->locked = MM_FALSE;
     gpio_notify_pad_outputs(gpio, bank, MM_TRUE);
@@ -165,14 +197,6 @@ static void gpio_apply_bsrr(struct stm32_gpio_state *g, mm_u32 val, mm_u32 mask)
     g->regs[STM32_GPIO_ODR_OFFSET / 4] = odr;
 }
 
-static void gpio_sync_odr(struct stm32_gpio_ctx *ctx, mm_u32 old_odr)
-{
-    mm_u32 new_odr = ctx->gpio->regs[STM32_GPIO_ODR_OFFSET / 4];
-    if (new_odr != old_odr) {
-        gpio_set_idr(ctx, gpio_pad_idr(ctx->gpio, new_odr));
-    }
-}
-
 mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bool level)
 {
     struct stm32_gpio_state *g = ctx->gpio;
@@ -184,11 +208,8 @@ mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bo
     bit = 1u << (mm_u32)pin;
     g->ext_driven |= bit;
     g->ext_level = level ? (g->ext_level | bit) : (g->ext_level & ~bit);
-    if (stm32_gpio_get_pin_mode(g, pin) != GPIO_MODE_INPUT) {
-        return MM_FALSE;
-    }
     gpio_refresh_pad_inputs(ctx);
-    return MM_TRUE;
+    return ((gpio_pad_visible_pins(g) & bit) != 0u) ? MM_TRUE : MM_FALSE;
 }
 
 mm_bool stm32_gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
@@ -256,15 +277,13 @@ static mm_bool gpio_write_regs(struct stm32_gpio_ctx *ctx, mm_u32 offset, mm_u32
             return MM_TRUE; /* SECCFGR is Secure-only: WI */
         }
         if (offset == STM32_GPIO_BSRR_OFFSET) {
-            mm_u32 old_odr = g->regs[STM32_GPIO_ODR_OFFSET / 4];
             gpio_apply_bsrr(g, value, mask & 0xFFFFu);
-            gpio_sync_odr(ctx, old_odr);
+            gpio_refresh_pad_inputs(ctx);
             return MM_TRUE;
         }
         if (offset == STM32_GPIO_BRR_OFFSET) {
-            mm_u32 old_odr = g->regs[STM32_GPIO_ODR_OFFSET / 4];
             gpio_apply_brr(g, value & 0xFFFFu, mask & 0xFFFFu);
-            gpio_sync_odr(ctx, old_odr);
+            gpio_refresh_pad_inputs(ctx);
             return MM_TRUE;
         }
         if (offset == STM32_GPIO_AFRL_OFFSET || offset == STM32_GPIO_AFRH_OFFSET) {
@@ -286,7 +305,7 @@ static mm_bool gpio_write_regs(struct stm32_gpio_ctx *ctx, mm_u32 offset, mm_u32
             mm_u32 m2 = gpio_mask_to_2bit(mask & 0xFFFFu);
             value &= m2;
             g->regs[offset / 4] = (g->regs[offset / 4] & ~m2) | value;
-            if (offset == STM32_GPIO_MODER_OFFSET) {
+            if (offset != STM32_GPIO_OSPEEDR_OFFSET) {
                 gpio_refresh_pad_inputs(ctx);
             }
             return MM_TRUE;
@@ -294,26 +313,27 @@ static mm_bool gpio_write_regs(struct stm32_gpio_ctx *ctx, mm_u32 offset, mm_u32
         if (offset == STM32_GPIO_OTYPER_OFFSET) {
             value &= mask;
             g->regs[offset / 4] = (g->regs[offset / 4] & ~mask) | value;
+            gpio_refresh_pad_inputs(ctx);
             return MM_TRUE;
         }
     }
 
     if (offset == STM32_GPIO_BSRR_OFFSET) {
-        mm_u32 old_odr = g->regs[STM32_GPIO_ODR_OFFSET / 4];
         gpio_apply_bsrr(g, value, 0xFFFFu);
-        gpio_sync_odr(ctx, old_odr);
+        gpio_refresh_pad_inputs(ctx);
         return MM_TRUE;
     }
     if (offset == STM32_GPIO_BRR_OFFSET) {
-        mm_u32 old_odr = g->regs[STM32_GPIO_ODR_OFFSET / 4];
         gpio_apply_brr(g, value & 0xFFFFu, 0xFFFFu);
-        gpio_sync_odr(ctx, old_odr);
+        gpio_refresh_pad_inputs(ctx);
         return MM_TRUE;
     }
     if (offset == STM32_GPIO_ODR_OFFSET) {
-        mm_u32 old_odr = g->regs[STM32_GPIO_ODR_OFFSET / 4];
         g->regs[offset / 4] = value;
-        gpio_sync_odr(ctx, old_odr);
+        gpio_refresh_pad_inputs(ctx);
+        return MM_TRUE;
+    }
+    if (offset == STM32_GPIO_IDR_OFFSET) {
         return MM_TRUE;
     }
     if (offset == STM32_GPIO_AFRL_OFFSET || offset == STM32_GPIO_AFRH_OFFSET) {
@@ -321,7 +341,8 @@ static mm_bool gpio_write_regs(struct stm32_gpio_ctx *ctx, mm_u32 offset, mm_u32
         stm32_gpio_update_pin_af(g);
         return MM_TRUE;
     }
-    if (offset == STM32_GPIO_MODER_OFFSET) {
+    if (offset == STM32_GPIO_MODER_OFFSET || offset == STM32_GPIO_PUPDR_OFFSET ||
+        offset == STM32_GPIO_OTYPER_OFFSET) {
         g->regs[offset / 4] = value;
         gpio_refresh_pad_inputs(ctx);
         return MM_TRUE;
