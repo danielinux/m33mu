@@ -640,6 +640,18 @@ static mm_bool flash_trace_enabled(void)
 
 static mm_bool stm32u585_rcc_clock_list_line(void *opaque, int line, char *out, size_t out_len);
 
+/* Both aliases share the bank state and EXTI hook; use the NS one. */
+static mm_bool stm32u585_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                                    mm_u64 late_cycles)
+{
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= (int)(sizeof(gpio) / sizeof(gpio[0]))) {
+        return MM_FALSE;
+    }
+    return stm32_gpio_set_external_input(&gpio_ctx_data[bank * 2], pin, level);
+}
+
 static mm_bool stm32u585_gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)
 {
     (void)opaque;
@@ -717,6 +729,7 @@ void mm_stm32u585_mmio_reset(void)
     mm_gpio_bank_set_clock_reader(stm32u585_gpio_bank_clock, 0);
     mm_gpio_bank_set_seccfgr_reader(stm32u585_gpio_bank_read_seccfgr, 0);
     mm_gpio_set_bank_info_reader(stm32u585_gpio_bank_info, 0);
+    mm_gpio_set_external_input_writer(stm32u585_gpio_set_external_input_cb, 0);
     mm_rcc_set_clock_list_reader(stm32u585_rcc_clock_list_line, 0);
     /* Seed RCC reset values from the STM32U585 SVD. */
     rcc.regs[RCC_CR / 4u] = 0x00000035u;

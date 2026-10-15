@@ -1,4 +1,5 @@
-/* STM32H5F4 registers and helpers shared by the signal-injection tests. */
+/* Registers and helpers shared by the signal-injection tests. STM32H5F4 by
+ * default; SIGNAL_TARGET_U585 or SIGNAL_TARGET_L552 selects those parts. */
 #ifndef SIGNAL_TEST_H
 #define SIGNAL_TEST_H
 
@@ -12,12 +13,22 @@
 #define GPIO_IDR(base)      REG32((base) + 0x10u)
 #define GPIO_ODR(base)      REG32((base) + 0x14u)
 
+#if defined(SIGNAL_TARGET_U585)
+#define RCC_BASE            0x46020C00u
+#define RCC_AHB2ENR         REG32(RCC_BASE + 0x8Cu)
+#define EXTI_BASE           0x46022000u
+#elif defined(SIGNAL_TARGET_L552)
+#define RCC_BASE            0x40021000u
+#define RCC_AHB2ENR         REG32(RCC_BASE + 0x4Cu)
+#define EXTI_BASE           0x4002F400u
+#else
 #define RCC_BASE            0x44020C00u
 #define RCC_AHB2ENR         REG32(RCC_BASE + 0x8Cu)
+#define EXTI_BASE           0x44022000u
+#endif
 #define RCC_AHB2ENR_GPIOAEN (1u << 0)
 #define RCC_AHB2ENR_GPIOBEN (1u << 1)
 
-#define EXTI_BASE           0x44022000u
 #define EXTI_RTSR1          REG32(EXTI_BASE + 0x000u)
 #define EXTI_FTSR1          REG32(EXTI_BASE + 0x004u)
 #define EXTI_RPR1           REG32(EXTI_BASE + 0x00Cu)
