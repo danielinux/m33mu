@@ -38,6 +38,11 @@ void mm_stm32h563_timers_tick(mm_u64 cycles)
     stm32_timers_tick(&g_timers, cycles);
 }
 
+void mm_stm32h563_timers_input_edge(mm_u32 tim, int ti, mm_bool rising, mm_u64 late_cycles)
+{
+    stm32_timers_input_edge(&g_timers, tim, ti, rising, late_cycles);
+}
+
 void mm_stm32h563_timers_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 {
     stm32_timers_init(&g_timers, &g_soc, bus, nvic);

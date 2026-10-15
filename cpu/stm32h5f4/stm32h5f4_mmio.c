@@ -27,6 +27,7 @@
  * No USB block is modelled here yet, although the part has one. */
 
 #include "stm32h5f4/stm32h5f4_mmio.h"
+#include "stm32h5f4/stm32h5f4_timers.h"
 #include "stm32h5_mmio.h"
 
 /* SECCFGR words per MPCBB bank, one word per 32 blocks of 512 bytes, so
@@ -40,6 +41,69 @@ static const mm_u16 g_gpdma1_irq_map[12] = {
 };
 static const mm_u16 g_gpdma2_irq_map[12] = {
     90u, 91u, 92u, 93u, 94u, 95u, 96u, 97u, 140u, 141u, 142u, 143u
+};
+
+/* TIM2..TIM5 channel pins, DS14972 Rev 1 Table 15 (alternate functions AF0 to AF7). */
+static const struct stm32h5_tim_pin g_tim_pins[] = {
+    { 0, 0, 1, 0, 1 }, /* PA0 TIM2_CH1 */
+    { 0, 0, 2, 3, 1 }, /* PA0 TIM5_CH1 */
+    { 0, 1, 1, 0, 2 }, /* PA1 TIM2_CH2 */
+    { 0, 1, 2, 3, 2 }, /* PA1 TIM5_CH2 */
+    { 0, 2, 1, 0, 3 }, /* PA2 TIM2_CH3 */
+    { 0, 2, 2, 3, 3 }, /* PA2 TIM5_CH3 */
+    { 0, 3, 1, 0, 4 }, /* PA3 TIM2_CH4 */
+    { 0, 3, 2, 3, 4 }, /* PA3 TIM5_CH4 */
+    { 0, 5, 1, 0, 1 }, /* PA5 TIM2_CH1 */
+    { 0, 6, 2, 1, 1 }, /* PA6 TIM3_CH1 */
+    { 0, 7, 2, 1, 2 }, /* PA7 TIM3_CH2 */
+    { 0, 15, 1, 0, 1 }, /* PA15 TIM2_CH1 */
+    { 1, 0, 2, 1, 3 }, /* PB0 TIM3_CH3 */
+    { 1, 1, 2, 1, 4 }, /* PB1 TIM3_CH4 */
+    { 1, 3, 1, 0, 2 }, /* PB3 TIM2_CH2 */
+    { 1, 4, 2, 1, 1 }, /* PB4 TIM3_CH1 */
+    { 1, 5, 2, 1, 2 }, /* PB5 TIM3_CH2 */
+    { 1, 6, 2, 2, 1 }, /* PB6 TIM4_CH1 */
+    { 1, 7, 2, 2, 2 }, /* PB7 TIM4_CH2 */
+    { 1, 8, 2, 2, 3 }, /* PB8 TIM4_CH3 */
+    { 1, 9, 2, 2, 4 }, /* PB9 TIM4_CH4 */
+    { 1, 10, 1, 0, 3 }, /* PB10 TIM2_CH3 */
+    { 1, 11, 1, 0, 4 }, /* PB11 TIM2_CH4 */
+    { 2, 2, 2, 2, 4 }, /* PC2 TIM4_CH4 */
+    { 2, 4, 1, 0, 4 }, /* PC4 TIM2_CH4 */
+    { 2, 6, 2, 1, 1 }, /* PC6 TIM3_CH1 */
+    { 2, 7, 2, 1, 2 }, /* PC7 TIM3_CH2 */
+    { 2, 8, 2, 1, 3 }, /* PC8 TIM3_CH3 */
+    { 2, 9, 2, 1, 4 }, /* PC9 TIM3_CH4 */
+    { 3, 12, 2, 2, 1 }, /* PD12 TIM4_CH1 */
+    { 3, 13, 2, 2, 2 }, /* PD13 TIM4_CH2 */
+    { 3, 14, 2, 2, 3 }, /* PD14 TIM4_CH3 */
+    { 3, 15, 2, 2, 4 }, /* PD15 TIM4_CH4 */
+    { 5, 0, 1, 0, 1 }, /* PF0 TIM2_CH1 */
+    { 5, 1, 1, 0, 2 }, /* PF1 TIM2_CH2 */
+    { 5, 3, 1, 0, 3 }, /* PF3 TIM2_CH3 */
+    { 5, 4, 1, 0, 4 }, /* PF4 TIM2_CH4 */
+    { 5, 11, 1, 0, 3 }, /* PF11 TIM2_CH3 */
+    { 5, 12, 1, 0, 4 }, /* PF12 TIM2_CH4 */
+    { 6, 0, 2, 2, 1 }, /* PG0 TIM4_CH1 */
+    { 6, 1, 2, 2, 2 }, /* PG1 TIM4_CH2 */
+    { 6, 2, 2, 2, 3 }, /* PG2 TIM4_CH3 */
+    { 6, 3, 2, 2, 4 }, /* PG3 TIM4_CH4 */
+    { 7, 10, 2, 3, 1 }, /* PH10 TIM5_CH1 */
+    { 7, 11, 2, 3, 2 }, /* PH11 TIM5_CH2 */
+    { 7, 12, 2, 3, 3 }, /* PH12 TIM5_CH3 */
+    { 8, 0, 2, 3, 4 }, /* PI0 TIM5_CH4 */
+    { 9, 3, 2, 2, 1 }, /* PJ3 TIM4_CH1 */
+    { 9, 4, 2, 2, 2 }, /* PJ4 TIM4_CH2 */
+    { 9, 5, 2, 2, 3 }, /* PJ5 TIM4_CH3 */
+    { 9, 6, 2, 2, 4 }, /* PJ6 TIM4_CH4 */
+    { 9, 7, 2, 3, 1 }, /* PJ7 TIM5_CH1 */
+    { 9, 8, 2, 3, 2 }, /* PJ8 TIM5_CH2 */
+    { 9, 9, 2, 3, 3 }, /* PJ9 TIM5_CH3 */
+    { 9, 10, 2, 3, 4 }, /* PJ10 TIM5_CH4 */
+    { 10, 11, 2, 1, 1 }, /* PK11 TIM3_CH1 */
+    { 10, 12, 2, 1, 2 }, /* PK12 TIM3_CH2 */
+    { 10, 13, 2, 1, 3 }, /* PK13 TIM3_CH3 */
+    { 10, 14, 2, 1, 4 }, /* PK14 TIM3_CH4 */
 };
 
 static const struct stm32h5_mmio_variant g_variant = {
@@ -70,7 +134,11 @@ static const struct stm32h5_mmio_variant g_variant = {
     0,           /* no USB block modelled */
     0,
 
-    0x1001647Au  /* dbgmcu_idcode: DEV_ID 0x47A, revision Z (ES0639 Table 2) */
+    0x1001647Au,  /* dbgmcu_idcode: DEV_ID 0x47A, revision Z (ES0639 Table 2) */
+
+    g_tim_pins,
+    sizeof(g_tim_pins) / sizeof(g_tim_pins[0]),
+    mm_stm32h5f4_timers_input_edge
 };
 
 mm_bool mm_stm32h5f4_register_mmio(struct mmio_bus *bus)

@@ -29,10 +29,47 @@
 
 #include "stm32h533/stm32h533_mmio.h"
 #include "stm32h533/stm32h533_usb.h"
+#include "stm32h533/stm32h533_timers.h"
 #include "stm32h5_mmio.h"
 
 /* SECCFGR words per MPCBB bank, one word per 32 blocks of 512 bytes. */
 static const mm_u32 g_mpcbb_words[] = { 32u, 32u, 32u };
+
+/* TIM2..TIM5 channel pins, DS14539 Rev 3 Table 15 (alternate functions AF0 to AF7). */
+static const struct stm32h5_tim_pin g_tim_pins[] = {
+    { 0, 0, 1, 0, 1 }, /* PA0 TIM2_CH1 */
+    { 0, 0, 2, 3, 1 }, /* PA0 TIM5_CH1 */
+    { 0, 1, 1, 0, 2 }, /* PA1 TIM2_CH2 */
+    { 0, 1, 2, 3, 2 }, /* PA1 TIM5_CH2 */
+    { 0, 2, 1, 0, 3 }, /* PA2 TIM2_CH3 */
+    { 0, 2, 2, 3, 3 }, /* PA2 TIM5_CH3 */
+    { 0, 3, 1, 0, 4 }, /* PA3 TIM2_CH4 */
+    { 0, 3, 2, 3, 4 }, /* PA3 TIM5_CH4 */
+    { 0, 5, 1, 0, 1 }, /* PA5 TIM2_CH1 */
+    { 0, 6, 2, 1, 1 }, /* PA6 TIM3_CH1 */
+    { 0, 7, 2, 1, 2 }, /* PA7 TIM3_CH2 */
+    { 0, 15, 1, 0, 1 }, /* PA15 TIM2_CH1 */
+    { 1, 0, 2, 1, 3 }, /* PB0 TIM3_CH3 */
+    { 1, 1, 2, 1, 4 }, /* PB1 TIM3_CH4 */
+    { 1, 3, 1, 0, 2 }, /* PB3 TIM2_CH2 */
+    { 1, 4, 2, 1, 1 }, /* PB4 TIM3_CH1 */
+    { 1, 5, 2, 1, 2 }, /* PB5 TIM3_CH2 */
+    { 1, 6, 2, 2, 1 }, /* PB6 TIM4_CH1 */
+    { 1, 7, 2, 2, 2 }, /* PB7 TIM4_CH2 */
+    { 1, 8, 2, 2, 3 }, /* PB8 TIM4_CH3 */
+    { 1, 9, 2, 2, 4 }, /* PB9 TIM4_CH4 */
+    { 1, 10, 1, 0, 3 }, /* PB10 TIM2_CH3 */
+    { 2, 2, 2, 2, 4 }, /* PC2 TIM4_CH4 */
+    { 2, 4, 1, 0, 4 }, /* PC4 TIM2_CH4 */
+    { 2, 6, 2, 1, 1 }, /* PC6 TIM3_CH1 */
+    { 2, 7, 2, 1, 2 }, /* PC7 TIM3_CH2 */
+    { 2, 8, 2, 1, 3 }, /* PC8 TIM3_CH3 */
+    { 2, 9, 2, 1, 4 }, /* PC9 TIM3_CH4 */
+    { 3, 12, 2, 2, 1 }, /* PD12 TIM4_CH1 */
+    { 3, 13, 2, 2, 2 }, /* PD13 TIM4_CH2 */
+    { 3, 14, 2, 2, 3 }, /* PD14 TIM4_CH3 */
+    { 3, 15, 2, 2, 4 }, /* PD15 TIM4_CH4 */
+};
 
 static const struct stm32h5_mmio_variant g_variant = {
     /* 64 sectors of 8 KB over two banks; 7-bit sector number fields */
@@ -61,7 +98,11 @@ static const struct stm32h5_mmio_variant g_variant = {
     mm_stm32h533_usb_register_mmio,
     mm_stm32h533_usb_reset,
 
-    0x10006478u  /* dbgmcu_idcode: DEV_ID 0x478, revision A (ES0621 Table 2) */
+    0x10006478u,  /* dbgmcu_idcode: DEV_ID 0x478, revision A (ES0621 Table 2) */
+
+    g_tim_pins,
+    sizeof(g_tim_pins) / sizeof(g_tim_pins[0]),
+    mm_stm32h533_timers_input_edge
 };
 
 mm_bool mm_stm32h533_register_mmio(struct mmio_bus *bus)

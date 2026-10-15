@@ -99,7 +99,12 @@ execution with the number of cycles executed. Both must be called from every
 execution path in `src/main.c` that advances `mm_timer_tick()`, including the
 WFI/WFE idle paths, the locked-up core and `--flash-timing` stalls. Idle fast-forwarding stops at
 `mm_signal_cycles_until_next_event()`, so an injected edge wakes a sleeping
-core at its scheduled time, with or without SysTick. Under `--gdb` or
+core at its scheduled time, with or without SysTick. The crossings that fall
+due in one `mm_signal_advance()` call are applied in time order across all
+bindings (ties keep binding order), each with its own lateness in cycles, so
+EXTI and timer captures see edges on different pins in the order they
+happened. Between crossings, `mm_signal_advance()` only compares the cycle
+count with the cycle at which the next crossing is due. Under `--gdb` or
 `--tui`, no cycles advance while the core is halted, so replay pauses with it
 and resumes where it left off; this is intended and keeps runs deterministic.
 
@@ -140,7 +145,8 @@ and resumes where it left off; this is intended and keeps runs deterministic.
 ## Tests
 
 - `tests/signal_test.c`: loader, binding, trigger, hysteresis, configurable
-  thresholds and reset, against a fake GPIO writer.
+  thresholds, reset, clock changes and dispatch order across bindings, against
+  a fake GPIO writer.
 - `tests/stm32_gpio_signal_test.c`: which modes show the injected level,
   Analog-mode `IDR` masking, the pad level kept across mode changes and `ODR`
   writes, `ODR` read-back on push-pull outputs, AF pins and released
@@ -167,3 +173,4 @@ and resumes where it left off; this is intended and keeps runs deterministic.
 | `trigger-midblock` | A trigger on a fall-through instruction, not a branch target, starts replay |
 | `multi-binding` | Two bindings started by the one trigger change state together |
 | `output-loopback` / `output-timing` | `ODR`→`IDR` mirroring and cycle accounting are unaffected by the signal hooks |
+| `timer-capture` | TIM2 CH1 on PA5 measures a square wave's period by capture and its period and pulse width in PWM input mode, each within one tick, see [signal-timer-capture.md](signal-timer-capture.md) |

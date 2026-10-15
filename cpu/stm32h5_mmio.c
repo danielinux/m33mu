@@ -586,7 +586,8 @@ static void gpdma_configure_and_reset(void)
 }
 
 static mm_u32 stm32h5_gpio_bank_read(void *opaque, int bank);
-static mm_bool stm32h5_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level);
+static mm_bool stm32h5_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                                  mm_u64 late_cycles);
 static mm_u32 stm32h5_gpio_bank_read_moder(void *opaque, int bank);
 static mm_bool stm32h5_gpio_bank_clock(void *opaque, int bank);
 static mm_u32 stm32h5_gpio_bank_read_seccfgr(void *opaque, int bank);
@@ -1131,14 +1132,42 @@ static mm_u32 stm32h5_gpio_bank_read(void *opaque, int bank)
     return gpio[bank].regs[0x14u / 4];
 }
 
-/* Both aliases share the bank state and EXTI hook; use the NS one. */
-static mm_bool stm32h5_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level)
+/* An edge on a pin whose AFR selects a TIM2..TIM5 channel reaches that
+ * timer's TIx input, unless the pin is analog. */
+static void stm32h5_gpio_route_timer_edge(int bank, int pin, mm_bool level, mm_u64 late_cycles)
 {
+    mm_u8 af;
+    mm_u32 i;
+
+    if (V == 0 || V->timers_input_edge == 0 ||
+        stm32_gpio_get_pin_mode(&gpio[bank], pin) == 3u) {
+        return;
+    }
+    af = stm32_gpio_get_pin_af(&gpio[bank], pin);
+    for (i = 0; i < V->tim_pin_count; ++i) {
+        const struct stm32h5_tim_pin *tp = &V->tim_pins[i];
+        if (tp->bank == bank && tp->pin == pin && tp->af == af) {
+            V->timers_input_edge(tp->tim, tp->ch, level, late_cycles);
+        }
+    }
+}
+
+/* Both aliases share the bank state and EXTI hook; use the NS one. */
+static mm_bool stm32h5_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                                  mm_u64 late_cycles)
+{
+    mm_bool was_high;
+    mm_bool ok;
     (void)opaque;
-    if (bank < 0 || bank >= (int)(sizeof(gpio) / sizeof(gpio[0]))) {
+    if (bank < 0 || bank >= (int)(sizeof(gpio) / sizeof(gpio[0])) || pin < 0 || pin >= 16) {
         return MM_FALSE;
     }
-    return stm32_gpio_set_external_input(&gpio_ctx_data[bank * 2], pin, level);
+    was_high = ((gpio[bank].ext_driven & gpio[bank].ext_level) >> pin) & 1u;
+    ok = stm32_gpio_set_external_input(&gpio_ctx_data[bank * 2], pin, level);
+    if ((level ? 1 : 0) != (was_high ? 1 : 0)) {
+        stm32h5_gpio_route_timer_edge(bank, pin, level, late_cycles);
+    }
+    return ok;
 }
 
 static mm_u32 stm32h5_gpio_bank_read_moder(void *opaque, int bank)

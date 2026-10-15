@@ -36,6 +36,15 @@ struct mm_flash_persist;
 #define STM32H5_MPCBB_MAX 5
 #define STM32H5_GPIO_MAX  11
 
+/* A pin whose alternate function af is channel ch (1..4) of TIM2+tim. */
+struct stm32h5_tim_pin {
+    mm_u8 bank;
+    mm_u8 pin;
+    mm_u8 af;
+    mm_u8 tim;
+    mm_u8 ch;
+};
+
 /* Everything that differs between the STM32H5 parts sharing stm32h5_mmio.c.
  * Anything not listed here is identical across them and lives in the
  * implementation as a plain constant.
@@ -92,6 +101,12 @@ struct stm32h5_mmio_variant {
 
     /* DBGMCU_IDCODE, REV_ID << 16 | 0x6000 | DEV_ID. Read-only. */
     mm_u32 dbgmcu_idcode;
+
+    /* TIM2..TIM5 channel pins from the datasheet's alternate function
+     * table, and the hook that feeds an injected edge to the timer. */
+    const struct stm32h5_tim_pin *tim_pins;
+    mm_u32 tim_pin_count;
+    void (*timers_input_edge)(mm_u32 tim, int ti, mm_bool rising, mm_u64 late_cycles);
 };
 
 /* Entry points. The four that a target can reach first each latch the

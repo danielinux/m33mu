@@ -699,12 +699,13 @@ void mm_gpio_set_external_input_writer(mm_gpio_set_external_input_fn writer, voi
     g_gpio_external_input_opaque = opaque;
 }
 
-mm_bool mm_gpio_set_external_input(int bank, int pin, mm_bool level)
+mm_bool mm_gpio_set_external_input(int bank, int pin, mm_bool level, mm_u64 late_cycles)
 {
     if (g_gpio_external_input_writer == 0) {
         return MM_FALSE;
     }
-    return g_gpio_external_input_writer(g_gpio_external_input_opaque, bank, pin, level);
+    return g_gpio_external_input_writer(g_gpio_external_input_opaque, bank, pin, level,
+                                        late_cycles);
 }
 
 mm_bool mm_gpio_external_input_writer_present(void)

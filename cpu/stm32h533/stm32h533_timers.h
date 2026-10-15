@@ -29,5 +29,6 @@
 void mm_stm32h533_timers_init(struct mmio_bus *bus, struct mm_nvic *nvic);
 void mm_stm32h533_timers_reset(void);
 void mm_stm32h533_timers_tick(mm_u64 cycles);
+void mm_stm32h533_timers_input_edge(mm_u32 tim, int ti, mm_bool rising, mm_u64 late_cycles);
 
 #endif /* M33MU_STM32H533_TIMERS_H */
