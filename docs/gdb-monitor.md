@@ -56,7 +56,7 @@ commands control it at run time.
 | `flash cut <n>` | cut the power just before operation `n` |
 | `flash cut erase <addr>` | cut the power just before the first erase covering `addr` |
 | `flash cut off` | disarm |
-| `flash cut status` | `flash cut none`, or `flash cut <n> <program\|erase\|mass-erase\|bulk> <addr> <len>` once a cut fired |
+| `flash cut status` | `flash cut none`, or `flash cut <n> <program\|erase\|mass-erase\|bulk\|option> <addr> <len>` once a cut fired (`option` with address and length 0) |
 | `flash trace <file>` / `flash trace off` | append one line per operation to `file` (format in [CLI usage](cli-usage.md)) |
 | `flash timing none\|typical\|max` | as `--flash-timing` |
 | `flash latches` | `flash latches refused <n> <first addr> protected <n> <first addr>`: programs the chip's rules refused, and programs or erases of write-protected flash, since the last power-up. Each is also an operation (traced `X` / `W`, counted, cuttable) that changed nothing |
@@ -78,6 +78,13 @@ at once.
 
 Option bytes live outside the flash array: `flash save` and `flash load` do
 not include them. A harness that restores a device saves these alongside.
+
+A change the firmware makes (OPTSTRT on the STM32H5) is a flash operation: it
+is counted, a cut can fall just before it (the option bytes then stay as they
+were), and the trace has one line for it with every option byte as it is
+after the change, `O SWAP_BANK=0x00000000 WRPSG1=0xFFFFFFFE ...`, so a
+harness can replay it. A change made with `optbytes set` is not an
+operation.
 
 | Command | Effect |
 |---|---|

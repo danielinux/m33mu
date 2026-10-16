@@ -35,7 +35,12 @@
  * The kind of an operation is read from the array, against a shadow copy
  * that only operations update: a range left all 0xFF is an erase, anything
  * else a program. A rewrite of the whole array that is not an erase (a bank
- * swap) is a bulk operation. */
+ * swap) is a bulk operation.
+ *
+ * An option byte change is an operation too, though it does not touch the
+ * array: the port asks mm_flash_ops_option_starts() before it applies one,
+ * so power can fail just before it and the option bytes stay as they were,
+ * and reports it with mm_flash_ops_option_done() after. */
 
 #define MM_FLASH_OPS_NEVER ((mm_u64)-1)
 
@@ -61,7 +66,8 @@ enum mm_flash_op_kind {
     MM_FLASH_OP_PROGRAM = 0,
     MM_FLASH_OP_ERASE,
     MM_FLASH_OP_MASS_ERASE,
-    MM_FLASH_OP_BULK
+    MM_FLASH_OP_BULK,
+    MM_FLASH_OP_OPTION
 };
 
 struct mm_flash_cut {
@@ -113,6 +119,12 @@ void mm_flash_ops_clear_latches(void);
  * after it (the power is off): the range is put back as it was. */
 mm_bool mm_flash_ops_note(mm_u32 offset, mm_u32 len);
 
+/* An option byte change: MM_FALSE when the power is (or now goes) off at it,
+ * and the port must not apply it. Once it is applied, _done() counts it and
+ * traces every option byte the target models, as they are now. */
+mm_bool mm_flash_ops_option_starts(void);
+void mm_flash_ops_option_done(void);
+
 mm_u64 mm_flash_ops_count(void);
 void mm_flash_ops_set_count(mm_u64 count);
 
@@ -129,6 +141,7 @@ mm_bool mm_flash_ops_cut_fired(struct mm_flash_cut *out);
  *   E <addr> #<len>    erase of len bytes (hex)
  *   M <addr>           erase of the whole array
  *   B <addr> #<len>    bulk rewrite of the whole array (bank swap)
+ *   O <NAME>=<value>.. option byte change, one NAME=value per option byte
  * followed by @<us> (decimal) when operations take time. */
 mm_bool mm_flash_ops_trace_open(const char *path);
 void mm_flash_ops_trace_close(void);

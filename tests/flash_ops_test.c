@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include "m33mu/flash_persist.h"
 #include "m33mu/flash_ops.h"
+#include "m33mu/optbytes.h"
 
 #define SIZE 0x4000u
 #define BASE 0x0C000000u
@@ -335,6 +336,79 @@ out:
     return rc;
 }
 
+/* A test option byte, as a port registers one. */
+static mm_u32 test_ob = 0xFFFFFFFFu;
+
+static mm_u32 test_ob_get(void)
+{
+    return test_ob;
+}
+
+static mm_bool test_ob_set(mm_u32 value)
+{
+    test_ob = value;
+    return MM_TRUE;
+}
+
+/* What a port does on an option byte change: ask, apply, report. */
+static void option_change(mm_u32 value)
+{
+    if (!mm_flash_ops_option_starts()) return;
+    test_ob = value;
+    mm_flash_ops_option_done();
+}
+
+static int test_option_change(void)
+{
+    char path[] = "/tmp/m33mu_flash_ops_opt_XXXXXX";
+    char text[256];
+    const mm_u8 word[4] = { 0x00, 0x00, 0x00, 0x00 };
+    struct mm_flash_cut cut;
+    int fd;
+    int rc = 1;
+
+    memset(flash, 0xFF, sizeof(flash));
+    memset(&persist, 0, sizeof(persist));
+    mm_flash_persist_watch(&persist, flash, SIZE);
+    mm_optbytes_clear();
+    mm_optbytes_register("TESTOB", test_ob_get, test_ob_set);
+    test_ob = 0xFFFFFFFFu;
+    if (!mm_flash_ops_enable(flash, SIZE, BASE)) return 1;
+    fd = mkstemp(path);
+    if (fd < 0) return 1;
+    close(fd);
+    if (!mm_flash_ops_trace_open(path)) goto out;
+
+    program(0x40u, word, 4u);                       /* op 0 */
+    option_change(0x00000005u);                     /* op 1: counted and traced */
+    mm_flash_ops_trace_close();
+    if (mm_flash_ops_count() != 2u || test_ob != 0x00000005u) goto out;
+    if (read_file(path, text, sizeof(text)) != 0) goto out;
+    if (strcmp(text, "P 0x0C000040 0x00000000\nO TESTOB=0x00000005\n") != 0) {
+        fprintf(stderr, "trace:\n%s", text);
+        goto out;
+    }
+
+    /* a cut can fall on an option change: it does not happen, nor anything after */
+    mm_flash_ops_cut_at(2u);
+    option_change(0x00000009u);
+    if (!mm_flash_ops_cut_fired(&cut) || cut.index != 2u || cut.kind != MM_FLASH_OP_OPTION ||
+        test_ob != 0x00000005u || mm_flash_ops_count() != 2u) {
+        fprintf(stderr, "cut on an option change not taken\n");
+        goto out;
+    }
+    option_change(0x0000000Au);
+    if (test_ob != 0x00000005u) goto out;
+    if (strcmp(mm_flash_op_kind_name(MM_FLASH_OP_OPTION), "option change") != 0) goto out;
+    rc = 0;
+out:
+    mm_flash_ops_clear_cut();
+    mm_flash_ops_disable();
+    mm_optbytes_clear();
+    unlink(path);
+    return rc;
+}
+
 int main(void)
 {
     int fails = 0;
@@ -360,6 +434,10 @@ int main(void)
     }
     if (test_violations() != 0) {
         printf("FAIL violations\n");
+        fails++;
+    }
+    if (test_option_change() != 0) {
+        printf("FAIL option change\n");
         fails++;
     }
     if (fails != 0) {
