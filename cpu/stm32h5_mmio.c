@@ -2151,13 +2151,17 @@ static void mpcbb_init_defaults(void)
 
 /* An option byte change (OPTSTRT): the _PRG registers become the option bytes
  * and their _CUR copies. The write protection and the watermarks act at once;
- * a new SWAP_BANK waits for the next reset (RM0481 7.3.10). */
+ * a new SWAP_BANK waits for the next reset (RM0481 7.3.10). It is a flash
+ * operation: counted, traced, and power can fail just before it. */
 static void flash_option_change(struct flash_state *f)
 {
     if (f->wb_valid) {
         f->regs[FLASH_NSSR / 4u] |= FLASH_FLAG_PGSERR;      /* RM0481 7.9.4 */
         f->regs[FLASH_SECSR / 4u] |= FLASH_FLAG_PGSERR;
         return;
+    }
+    if (!mm_flash_ops_option_starts()) {
+        return;                         /* the power is off: nothing changes */
     }
     g_opt_swap = (f->dualbank_enabled &&
                   (f->regs[FLASH_OPTSR_PRG / 4u] & FLASH_OPTSR_SWAP_BANK) != 0u) ? MM_TRUE : MM_FALSE;
@@ -2167,6 +2171,7 @@ static void flash_option_change(struct flash_state *f)
     f->regs[FLASH_SECWM2R_CUR / 4u] = f->regs[FLASH_SECWM2R_PRG / 4u];
     g_wrpsg[0] = f->regs[FLASH_WRP1R_PRG / 4u];
     g_wrpsg[1] = f->regs[FLASH_WRP2R_PRG / 4u];
+    mm_flash_ops_option_done();
 }
 
 /* What the option registers hold after a reset: FLASH_OPTCR locked, every _PRG

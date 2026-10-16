@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "m33mu/flash_ops.h"
+#include "m33mu/optbytes.h"
 
 /* A program writes a word or a quad-word; a ROM API program can write a
  * page, but never leaves it all 0xFF in a range this long while the array
@@ -178,6 +179,7 @@ static mm_u64 op_us(enum mm_flash_op_kind kind, mm_u32 len)
         if (t->erase_unit == 0u) return 0u;
         return (mm_u64)((len + t->erase_unit - 1u) / t->erase_unit) * t->erase_us[i];
     case MM_FLASH_OP_BULK:
+    case MM_FLASH_OP_OPTION:            /* no datasheet figure: taken as instant */
         break;
     }
     return 0u;
@@ -204,6 +206,8 @@ static void trace_op(enum mm_flash_op_kind kind, mm_u32 offset, mm_u32 len, mm_u
     case MM_FLASH_OP_BULK:
         fprintf(ops.trace, "B 0x%08lX #%lX", (unsigned long)addr, (unsigned long)len);
         break;
+    case MM_FLASH_OP_OPTION:
+        break;                          /* traced by mm_flash_ops_option_done() */
     }
     if (ops.timing != 0 && ops.level != MM_FLASH_TIMING_NONE) {
         fprintf(ops.trace, " @%llu", (unsigned long long)us);
@@ -315,6 +319,7 @@ const char *mm_flash_op_kind_name(enum mm_flash_op_kind kind)
     case MM_FLASH_OP_ERASE: return "erase";
     case MM_FLASH_OP_MASS_ERASE: return "mass erase";
     case MM_FLASH_OP_BULK: return "bulk rewrite";
+    case MM_FLASH_OP_OPTION: return "option change";
     }
     return "?";
 }
@@ -356,6 +361,41 @@ static void latch(enum mm_flash_violation kind, mm_u32 offset)
         ops.latch_first[kind] = ops.base + offset;
     }
     ops.latch_count[kind]++;
+}
+
+mm_bool mm_flash_ops_option_starts(void)
+{
+    if (!ops.enabled) return MM_TRUE;
+    if (ops.cut_fired) return MM_FALSE;
+    if (ops.count == ops.cut_index) {
+        /* Power fails just before the change: the option bytes stay. */
+        ops.cut_fired = MM_TRUE;
+        ops.cut.index = ops.count;
+        ops.cut.kind = MM_FLASH_OP_OPTION;
+        ops.cut.addr = 0u;
+        ops.cut.len = 0u;
+        return MM_FALSE;
+    }
+    return MM_TRUE;
+}
+
+void mm_flash_ops_option_done(void)
+{
+    size_t i;
+    mm_u32 value;
+    if (!ops.enabled) return;
+    if (ops.trace != 0) {
+        fputc('O', ops.trace);
+        for (i = 0; i < mm_optbytes_count(); ++i) {
+            const char *name = mm_optbytes_name(i);
+            if (name != 0 && mm_optbytes_get(name, &value)) {
+                fprintf(ops.trace, " %s=0x%08lX", name, (unsigned long)value);
+            }
+        }
+        fputc('\n', ops.trace);
+        fflush(ops.trace);
+    }
+    ops.count++;
 }
 
 void mm_flash_ops_refused(mm_u32 offset, const mm_u8 *wanted, mm_u32 len)
