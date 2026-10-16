@@ -1148,7 +1148,8 @@ static void harness_flash(struct mm_gdb_stub *stub, struct mm_memmap *map, const
                      (unsigned long long)cut.index,
                      cut.kind == MM_FLASH_OP_PROGRAM ? "program" :
                      cut.kind == MM_FLASH_OP_ERASE ? "erase" :
-                     cut.kind == MM_FLASH_OP_MASS_ERASE ? "mass-erase" : "bulk",
+                     cut.kind == MM_FLASH_OP_MASS_ERASE ? "mass-erase" :
+                     cut.kind == MM_FLASH_OP_OPTION ? "option" : "bulk",
                      (unsigned long)cut.addr, (unsigned long)cut.len);
         } else {
             snprintf(line, sizeof(line), "flash cut none\n");
