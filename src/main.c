@@ -4724,7 +4724,6 @@ int main(int argc, char **argv)
     int gdb_port = 1234;
     const char *cpu_name = 0;
     int i;
-    struct mm_target_cfg cfg;
     struct mm_execution_state execution = { 0 };
     mm_u8 *flash;
     mm_u8 *ram;
@@ -4734,7 +4733,6 @@ int main(int argc, char **argv)
     mm_bool tui_active = MM_FALSE;
     int rc = 0;
     struct mm_load_targets targets;
-    struct mm_target_storage target_storage = { 0 };
     /* IT block tracking: pattern encodes THEN(1)/ELSE(0) for remaining instructions. */
     mm_bool tui_paused = MM_FALSE;
     mm_bool tui_step = MM_FALSE;
@@ -5567,7 +5565,7 @@ int main(int argc, char **argv)
     mm_stm32_saes_set_key_material(opt_puf_seed_set, opt_puf_seed,
                                    (opt_sbkload_key_len != 0u) ? opt_sbkload_key : 0,
                                    opt_sbkload_key_len);
-    if (!mm_cpu_lookup(cpu_name, &cfg)) {
+    if (!mm_cpu_lookup(cpu_name, &execution.target)) {
         size_t ci;
         fprintf(stderr, "unknown CPU: %s\n", cpu_name);
         fprintf(stderr, "valid cpus:");
@@ -5581,7 +5579,7 @@ int main(int argc, char **argv)
         return 1;
     }
     if (opt_dualbank) {
-        cfg.flags |= MM_TARGET_FLAG_DUALBANK;
+        execution.target.flags |= MM_TARGET_FLAG_DUALBANK;
     }
     if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
         mm_rp2350_otp_init(cpu_name);
@@ -5600,7 +5598,7 @@ int main(int argc, char **argv)
             if (detect_image_type(images[ii].path) != MM_IMAGE_UF2) {
                 continue;
             }
-            if (uf2_scan_for_ram_boot(images[ii].path, &cfg, cpu_name, &ram_boot) && ram_boot) {
+            if (uf2_scan_for_ram_boot(images[ii].path, &execution.target, cpu_name, &ram_boot) && ram_boot) {
                 if (opt_boot_mode) {
                     printf("warning: UF2 requests RAM boot; overriding --boot to ram\n");
                 }
@@ -5771,10 +5769,10 @@ int main(int argc, char **argv)
         }
 
         if (opt_boot_offset) {
-            size_t limit = cfg.flash_size_s;
+            size_t limit = execution.target.flash_size_s;
             const char *kind = "flash";
             if (boot_mode == MM_BOOT_RAM) {
-                limit = mm_target_storage_ram_size(&cfg);
+                limit = mm_target_storage_ram_size(&execution.target);
                 kind = "ram";
             } else if (boot_mode == MM_BOOT_SPIFLASH) {
                 limit = spiflash_size;
@@ -5830,20 +5828,20 @@ int main(int argc, char **argv)
         }
     }
 
-    if (!mm_target_storage_init(&target_storage, &cfg)) {
+    if (!mm_target_storage_init(&execution.storage, &execution.target)) {
         fprintf(stderr, "out of memory\n");
         rc = 1;
         goto cleanup;
     }
-    flash = target_storage.flash;
-    ram = target_storage.ram;
+    flash = execution.storage.flash;
+    ram = execution.storage.ram;
     {
         size_t i;
         mm_u64 ram_seed_state = opt_puf_seed;
-        for (i = 0; i < target_storage.flash_size; ++i) {
+        for (i = 0; i < execution.storage.flash_size; ++i) {
             flash[i] = 0xFFu;
         }
-        for (i = 0; i < target_storage.ram_size; ++i) {
+        for (i = 0; i < execution.storage.ram_size; ++i) {
             if (opt_puf_seed_set) {
                 if ((i & 7u) == 0u) {
                     ram_seed_state = splitmix64_next(&ram_seed_state);
@@ -5854,15 +5852,15 @@ int main(int argc, char **argv)
             }
         }
         if (opt_puf_seed_set && opt_puf_noise > 0u) {
-            apply_puf_noise(ram, target_storage.ram_size, opt_puf_seed,
+            apply_puf_noise(ram, execution.storage.ram_size, opt_puf_seed,
                             opt_puf_cold_boot_count, opt_puf_noise);
         }
     }
 
     targets.flash = flash;
-    targets.flash_size = target_storage.flash_size;
+    targets.flash_size = execution.storage.flash_size;
     targets.ram = ram;
-    targets.ram_size = target_storage.ram_size;
+    targets.ram_size = execution.storage.ram_size;
     targets.spiflash = spiflash_boot_data;
     targets.spiflash_size = spiflash_boot_size;
     targets.spiflash_base = spiflash_boot_base;
@@ -5871,7 +5869,7 @@ int main(int argc, char **argv)
         int j;
         mm_u32 b0;
         mm_u32 b1;
-        if (load_image_autodetect(&images[i], &cfg, &targets, boot_mode, cpu_name) != 0) {
+        if (load_image_autodetect(&images[i], &execution.target, &targets, boot_mode, cpu_name) != 0) {
             fprintf(stderr, "failed to load image %s\n", images[i].path);
             rc = 1;
             goto cleanup;
@@ -5918,7 +5916,7 @@ int main(int argc, char **argv)
             persist_count++;
         }
         if (persist_count > 0) {
-            mm_flash_persist_build(&persist, flash, cfg.flash_size_s, paths, offsets, persist_count);
+            mm_flash_persist_build(&persist, flash, execution.target.flash_size_s, paths, offsets, persist_count);
         }
         }
     }
@@ -5926,36 +5924,36 @@ int main(int argc, char **argv)
         opt_flash_cut == MM_FLASH_OPS_NEVER && !opt_flash_cut_erase &&
         opt_flash_timing == MM_FLASH_TIMING_NONE) {
         /* counted, so that the debugger's monitor flash commands work */
-        if (mm_flash_ops_enable(flash, cfg.flash_size_s, cfg.flash_base_s)) {
-            mm_flash_persist_watch(&persist, flash, cfg.flash_size_s);
+        if (mm_flash_ops_enable(flash, execution.target.flash_size_s, execution.target.flash_base_s)) {
+            mm_flash_persist_watch(&persist, flash, execution.target.flash_size_s);
         }
     }
     if (opt_flash_trace != 0 || opt_flash_cut != MM_FLASH_OPS_NEVER || opt_flash_cut_erase ||
         opt_flash_timing != MM_FLASH_TIMING_NONE) {
-        if (boot_mode != MM_BOOT_FLASH || !mm_flash_ops_enable(flash, cfg.flash_size_s, cfg.flash_base_s)) {
+        if (boot_mode != MM_BOOT_FLASH || !mm_flash_ops_enable(flash, execution.target.flash_size_s, execution.target.flash_base_s)) {
             fprintf(stderr, "flash operation tracking needs flash boot\n");
             rc = 1;
             goto cleanup;
         }
-        mm_flash_persist_watch(&persist, flash, cfg.flash_size_s);
+        mm_flash_persist_watch(&persist, flash, execution.target.flash_size_s);
         if (opt_flash_trace != 0 && !mm_flash_ops_trace_open(opt_flash_trace)) {
             fprintf(stderr, "cannot open flash trace %s\n", opt_flash_trace);
             rc = 1;
             goto cleanup;
         }
         mm_flash_ops_cut_at(opt_flash_cut);
-        if (opt_flash_timing != MM_FLASH_TIMING_NONE && cfg.flash_timing == 0) {
+        if (opt_flash_timing != MM_FLASH_TIMING_NONE && execution.target.flash_timing == 0) {
             printf("warning: no flash timing data for %s; operations take no time\n",
                    (cpu_name != 0) ? cpu_name : "this CPU");
         }
-        mm_flash_ops_set_timing(cfg.flash_timing, opt_flash_timing);
+        mm_flash_ops_set_timing(execution.target.flash_timing, opt_flash_timing);
         if (opt_flash_cut_erase) {
             mm_flash_ops_cut_on_erase(opt_flash_cut_erase_addr);
         }
     }
 
     mm_gdb_stub_init(&gdb);
-    gdb.flash_timing = cfg.flash_timing;
+    gdb.flash_timing = execution.target.flash_timing;
     if (opt_fault_clock_count > 0u) {
         mm_u8 i;
         if (opt_fault_clock_count > (mm_u8)(sizeof(gdb.fault_clocks) / sizeof(gdb.fault_clocks[0]))) {
@@ -6043,8 +6041,8 @@ int main(int argc, char **argv)
 #ifdef M33MU_HAS_ONNXRUNTIME
             g_npu_out_dump = opt_npu_out_dump;
 #endif
-            mm_target_soc_reset(&cfg);
-            mm_timer_reset(&cfg);
+            mm_target_soc_reset(&execution.target);
+            mm_timer_reset(&execution.target);
             mm_signal_prepare_for_run();
             mm_spiflash_reset_all();
 #ifdef M33MU_HAS_LIBTPMS
@@ -6058,10 +6056,10 @@ int main(int argc, char **argv)
             mm_stsafe_reset_all();
             mm_tropic01_reset_all();
 #endif
-            mm_memmap_configure_flash(&execution.map, &cfg, flash, MM_TRUE);
-            mm_memmap_configure_flash(&execution.map, &cfg, flash, MM_FALSE);
-            mm_memmap_configure_ram(&execution.map, &cfg, ram, MM_TRUE);
-            mm_memmap_configure_ram(&execution.map, &cfg, ram, MM_FALSE);
+            mm_memmap_configure_flash(&execution.map, &execution.target, flash, MM_TRUE);
+            mm_memmap_configure_flash(&execution.map, &execution.target, flash, MM_FALSE);
+            mm_memmap_configure_ram(&execution.map, &execution.target, ram, MM_TRUE);
+            mm_memmap_configure_ram(&execution.map, &execution.target, ram, MM_FALSE);
 #ifdef M33MU_HAS_ONNXRUNTIME
             if (opt_npu_model != 0) {
                 struct npu_onnx_model *npu_model = 0;
@@ -6080,35 +6078,35 @@ int main(int argc, char **argv)
                 if (opt_boot_offset) {
                     boot_offset_local = boot_offset;
                 } else if (boot_mode_local == MM_BOOT_FLASH) {
-                    boot_offset_local = default_rp2350_boot_offset(cpu_name, &cfg, images, image_count, flash, cfg.flash_size_s);
+                    boot_offset_local = default_rp2350_boot_offset(cpu_name, &execution.target, images, image_count, flash, execution.target.flash_size_s);
                 } else {
                     boot_offset_local = 0u;
                 }
                 if (boot_mode_local == MM_BOOT_RAM) {
-                    boot_base_s = cfg.ram_base_s + boot_offset_local;
-                    boot_base_ns = cfg.ram_base_ns + boot_offset_local;
+                    boot_base_s = execution.target.ram_base_s + boot_offset_local;
+                    boot_base_ns = execution.target.ram_base_ns + boot_offset_local;
                 } else if (boot_mode_local == MM_BOOT_SPIFLASH) {
                     boot_base_s = spiflash_boot_base + boot_offset_local;
                     boot_base_ns = spiflash_boot_base + boot_offset_local;
                 } else {
-                    boot_base_s = cfg.flash_base_s + boot_offset_local;
-                    boot_base_ns = cfg.flash_base_ns + boot_offset_local;
+                    boot_base_s = execution.target.flash_base_s + boot_offset_local;
+                    boot_base_ns = execution.target.flash_base_ns + boot_offset_local;
                 }
                 boot_resolved = MM_FALSE;
-                if (!opt_boot_offset && boot_mode_local == MM_BOOT_FLASH && cfg.boot_resolve != 0) {
+                if (!opt_boot_offset && boot_mode_local == MM_BOOT_FLASH && execution.target.boot_resolve != 0) {
                     mm_u32 vtor = 0;
-                    if (cfg.boot_resolve(&execution.map, flash, cfg.flash_size_s, &vtor)) {
+                    if (execution.target.boot_resolve(&execution.map, flash, execution.target.flash_size_s, &vtor)) {
                         boot_base_s = vtor;
                         boot_base_ns = vtor;
                         boot_resolved = MM_TRUE;
                     }
                 }
                 if (opt_no_tz) {
-                    cfg.mpcbb_block_secure = 0;
-                    cfg.mpcbb_block_size = 0;
+                    execution.target.mpcbb_block_secure = 0;
+                    execution.target.mpcbb_block_size = 0;
                     /* No TrustZone: the target IDAU attribution must not
                      * fault accesses either. */
-                    cfg.tz_attr_for_addr = 0;
+                    execution.target.tz_attr_for_addr = 0;
                     /* Running the core non-secure only models a
                      * TrustZone-disabled part when the non-secure view is the
                      * base address, as it is on the NXP and ST targets that
@@ -6117,14 +6115,14 @@ int main(int argc, char **argv)
                      * view and have to keep running there; with no SAU
                      * programmed that is already what a part with TrustZone
                      * disabled looks like. */
-                    if (cfg.ram_base_ns <= cfg.ram_base_s &&
-                        (cfg.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
+                    if (execution.target.ram_base_ns <= execution.target.ram_base_s &&
+                        (execution.target.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
                         force_ns_boot = MM_TRUE;
                     }
                     mm_mcxn947_romapi_set_tz_disabled(MM_TRUE);
                     printf("[TZ] TrustZone disabled via --no-tz\n");
-                } else if (cfg.ram_base_s != cfg.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH &&
-                           (cfg.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
+                } else if (execution.target.ram_base_s != execution.target.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH &&
+                           (execution.target.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
                     if (mm_vector_read(&execution.map, MM_SECURE, boot_base_s, 0u, &initial_sp)) {
                         /* An initial SP inside the non-secure RAM alias means
                          * the image was linked for the non-secure world.  The
@@ -6133,13 +6131,13 @@ int main(int argc, char **argv)
                          * base + 0x10000000, the opposite of the NXP and ST
                          * parts. */
                         if ((initial_sp & 0xF0000000u) ==
-                            (cfg.ram_base_ns & 0xF0000000u)) {
+                            (execution.target.ram_base_ns & 0xF0000000u)) {
                             force_ns_boot = MM_TRUE;
-                            cfg.mpcbb_block_secure = 0;
-                            cfg.mpcbb_block_size = 0;
+                            execution.target.mpcbb_block_secure = 0;
+                            execution.target.mpcbb_block_size = 0;
                             /* No TrustZone: the target IDAU attribution must
                              * not fault accesses either. */
-                            cfg.tz_attr_for_addr = 0;
+                            execution.target.tz_attr_for_addr = 0;
                             mm_mcxn947_romapi_set_tz_disabled(MM_TRUE);
                             printf("[TZ] Non-secure boot detected (SP=0x%08lx); TrustZone disabled\n",
                                    (unsigned long)initial_sp);
@@ -6147,29 +6145,29 @@ int main(int argc, char **argv)
                     }
                 }
                 if (force_ns_boot) {
-                    execution.map.flash.base = cfg.flash_base_ns;
-                    execution.map.flash.length = cfg.flash_size_ns;
-                    execution.map.ram.base = cfg.ram_base_ns;
+                    execution.map.flash.base = execution.target.flash_base_ns;
+                    execution.map.flash.length = execution.target.flash_size_ns;
+                    execution.map.ram.base = execution.target.ram_base_ns;
                     if (boot_mode_local == MM_BOOT_FLASH && !boot_resolved) {
-                        boot_base_s = cfg.flash_base_ns + boot_offset_local;
-                        boot_base_ns = cfg.flash_base_ns + boot_offset_local;
+                        boot_base_s = execution.target.flash_base_ns + boot_offset_local;
+                        boot_base_ns = execution.target.flash_base_ns + boot_offset_local;
                     } else if (boot_resolved) {
                         /* The boot hook reports secure-alias addresses. */
                         mm_u32 v = boot_base_s;
-                        if (v >= cfg.flash_base_s && v - cfg.flash_base_s < cfg.flash_size_s) {
-                            v = cfg.flash_base_ns + (v - cfg.flash_base_s);
-                        } else if (v >= cfg.ram_base_s && v - cfg.ram_base_s < cfg.ram_size_s) {
-                            v = cfg.ram_base_ns + (v - cfg.ram_base_s);
+                        if (v >= execution.target.flash_base_s && v - execution.target.flash_base_s < execution.target.flash_size_s) {
+                            v = execution.target.flash_base_ns + (v - execution.target.flash_base_s);
+                        } else if (v >= execution.target.ram_base_s && v - execution.target.ram_base_s < execution.target.ram_size_s) {
+                            v = execution.target.ram_base_ns + (v - execution.target.ram_base_s);
                         }
                         boot_base_s = v;
                         boot_base_ns = v;
                     }
                 } else {
-                    execution.map.flash.base = cfg.flash_base_s;
-                    execution.map.flash.length = cfg.flash_size_s;
-                    execution.map.ram.base = cfg.ram_base_s;
+                    execution.map.flash.base = execution.target.flash_base_s;
+                    execution.map.flash.length = execution.target.flash_size_s;
+                    execution.map.ram.base = execution.target.ram_base_s;
                 }
-                execution.map.ram.length = target_storage.ram_size;
+                execution.map.ram.length = execution.storage.ram_size;
             }
             if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
                 const struct rp2350_partition_table *pt = mm_rp2350_partition_table_get();
@@ -6202,7 +6200,7 @@ int main(int argc, char **argv)
                     stm32h5_flash_set_secwm(1, opt_secwm_strt[1], opt_secwm_end[1]);
                 }
             }
-            if (!mm_target_register_mmio(&cfg, &execution.map.mmio)) {
+            if (!mm_target_register_mmio(&execution.target, &execution.map.mmio)) {
                 fprintf(stderr, "Failed to register MMIO for CPU %s\n", (cpu_name != 0) ? cpu_name : "unknown");
                 rc = 1;
                 goto cleanup;
@@ -6248,57 +6246,57 @@ int main(int argc, char **argv)
                 }
             }
             mm_spiflash_register_mmap_regions(&execution.map.mmio);
-            mm_target_flash_bind(&cfg, &execution.map, flash, cfg.flash_size_s, persist.enabled ? &persist : 0);
-            mm_target_usart_reset(&cfg);
-            mm_target_usart_init(&cfg, &execution.map.mmio, &execution.cores[0].nvic);
-            mm_target_spi_reset(&cfg);
-            mm_target_spi_init(&cfg, &execution.map.mmio, &execution.cores[0].nvic);
-            mm_target_eth_reset(&cfg);
-            mm_target_eth_init(&cfg, &execution.map.mmio, &execution.cores[0].nvic);
-            mm_timer_init(&cfg, &execution.map.mmio, &execution.cores[0].nvic);
+            mm_target_flash_bind(&execution.target, &execution.map, flash, execution.target.flash_size_s, persist.enabled ? &persist : 0);
+            mm_target_usart_reset(&execution.target);
+            mm_target_usart_init(&execution.target, &execution.map.mmio, &execution.cores[0].nvic);
+            mm_target_spi_reset(&execution.target);
+            mm_target_spi_init(&execution.target, &execution.map.mmio, &execution.cores[0].nvic);
+            mm_target_eth_reset(&execution.target);
+            mm_target_eth_init(&execution.target, &execution.map.mmio, &execution.cores[0].nvic);
+            mm_timer_init(&execution.target, &execution.map.mmio, &execution.cores[0].nvic);
 
             mm_scs_init(&execution.cores[0].scs, 0x410fc241u);
-            mm_scs_set_fpu_present(&execution.cores[0].scs, (cfg.flags & MM_TARGET_FLAG_FPU) != 0u);
-            if (cfg.core_count > 1u) {
+            mm_scs_set_fpu_present(&execution.cores[0].scs, (execution.target.flags & MM_TARGET_FLAG_FPU) != 0u);
+            if (execution.target.core_count > 1u) {
                 mm_scs_init(&execution.cores[1].scs, 0x410fc241u);
-                mm_scs_set_fpu_present(&execution.cores[1].scs, (cfg.flags & MM_TARGET_FLAG_FPU) != 0u);
+                mm_scs_set_fpu_present(&execution.cores[1].scs, (execution.target.flags & MM_TARGET_FLAG_FPU) != 0u);
                 execution.scs_mux.scs[0] = &execution.cores[0].scs;
                 execution.scs_mux.scs[1] = &execution.cores[1].scs;
                 execution.scs_mux.nvic[0] = &execution.cores[0].nvic;
                 execution.scs_mux.nvic[1] = &execution.cores[1].nvic;
-                execution.scs_mux.core_count = cfg.core_count;
+                execution.scs_mux.core_count = execution.target.core_count;
                 execution.scs_mux.active_core = &execution.active_core;
                 mm_scs_register_regions_multi(&execution.scs_mux, &execution.map.mmio, 0xE000ED00u, 0xE002ED00u);
             } else {
                 mm_scs_register_regions(&execution.cores[0].scs, &execution.map.mmio, 0xE000ED00u, 0xE002ED00u, &execution.cores[0].nvic);
             }
-            if ((cfg.flags & MM_TARGET_FLAG_FPU) != 0u) {
+            if ((execution.target.flags & MM_TARGET_FLAG_FPU) != 0u) {
                 execution.cores[0].scs.cpacr_s |= 0x00F00000u;
                 execution.cores[0].scs.cpacr_ns |= 0x00F00000u;
                 execution.cores[0].scs.nsacr |= (1u << 10) | (1u << 11);
-                if (cfg.core_count > 1u) {
+                if (execution.target.core_count > 1u) {
                     execution.cores[1].scs.cpacr_s |= 0x00F00000u;
                     execution.cores[1].scs.cpacr_ns |= 0x00F00000u;
                     execution.cores[1].scs.nsacr |= (1u << 10) | (1u << 11);
                 }
             }
             mm_core_sys_register(&execution.map.mmio, &execution.core_sys);
-            mm_prot_init(&execution.protection[0], &execution.cores[0].scs, &cfg, &execution.cores[0].cpu);
-            if (cfg.core_count > 1u) {
-                mm_prot_init(&execution.protection[1], &execution.cores[1].scs, &cfg, &execution.cores[1].cpu);
+            mm_prot_init(&execution.protection[0], &execution.cores[0].scs, &execution.target, &execution.cores[0].cpu);
+            if (execution.target.core_count > 1u) {
+                mm_prot_init(&execution.protection[1], &execution.cores[1].scs, &execution.target, &execution.cores[1].cpu);
             }
             g_active_prot_ctx = &execution.protection[0];
             mm_memmap_set_interceptor(&execution.map, prot_mux_interceptor, 0);
             mm_memmap_set_bus_attr(&execution.map, prot_mux_bus_attr, 0);
-            mm_prot_add_region(&execution.protection[0], cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-            mm_prot_add_region(&execution.protection[0], cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+            mm_prot_add_region(&execution.protection[0], execution.target.flash_base_s, execution.target.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+            mm_prot_add_region(&execution.protection[0], execution.target.flash_base_ns, execution.target.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
             /* Secure code may address the non-secure flash alias: on ARMv8-M a
              * secure master reaching an address the SAU/IDAU attributes NS just
              * issues a non-secure transaction, it is not denied.  Whether the
              * read returns data is then up to the flash TZ filter, which
              * mm_memmap_read applies.  Without this region the access never got
              * that far and read back as zero even for NS-attributed sectors. */
-            mm_prot_add_region(&execution.protection[0], cfg.flash_base_ns, cfg.flash_size_ns,
+            mm_prot_add_region(&execution.protection[0], execution.target.flash_base_ns, execution.target.flash_size_ns,
                                MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
             if (cpu_name != 0 && strcmp(cpu_name, "mcxn947") == 0) {
                 mm_prot_add_region(&execution.protection[0], 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_SECURE);
@@ -6357,24 +6355,24 @@ int main(int argc, char **argv)
                 mm_prot_add_region(&execution.protection[0], 0x00000000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
             }
             if (cpu_name != 0 && strcmp(cpu_name, "nrf5340") == 0) {
-                mm_prot_add_region(&execution.protection[0], 0x00000000u, cfg.flash_size_ns,
+                mm_prot_add_region(&execution.protection[0], 0x00000000u, execution.target.flash_size_ns,
                                    MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&execution.protection[0], 0x00000000u, cfg.flash_size_ns,
+                mm_prot_add_region(&execution.protection[0], 0x00000000u, execution.target.flash_size_ns,
                                    MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
             }
             if (cpu_name != 0 && strcmp(cpu_name, "imxrt700") == 0) {
-                add_imxrt700_prot_regions(&execution.protection[0], &cfg);
+                add_imxrt700_prot_regions(&execution.protection[0], &execution.target);
             }
-            if (cfg.ram_regions != 0 && cfg.ram_region_count > 0u) {
+            if (execution.target.ram_regions != 0 && execution.target.ram_region_count > 0u) {
                 mm_u32 ri;
-                for (ri = 0; ri < cfg.ram_region_count; ++ri) {
-                    const struct mm_ram_region *r = &cfg.ram_regions[ri];
+                for (ri = 0; ri < execution.target.ram_region_count; ++ri) {
+                    const struct mm_ram_region *r = &execution.target.ram_regions[ri];
                     mm_prot_add_region(&execution.protection[0], r->base_s, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
                     mm_prot_add_region(&execution.protection[0], r->base_ns, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 }
             } else {
-                mm_prot_add_region(&execution.protection[0], cfg.ram_base_s, cfg.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&execution.protection[0], cfg.ram_base_ns, cfg.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], execution.target.ram_base_s, execution.target.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], execution.target.ram_base_ns, execution.target.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
             }
             /* Permit peripheral space (AHB/APB) for now; SAU still controls Secure vs Non-secure visibility. */
             mm_prot_add_region(&execution.protection[0], 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
@@ -6386,11 +6384,11 @@ int main(int argc, char **argv)
                 mm_prot_add_region(&execution.protection[0], 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
                 mm_prot_add_region(&execution.protection[0], 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
             }
-            if (cfg.core_count > 1u) {
-                mm_prot_add_region(&execution.protection[1], cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&execution.protection[1], cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+            if (execution.target.core_count > 1u) {
+                mm_prot_add_region(&execution.protection[1], execution.target.flash_base_s, execution.target.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[1], execution.target.flash_base_ns, execution.target.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 if (cpu_name != 0 && strcmp(cpu_name, "mcxn947") == 0) {
-                    mm_prot_add_region(&execution.protection[1], cfg.flash_base_ns, cfg.flash_size_ns,
+                    mm_prot_add_region(&execution.protection[1], execution.target.flash_base_ns, execution.target.flash_size_ns,
                                        MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
                     mm_prot_add_region(&execution.protection[1], 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_SECURE);
                     mm_prot_add_region(&execution.protection[1], 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_NONSECURE);
@@ -6405,24 +6403,24 @@ int main(int argc, char **argv)
                     mm_prot_add_region(&execution.protection[1], 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "imxrt700") == 0) {
-                    add_imxrt700_prot_regions(&execution.protection[1], &cfg);
+                    add_imxrt700_prot_regions(&execution.protection[1], &execution.target);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "nrf5340") == 0) {
-                    mm_prot_add_region(&execution.protection[1], 0x00000000u, cfg.flash_size_ns,
+                    mm_prot_add_region(&execution.protection[1], 0x00000000u, execution.target.flash_size_ns,
                                        MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                    mm_prot_add_region(&execution.protection[1], 0x00000000u, cfg.flash_size_ns,
+                    mm_prot_add_region(&execution.protection[1], 0x00000000u, execution.target.flash_size_ns,
                                        MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 }
-                if (cfg.ram_regions != 0 && cfg.ram_region_count > 0u) {
+                if (execution.target.ram_regions != 0 && execution.target.ram_region_count > 0u) {
                     mm_u32 ri;
-                    for (ri = 0; ri < cfg.ram_region_count; ++ri) {
-                        const struct mm_ram_region *r = &cfg.ram_regions[ri];
+                    for (ri = 0; ri < execution.target.ram_region_count; ++ri) {
+                        const struct mm_ram_region *r = &execution.target.ram_regions[ri];
                         mm_prot_add_region(&execution.protection[1], r->base_s, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
                         mm_prot_add_region(&execution.protection[1], r->base_ns, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                     }
                 } else {
-                    mm_prot_add_region(&execution.protection[1], cfg.ram_base_s, cfg.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                    mm_prot_add_region(&execution.protection[1], cfg.ram_base_ns, cfg.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                    mm_prot_add_region(&execution.protection[1], execution.target.ram_base_s, execution.target.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                    mm_prot_add_region(&execution.protection[1], execution.target.ram_base_ns, execution.target.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 }
                 mm_prot_add_region(&execution.protection[1], 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
                 mm_prot_add_region(&execution.protection[1], 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
@@ -6436,13 +6434,13 @@ int main(int argc, char **argv)
             mm_spiflash_register_prot_regions(&execution.protection[0]);
 
             mm_nvic_init(&execution.cores[0].nvic);
-            if (cfg.core_count > 1u) {
+            if (execution.target.core_count > 1u) {
                 mm_nvic_init(&execution.cores[1].nvic);
             }
             g_cpu0 = &execution.cores[0].cpu;
             g_nvic0 = &execution.cores[0].nvic;
             g_cycle_total = &execution.clock.cycle_total;
-            if (cfg.core_count > 1u) {
+            if (execution.target.core_count > 1u) {
                 g_cpu1 = &execution.cores[1].cpu;
                 g_nvic1 = &execution.cores[1].nvic;
             }
@@ -6451,22 +6449,22 @@ int main(int argc, char **argv)
                 for (irq = 0; irq < MM_MAX_IRQ; ++irq) {
                     mm_nvic_set_itns(&execution.cores[0].nvic, irq, MM_TRUE);
                 }
-                if (cfg.core_count > 1u) {
+                if (execution.target.core_count > 1u) {
                     for (irq = 0; irq < MM_MAX_IRQ; ++irq) {
                         mm_nvic_set_itns(&execution.cores[1].nvic, irq, MM_TRUE);
                     }
                 }
             }
-            if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->bind != 0) {
-                cfg.mc_ops->bind(&execution.cores[0].cpu, &execution.cores[1].cpu, &execution.cores[0].nvic, &execution.cores[1].nvic, &execution.active_core, &execution.map);
+            if (execution.target.core_count > 1u && execution.target.mc_ops != 0 && execution.target.mc_ops->bind != 0) {
+                execution.target.mc_ops->bind(&execution.cores[0].cpu, &execution.cores[1].cpu, &execution.cores[0].nvic, &execution.cores[1].nvic, &execution.active_core, &execution.map);
             }
 
             /* Reset CPU state */
             {
-                mm_execution_state_reset_cores(&execution, cfg.core_count,
+                mm_execution_state_reset_cores(&execution, execution.target.core_count,
                                                boot_base_s, boot_base_ns);
                 apply_target_boot_seed_regs(&execution.cores[0].cpu, cpu_name);
-                if (cfg.core_count > 1u) {
+                if (execution.target.core_count > 1u) {
                     apply_target_boot_seed_regs(&execution.cores[1].cpu, cpu_name);
                 }
             }
@@ -6488,8 +6486,8 @@ int main(int argc, char **argv)
             enum mm_sec_state boot_sec = force_ns_boot ? MM_NONSECURE : MM_SECURE;
             execution.active_core = 0;
                 g_active_prot_ctx = &execution.protection[0];
-                if (cfg.mc_ops != 0 && cfg.mc_ops->set_active_core != 0) {
-                    cfg.mc_ops->set_active_core(0u);
+                if (execution.target.mc_ops != 0 && execution.target.mc_ops->set_active_core != 0) {
+                    execution.target.mc_ops->set_active_core(0u);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
                     execution.cores[0].scs.sau_ctrl = 0x1u | 0x2u;
@@ -6505,7 +6503,7 @@ int main(int argc, char **argv)
             /* Keep SCS VTOR banks in sync with CPU reset values so exception dispatch uses VTOR_S/VTOR_NS. */
             execution.cores[0].scs.vtor_s = execution.cores[0].cpu.vtor_s;
             execution.cores[0].scs.vtor_ns = execution.cores[0].cpu.vtor_ns;
-            if (cfg.core_count > 1u) {
+            if (execution.target.core_count > 1u) {
                 if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
                     execution.cores[1].scs.sau_ctrl = 0x1u | 0x2u;
                 }
@@ -6585,7 +6583,7 @@ int main(int argc, char **argv)
             /* Main loop */
             while (!done || hold_lockup(opt_gdb, &gdb, &done, &execution.cores[0].cpu)) {
                 mm_bool running_now;
-                hz_now = mm_target_cpu_hz(&cfg);
+                hz_now = mm_target_cpu_hz(&execution.target);
                 if (hz_now != 0 && hz_now != last_hz) {
                     cpu_hz = hz_now;
                     last_hz = hz_now;
@@ -6613,16 +6611,16 @@ int main(int argc, char **argv)
                 if (opt_gdb && mm_gdb_stub_should_run(&gdb) && mm_gdb_stub_take_deadline(&gdb)) {
                     mm_gdb_stub_notify_stop(&gdb, 5);
                 }
-                if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
+                if (mm_system_reset_pending() && allow_system_reset(&execution.target, cpu_name)) {
                     reset_again = MM_TRUE;
                     mm_system_clear_reset();
                     break;
                 }
-                if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->core1_take_launch != 0) {
+                if (execution.target.core_count > 1u && execution.target.mc_ops != 0 && execution.target.mc_ops->core1_take_launch != 0) {
                     mm_u32 launch_vtor = 0;
                     mm_u32 launch_sp = 0;
                     mm_u32 launch_entry = 0;
-                    if (cfg.mc_ops->core1_take_launch(&launch_vtor, &launch_sp, &launch_entry)) {
+                    if (execution.target.mc_ops->core1_take_launch(&launch_vtor, &launch_sp, &launch_entry)) {
                         int r;
                         for (r = 0; r < 16; ++r) execution.cores[1].cpu.r[r] = 0;
                         execution.cores[1].cpu.xpsr = 0x01000000u;
@@ -6676,7 +6674,7 @@ int main(int argc, char **argv)
                          * held (a cut operation stays undone). Operations
                          * count from 0 again; a cut that fired is spent, one
                          * still armed waits for this power-up. */
-                        memset(ram, 0, target_storage.ram_size);
+                        memset(ram, 0, execution.storage.ram_size);
                         if (mm_flash_ops_cut_fired(0)) {
                             mm_flash_ops_clear_cut();
                         }
@@ -6754,17 +6752,17 @@ int main(int argc, char **argv)
                     last_running = running_now;
                 }
 
-                if (running_now && !tui_step && cfg.core_count > 1u && cfg.mc_ops != 0 &&
-                    cfg.mc_ops->core1_running != 0 && cfg.mc_ops->core1_running()) {
+                if (running_now && !tui_step && execution.target.core_count > 1u && execution.target.mc_ops != 0 &&
+                    execution.target.mc_ops->core1_running != 0 && execution.target.mc_ops->core1_running()) {
                     const mm_u32 core1_epoch_steps = 64u;
                     mm_u32 core1_step;
                     execution.active_core = 1u;
                     g_active_prot_ctx = &execution.protection[1];
-                    if (cfg.mc_ops->set_active_core != 0) {
-                        cfg.mc_ops->set_active_core(1u);
+                    if (execution.target.mc_ops->set_active_core != 0) {
+                        execution.target.mc_ops->set_active_core(1u);
                     }
                     for (core1_step = 0; core1_step < core1_epoch_steps; ++core1_step) {
-                        if (!cfg.mc_ops->core1_running()) {
+                        if (!execution.target.mc_ops->core1_running()) {
                             break;
                         }
                         if (opt_gdb || opt_tui) {
@@ -6777,7 +6775,7 @@ int main(int argc, char **argv)
                                 fault_clocks[i] = gdb.fault_clocks[i];
                             }
                         }
-                        if (!step_core_simple(&execution.cores[1].cpu, &execution.cores[1].scs, &execution.cores[1].nvic, &execution.map, &cfg, fault_clocks, fault_clock_count,
+                        if (!step_core_simple(&execution.cores[1].cpu, &execution.cores[1].scs, &execution.cores[1].nvic, &execution.map, &execution.target, fault_clocks, fault_clock_count,
                                               &execution.clock,
                                               &execution.cores[1].it_pattern, &execution.cores[1].it_remaining, &execution.cores[1].it_cond, &done)) {
                             break;
@@ -6788,8 +6786,8 @@ int main(int argc, char **argv)
                     }
                     execution.active_core = 0u;
                     g_active_prot_ctx = &execution.protection[0];
-                    if (cfg.mc_ops->set_active_core != 0) {
-                        cfg.mc_ops->set_active_core(0u);
+                    if (execution.target.mc_ops->set_active_core != 0) {
+                        execution.target.mc_ops->set_active_core(0u);
                     }
                     if (done) {
                         continue;
@@ -6798,9 +6796,9 @@ int main(int argc, char **argv)
 
                 if (!running_now) {
                     host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
-                    mm_target_usart_poll(&cfg);
-                    mm_target_spi_poll(&cfg);
-                    mm_target_eth_poll(&cfg);
+                    mm_target_usart_poll(&execution.target);
+                    mm_target_spi_poll(&execution.target);
+                    mm_target_eth_poll(&execution.target);
                     rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                     mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                     mm_usbdev_poll();
@@ -6816,7 +6814,7 @@ int main(int argc, char **argv)
                         req.tv_nsec = (long)IDLE_SLEEP_NS;
                         nanosleep(&req, 0);
                     }
-                    if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
+                    if (mm_system_reset_pending() && allow_system_reset(&execution.target, cpu_name)) {
                         reset_again = MM_TRUE;
                         mm_system_clear_reset();
                         break;
@@ -6839,7 +6837,7 @@ int main(int argc, char **argv)
                 }
 
                 if (!opt_gdb && reload_pending && tui_paused) {
-                    if (reload_images(images, image_count, &targets, &cfg, boot_mode, cpu_name, &loaded_total, &loaded_max_end)) {
+                    if (reload_images(images, image_count, &targets, &execution.target, boot_mode, cpu_name, &loaded_total, &loaded_max_end)) {
                         if (opt_persist) {
                             const char *paths[16];
                             mm_u32 offsets[16];
@@ -6854,7 +6852,7 @@ int main(int argc, char **argv)
                                 persist_count++;
                             }
                             if (persist_count > 0) {
-                                mm_flash_persist_build(&persist, flash, cfg.flash_size_s, paths, offsets, persist_count);
+                                mm_flash_persist_build(&persist, flash, execution.target.flash_size_s, paths, offsets, persist_count);
                             }
                         }
                         build_symbol_db(images, image_count, gdb_symbols_list, gdb_symbols_count);
@@ -6892,9 +6890,9 @@ int main(int argc, char **argv)
                                 step = left;
                             }
                         }
-                        mm_execution_clock_advance(&execution.cores[0].scs, &cfg, step, MM_FALSE, 0u, &execution.clock);
-                        mm_target_usart_poll(&cfg);
-                        if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
+                        mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, step, MM_FALSE, 0u, &execution.clock);
+                        mm_target_usart_poll(&execution.target);
+                        if (mm_system_reset_pending() && allow_system_reset(&execution.target, cpu_name)) {
                             reset_again = MM_TRUE;
                             mm_system_clear_reset();
                             break;
@@ -6924,8 +6922,8 @@ int main(int argc, char **argv)
                         execution.cores[0].cpu.sleeping = MM_FALSE;
                         execution.cores[0].cpu.sleep_wfe = MM_FALSE;
                         execution.cores[0].cpu.event_reg = MM_FALSE;
-                    } else if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->core1_running != 0 &&
-                               cfg.mc_ops->core1_running() && !execution.cores[1].cpu.sleeping) {
+                    } else if (execution.target.core_count > 1u && execution.target.mc_ops != 0 && execution.target.mc_ops->core1_running != 0 &&
+                               execution.target.mc_ops->core1_running() && !execution.cores[1].cpu.sleeping) {
                         /* Core1 still has work: keep scheduling it rather than idling the host. */
                         continue;
                     } else {
@@ -6955,10 +6953,10 @@ int main(int argc, char **argv)
                             if (idle_cycles == 0) {
                                 idle_cycles = 1;
                             }
-                            mm_execution_clock_advance(&execution.cores[0].scs, &cfg, idle_cycles, MM_FALSE, 0u, &execution.clock);
-                            mm_target_usart_poll(&cfg);
-                            mm_target_spi_poll(&cfg);
-                            mm_target_eth_poll(&cfg);
+                            mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, idle_cycles, MM_FALSE, 0u, &execution.clock);
+                            mm_target_usart_poll(&execution.target);
+                            mm_target_spi_poll(&execution.target);
+                            mm_target_eth_poll(&execution.target);
                             rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                             mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
@@ -6976,22 +6974,22 @@ int main(int argc, char **argv)
                                 execution.cores[0].cpu.event_reg = MM_FALSE;
                                 goto handle_pending;
                             }
-                            if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
+                            if (mm_system_reset_pending() && allow_system_reset(&execution.target, cpu_name)) {
                                 reset_again = MM_TRUE;
                                 mm_system_clear_reset();
                                 break;
                             }
                         } else {
-                            mm_execution_clock_advance(&execution.cores[0].scs, &cfg, delta, MM_FALSE, 0u, &execution.clock);
+                            mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, delta, MM_FALSE, 0u, &execution.clock);
                             if (mm_execution_irq_systick_pending_select(&execution.cores[0].cpu, &execution.cores[0].scs, &systick_sec) || execution.cores[0].scs.pend_sv) {
                                 execution.cores[0].cpu.sleeping = MM_FALSE;
                                 execution.cores[0].cpu.sleep_wfe = MM_FALSE;
                                 execution.cores[0].cpu.event_reg = MM_FALSE;
                             }
                             host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
-                            mm_target_usart_poll(&cfg);
-                            mm_target_spi_poll(&cfg);
-                            mm_target_eth_poll(&cfg);
+                            mm_target_usart_poll(&execution.target);
+                            mm_target_spi_poll(&execution.target);
+                            mm_target_eth_poll(&execution.target);
                             rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                             mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
@@ -7002,7 +7000,7 @@ int main(int argc, char **argv)
                                 continue;
                             }
                             execution.clock.cycles_since_poll = 0;
-                            if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
+                            if (mm_system_reset_pending() && allow_system_reset(&execution.target, cpu_name)) {
                                 reset_again = MM_TRUE;
                                 mm_system_clear_reset();
                                 break;
@@ -7127,12 +7125,12 @@ handle_pending:
                             mm_signal_check_trigger(execution.cores[0].cpu.r[15] & ~1u);
                             (void)mm_tb_run(tb, &exec_ctx, &done, &tb_bkpt_hit, &tb_bkpt_imm, &ops_executed);
                             if (ops_executed != 0u) {
-                                mm_execution_clock_advance(&execution.cores[0].scs, &cfg, (mm_u64)ops_executed, MM_FALSE, 0u, &execution.clock);
+                                mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, (mm_u64)ops_executed, MM_FALSE, 0u, &execution.clock);
                             }
                             {
                                 mm_u64 stall = flash_stall_cycles(cpu_hz);
                                 if (stall != 0u) {
-                                    mm_execution_clock_advance(&execution.cores[0].scs, &cfg, stall, MM_FALSE, 0u, &execution.clock);
+                                    mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, stall, MM_FALSE, 0u, &execution.clock);
                                 }
                             }
                             if (mm_flash_ops_cut_fired(0)) {
@@ -7240,9 +7238,9 @@ handle_pending:
                             continue;
                         }
                         if (tb != 0 && execution.clock.cycles_since_poll >= poll_granularity) {
-                            mm_target_usart_poll(&cfg);
-                            mm_target_spi_poll(&cfg);
-                            mm_target_eth_poll(&cfg);
+                            mm_target_usart_poll(&execution.target);
+                            mm_target_spi_poll(&execution.target);
+                            mm_target_eth_poll(&execution.target);
                             rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                             mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
@@ -7275,10 +7273,10 @@ handle_pending:
                         /* the previous instruction's flash operation, if any */
                         mm_u64 stall = flash_stall_cycles(cpu_hz);
                         if (stall != 0u) {
-                            mm_execution_clock_advance(&execution.cores[0].scs, &cfg, stall, MM_FALSE, 0u, &execution.clock);
+                            mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, stall, MM_FALSE, 0u, &execution.clock);
                         }
                     }
-                    mm_execution_clock_advance(&execution.cores[0].scs, &cfg, insn_cycles, MM_TRUE, execution.cores[0].cpu.r[15] & ~1u, &execution.clock);
+                    mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, insn_cycles, MM_TRUE, execution.cores[0].cpu.r[15] & ~1u, &execution.clock);
                     if (opt_gdb || opt_tui) {
                         mm_u8 i;
                         fault_clock_count = gdb.fault_clock_count;
@@ -7584,9 +7582,9 @@ handle_pending:
                 }
 
                 if (execution.clock.cycles_since_poll >= poll_granularity) {
-                    mm_target_usart_poll(&cfg);
-                    mm_target_spi_poll(&cfg);
-                    mm_target_eth_poll(&cfg);
+                    mm_target_usart_poll(&execution.target);
+                    mm_target_spi_poll(&execution.target);
+                    mm_target_eth_poll(&execution.target);
                     rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                     mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                     mm_usbdev_poll();
@@ -7601,7 +7599,7 @@ handle_pending:
 
                 host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
 
-                if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
+                if (mm_system_reset_pending() && allow_system_reset(&execution.target, cpu_name)) {
                     reset_again = MM_TRUE;
                     mm_system_clear_reset();
                     break;
@@ -7658,7 +7656,7 @@ handle_pending:
     }
 
 cleanup:
-    mm_target_storage_destroy(&target_storage);
+    mm_target_storage_destroy(&execution.storage);
     if (opt_covdump != 0) {
         struct mm_covdump_info covinfo;
         char coverr[MM_COVDUMP_ERRSZ];
