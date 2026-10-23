@@ -21,6 +21,35 @@ function readOutputEvents(): OutputEvent[] {
 }
 
 describe('staged firmware GPIO -> analog RC -> firmware EXTI coupling', () => {
+  it('preserves capacitor state across a mid-run source change and pause/resume', () => {
+    const circuit = readCircuit(readFileSync(new URL('../circuits/rc-charge.txt', import.meta.url), 'utf8'));
+    const source = circuit.elements.find((e): e is VoltageElm => e instanceof VoltageElm)!;
+    const capacitor = circuit.elements.find((e): e is CapacitorElm => e instanceof CapacitorElm)!;
+    expect(circuit.sim.step(200)).toBe(200);
+    const before = capacitor.voltdiff;
+    const timeBefore = circuit.sim.t;
+    expect(before).toBeGreaterThan(0.1);
+
+    source.maxVoltage = 0;
+    source.bias = 0;
+    circuit.sim.analyzeFlag = true;
+    expect(circuit.sim.step(1)).toBe(1);
+    expect(circuit.sim.t).toBeGreaterThan(timeBefore);
+    expect(Math.abs(capacitor.voltdiff - before)).toBeLessThan(0.1);
+    expect(capacitor.voltdiff).toBeGreaterThan(0.1);
+    expect(circuit.sim.step(2000)).toBe(2000);
+    expect(capacitor.voltdiff).toBeLessThan(before - 0.2);
+
+    circuit.sim.pauseRequested = true;
+    const pausedAt = circuit.sim.t;
+    expect(circuit.sim.step(20)).toBe(1);
+    expect(circuit.sim.t).toBeGreaterThan(pausedAt);
+    const oneStepLater = circuit.sim.t;
+    circuit.sim.pauseRequested = false;
+    expect(circuit.sim.step(1)).toBe(1);
+    expect(circuit.sim.t).toBeGreaterThan(oneStepLater);
+  });
+
   it('localizes RC crossings from recorded GPIO transitions within one solver quantum', () => {
     const circuitText = readFileSync(new URL('../circuits/rc-charge.txt', import.meta.url), 'utf8')
       .replace('1.0E-5', '1.0E-8'); // R=1 kOhm, C=10 nF, tau=10 us.
