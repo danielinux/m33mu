@@ -15,6 +15,8 @@ mm_bool mm_execution_irq_primask_blocks_for_sec(const struct mm_cpu *cpu, enum m
 mm_bool mm_execution_irq_faultmask_blocks_for_sec(const struct mm_cpu *cpu, enum mm_sec_state sec);
 mm_bool mm_execution_irq_basepri_blocks_system_exc(const struct mm_cpu *cpu, const struct mm_scs *scs, mm_u32 exc_num);
 mm_bool mm_execution_irq_basepri_blocks_system_exc_for_sec(const struct mm_cpu *cpu, const struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num);
+mm_bool mm_execution_irq_basepri_blocks_priority(const struct mm_cpu *cpu, const struct mm_scs *scs, enum mm_sec_state sec, mm_u8 priority);
+mm_bool mm_execution_irq_priority_can_preempt_current(const struct mm_cpu *cpu, const struct mm_scs *scs, const struct mm_nvic *nvic, mm_u8 priority);
 mm_u8 mm_execution_irq_system_exc_priority(const struct mm_cpu *cpu, const struct mm_scs *scs, mm_u32 exc_num);
 mm_u8 mm_execution_irq_system_exc_priority_for_sec(const struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num);
 mm_u8 mm_execution_irq_aircr_prigroup_for_sec(const struct mm_scs *scs, enum mm_sec_state sec);

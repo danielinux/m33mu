@@ -49,8 +49,14 @@ int main(void)
 
     scs.pend_st_s = MM_TRUE;
     scs.pend_st_ns = MM_TRUE;
-    scs.shpr3_s = 0x80000000u;
+    scs.shpr3_s = 0x80002000u;
     scs.shpr3_ns = 0x20000000u;
+    if (mm_execution_irq_system_exc_priority_for_sec(
+            &scs, MM_SECURE, MM_VECT_DEBUGMON) != 0x20u ||
+        mm_execution_irq_system_exc_priority_for_sec(&scs, MM_SECURE, 8u) != 0xFFu) {
+        printf("execution_irq_test: DebugMonitor/reserved priority lookup failed\n");
+        return 1;
+    }
     if (!mm_execution_irq_systick_pending_select(&cpu, &scs, &selected) ||
         selected != MM_NONSECURE) {
         printf("execution_irq_test: dual-bank SysTick priority selection failed\n");
@@ -76,14 +82,24 @@ int main(void)
         printf("execution_irq_test: BASEPRI blocked higher-priority SysTick\n");
         return 1;
     }
+    if (!mm_execution_irq_basepri_blocks_priority(&cpu, &scs, MM_SECURE, 0x80u) ||
+        mm_execution_irq_basepri_blocks_priority(&cpu, &scs, MM_SECURE, 0x20u)) {
+        printf("execution_irq_test: BASEPRI external-priority filtering failed\n");
+        return 1;
+    }
 
     cpu.mode = MM_HANDLER;
     cpu.xpsr = 16u + 3u;
     cpu.sec_state = MM_SECURE;
-    nvic.priority[3] = 0x60u;
+    nvic.priority[3] = 0xA0u;
     if (!mm_execution_irq_current_execution_priority(
-            &cpu, &scs, &nvic, &preempt, &raw) || raw != 0x60u || preempt != 0x60u) {
+            &cpu, &scs, &nvic, &preempt, &raw) || raw != 0xA0u || preempt != 0xA0u) {
         printf("execution_irq_test: active IRQ priority lookup failed\n");
+        return 1;
+    }
+    if (!mm_execution_irq_priority_can_preempt_current(&cpu, &scs, &nvic, 0x60u) ||
+        mm_execution_irq_priority_can_preempt_current(&cpu, &scs, &nvic, 0xC0u)) {
+        printf("execution_irq_test: external IRQ preemption comparison failed\n");
         return 1;
     }
 

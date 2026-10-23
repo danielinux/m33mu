@@ -123,11 +123,13 @@ mm_u8 mm_execution_irq_system_exc_priority_for_sec(const struct mm_scs *scs,
         return (mm_u8)((shpr3 >> 16) & 0xFFu);
     case MM_VECT_SYSTICK:
         return (mm_u8)((shpr3 >> 24) & 0xFFu);
+    case MM_VECT_DEBUGMON:
+        return (mm_u8)((shpr3 >> 8) & 0xFFu);
     case MM_VECT_NMI:
     case MM_VECT_HARDFAULT:
         return 0x00u;
     default:
-        return 0x00u;
+        return 0xFFu;
     }
 }
 
@@ -161,6 +163,25 @@ mm_bool mm_execution_irq_current_execution_priority(const struct mm_cpu *cpu,
     return MM_TRUE;
 }
 
+mm_bool mm_execution_irq_priority_can_preempt_current(const struct mm_cpu *cpu,
+                                                       const struct mm_scs *scs,
+                                                       const struct mm_nvic *nvic,
+                                                       mm_u8 priority)
+{
+    mm_u8 current_preempt;
+    mm_u8 current_raw;
+    mm_u8 irq_preempt;
+    mm_u8 prigroup;
+    if (!mm_execution_irq_current_execution_priority(cpu, scs, nvic,
+                                                     &current_preempt, &current_raw)) {
+        return MM_TRUE;
+    }
+    (void)current_raw;
+    prigroup = mm_execution_irq_aircr_prigroup_for_sec(scs, cpu->sec_state);
+    irq_preempt = mm_execution_irq_preempt_priority_value(priority, prigroup);
+    return irq_preempt < current_preempt ? MM_TRUE : MM_FALSE;
+}
+
 mm_bool mm_execution_irq_basepri_blocks_system_exc(const struct mm_cpu *cpu,
                                          const struct mm_scs *scs,
                                          mm_u32 exc_num)
@@ -192,6 +213,25 @@ mm_bool mm_execution_irq_basepri_blocks_system_exc_for_sec(const struct mm_cpu *
     }
     prigroup = mm_execution_irq_aircr_prigroup_for_sec(scs, sec);
     return mm_execution_irq_preempt_priority_value(prio, prigroup) >=
+           mm_execution_irq_preempt_priority_value(basepri, prigroup) ? MM_TRUE : MM_FALSE;
+}
+
+mm_bool mm_execution_irq_basepri_blocks_priority(const struct mm_cpu *cpu,
+                                                  const struct mm_scs *scs,
+                                                  enum mm_sec_state sec,
+                                                  mm_u8 priority)
+{
+    mm_u8 basepri;
+    mm_u8 prigroup;
+    if (cpu == 0 || scs == 0) {
+        return MM_FALSE;
+    }
+    basepri = mm_execution_irq_basepri_for_sec(cpu, sec);
+    if (basepri == 0u || priority == 0u) {
+        return MM_FALSE;
+    }
+    prigroup = mm_execution_irq_aircr_prigroup_for_sec(scs, sec);
+    return mm_execution_irq_preempt_priority_value(priority, prigroup) >=
            mm_execution_irq_preempt_priority_value(basepri, prigroup) ? MM_TRUE : MM_FALSE;
 }
 
