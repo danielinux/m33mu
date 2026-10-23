@@ -12,7 +12,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [x] Rebuild merged local `master` and run serial CTest: 93/93 enabled tests pass (one disabled). An earlier parallel harness run hit sandbox socket denial; the isolated and serial runs pass.
 - [x] Confirm Emscripten 6.0.5 and Node 24 are available.
 - [x] Attempt full CMake Emscripten build with tests and optional integrations disabled. It fails at `src/m33mu/eth_backend.c:16` due to missing Linux-only `linux/if.h`, confirming CMake's broad source set needs a dedicated web target.
-- [x] Verify H563 electrical signal mappings from ST's pinned CubeH5 example: PA5 is CN7 pin 10; PA6 is CN9 pin 1. Record the evidence in `../boards/nucleo-h563zi-pins.json`.
+- [x] Verify H563 electrical signal mappings from ST's pinned CubeH5 example: PA5 is CN7 pin 10; PA6 is CN9 pin 1. Record the evidence in `web/boards/nucleo-h563zi-pins.json`. Exact schematic revision and artwork-anchor reconciliation remain open, so both contacts stay electrically disabled.
 - [x] Parse the supplied 15-board artwork manifest and confirm its policy leaves electrical wiring disabled; H563 has zero artwork pins marked verified.
 - [x] Record current implementation limits and per-target board/GPIO status in `current-capabilities.md`.
 - [x] Add the v1 project JSON Schema and H563 pin evidence override. Validate the 15 supplied board layouts, coordinate bounds, contact counts and electrical-enable policy with `scripts/validate-web-boards.py`; 15 layouts and 2 H563 mappings pass.
