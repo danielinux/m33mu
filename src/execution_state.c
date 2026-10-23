@@ -7,6 +7,8 @@
 #include <string.h>
 
 #include "m33mu/cpu_db.h"
+#include "m33mu/target_hal.h"
+#include "m33mu/timer.h"
 
 void mm_execution_state_init(struct mm_execution_state *state)
 {
@@ -111,6 +113,33 @@ void mm_execution_state_init_code_cache(struct mm_execution_state *state)
     }
     mm_code_cache_init(&state->code_cache, &state->map);
     mm_memmap_set_code_cache(&state->map, &state->code_cache);
+}
+
+void mm_execution_state_reset_soc(struct mm_execution_state *state)
+{
+    if (state == 0) {
+        return;
+    }
+    mm_target_soc_reset(&state->target);
+    mm_timer_reset(&state->target);
+}
+
+void mm_execution_state_init_target_devices(struct mm_execution_state *state)
+{
+    if (state == 0) {
+        return;
+    }
+    mm_target_usart_reset(&state->target);
+    mm_target_usart_init(&state->target, &state->map.mmio,
+                         &state->cores[0].nvic);
+    mm_target_spi_reset(&state->target);
+    mm_target_spi_init(&state->target, &state->map.mmio,
+                       &state->cores[0].nvic);
+    mm_target_eth_reset(&state->target);
+    mm_target_eth_init(&state->target, &state->map.mmio,
+                       &state->cores[0].nvic);
+    mm_timer_init(&state->target, &state->map.mmio,
+                  &state->cores[0].nvic);
 }
 
 void mm_execution_state_reset_cores(struct mm_execution_state *state,

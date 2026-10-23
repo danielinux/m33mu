@@ -6041,8 +6041,7 @@ int main(int argc, char **argv)
 #ifdef M33MU_HAS_ONNXRUNTIME
             g_npu_out_dump = opt_npu_out_dump;
 #endif
-            mm_target_soc_reset(&execution.target);
-            mm_timer_reset(&execution.target);
+            mm_execution_state_reset_soc(&execution);
             mm_signal_prepare_for_run();
             mm_spiflash_reset_all();
 #ifdef M33MU_HAS_LIBTPMS
@@ -6243,13 +6242,7 @@ int main(int argc, char **argv)
             }
             mm_spiflash_register_mmap_regions(&execution.map.mmio);
             mm_target_flash_bind(&execution.target, &execution.map, flash, execution.target.flash_size_s, persist.enabled ? &persist : 0);
-            mm_target_usart_reset(&execution.target);
-            mm_target_usart_init(&execution.target, &execution.map.mmio, &execution.cores[0].nvic);
-            mm_target_spi_reset(&execution.target);
-            mm_target_spi_init(&execution.target, &execution.map.mmio, &execution.cores[0].nvic);
-            mm_target_eth_reset(&execution.target);
-            mm_target_eth_init(&execution.target, &execution.map.mmio, &execution.cores[0].nvic);
-            mm_timer_init(&execution.target, &execution.map.mmio, &execution.cores[0].nvic);
+            mm_execution_state_init_target_devices(&execution);
 
             mm_scs_init(&execution.cores[0].scs, 0x410fc241u);
             mm_scs_set_fpu_present(&execution.cores[0].scs, (execution.target.flags & MM_TARGET_FLAG_FPU) != 0u);

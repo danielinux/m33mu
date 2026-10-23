@@ -4,6 +4,55 @@
 
 #include "m33mu/execution_state.h"
 
+static char target_setup_order[16];
+static size_t target_setup_count;
+
+static void note_target_setup(char value)
+{
+    if (target_setup_count < sizeof(target_setup_order)) {
+        target_setup_order[target_setup_count++] = value;
+    }
+}
+
+static void test_soc_reset(void) { note_target_setup('0'); }
+static void test_timer_reset(void) { note_target_setup('1'); }
+static void test_usart_reset(void) { note_target_setup('2'); }
+static void test_usart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
+{ (void)bus; (void)nvic; note_target_setup('3'); }
+static void test_spi_reset(void) { note_target_setup('4'); }
+static void test_spi_init(struct mmio_bus *bus, struct mm_nvic *nvic)
+{ (void)bus; (void)nvic; note_target_setup('5'); }
+static void test_eth_reset(void) { note_target_setup('6'); }
+static void test_eth_init(struct mmio_bus *bus, struct mm_nvic *nvic)
+{ (void)bus; (void)nvic; note_target_setup('7'); }
+static void test_timer_init(struct mmio_bus *bus, struct mm_nvic *nvic)
+{ (void)bus; (void)nvic; note_target_setup('8'); }
+
+static int test_target_setup_order(void)
+{
+    struct mm_execution_state state;
+    mm_execution_state_init(&state);
+    state.target.soc_reset = test_soc_reset;
+    state.target.timer_reset = test_timer_reset;
+    state.target.usart_reset = test_usart_reset;
+    state.target.usart_init = test_usart_init;
+    state.target.spi_reset = test_spi_reset;
+    state.target.spi_init = test_spi_init;
+    state.target.eth_reset = test_eth_reset;
+    state.target.eth_init = test_eth_init;
+    state.target.timer_init = test_timer_init;
+    target_setup_count = 0u;
+    mm_execution_state_reset_soc(&state);
+    mm_execution_state_init_target_devices(&state);
+    if (target_setup_count != 9u ||
+        memcmp(target_setup_order, "012345678", 9u) != 0) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
 static int test_dual_core_reset_keeps_staged_peripheral_state(void)
 {
     struct mm_execution_state state;
@@ -144,6 +193,10 @@ int main(void)
     struct mmio_region external_regions[2];
     if (test_session_resource_lifecycle() != 0) {
         fprintf(stderr, "execution_state_test: session resource lifecycle failed\n");
+        return 1;
+    }
+    if (test_target_setup_order() != 0) {
+        fprintf(stderr, "execution_state_test: target setup ordering failed\n");
         return 1;
     }
     if (test_session_bounded_elf_load() != 0) {
