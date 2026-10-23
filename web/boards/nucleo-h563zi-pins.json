@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "boardId": "nucleo-h563zi",
   "cpu": "stm32h563",
-  "boardRevision": "NUCLEO-H563ZI / MB1404 C01 schematic identified; drawing not yet inspected",
+  "boardRevision": "NUCLEO-H563ZI / MB1404 C01 schematic identified; drawing not yet inspected; sprite connector IDs do not match verified headers",
   "electricalMapStatus": "signal-mapping-verified; artwork-anchor-pending",
   "sources": [
     {
@@ -41,6 +41,6 @@
   "review": {
     "reviewer": "Codex",
     "reviewedAt": "2026-10-23",
-    "note": "The official firmware example verifies signal-to-header mappings, and ST's board-document index identifies the MB1404 C01 schematic. The drawing and supplied sprite geometry have not been reconciled; both contacts remain electrically disabled."
+    "note": "The official firmware example verifies signal-to-header mappings, and ST's board-document index identifies the MB1404 C01 schematic. The supplied sprite layout has CN11/CN12 and ZIO_D/ZIO_A identifiers, but no CN7/CN9 contacts; its README calls connector identities and geometry provisional. The schematic drawing and artwork anchors have not been reconciled; both contacts remain electrically disabled."
   }
 }
