@@ -82,12 +82,12 @@ static size_t make_h563_elf(mm_u8 image[96])
     return 96u;
 }
 
-static size_t make_h563_hardfault_elf(mm_u8 image[156])
+static size_t make_h563_fault_elf(mm_u8 image[176], mm_bool enable_usage)
 {
     const mm_u32 flash_base = 0x0c000000u;
     const mm_u32 ram_top = 0x30080000u;
-    const mm_u32 payload_size = 72u;
-    memset(image, 0, 156u);
+    const mm_u32 payload_size = 92u;
+    memset(image, 0, 176u);
     image[0] = 0x7fu; image[1] = 'E'; image[2] = 'L'; image[3] = 'F';
     image[4] = 1u; image[5] = 1u; image[6] = 1u;
     put_le16(image + 18u, 40u);
@@ -105,11 +105,23 @@ static size_t make_h563_hardfault_elf(mm_u8 image[156])
     put_le32(image + 76u, 4u);
     put_le32(image + 84u, ram_top);
     put_le32(image + 88u, flash_base + 65u);
-    put_le32(image + 84u + 3u * 4u, flash_base + 69u);
-    put_le16(image + 84u + 64u, 0xffffu); /* undefined instruction */
-    put_le16(image + 84u + 66u, 0xffffu);
-    put_le16(image + 84u + 68u, 0xbeabu); /* HardFault handler BKPT */
-    return 156u;
+    put_le32(image + 84u + MM_VECT_HARDFAULT * 4u, flash_base + 89u);
+    put_le32(image + 84u + MM_VECT_USAGEFAULT * 4u, flash_base + 85u);
+    if (enable_usage) {
+        put_le16(image + 84u + 64u, 0x4802u); /* ldr r0, [pc, #8] */
+        put_le16(image + 84u + 66u, 0x4903u); /* ldr r1, [pc, #12] */
+        put_le16(image + 84u + 68u, 0x6001u); /* str r1, [r0]: SHCSR */
+        put_le16(image + 84u + 70u, 0xffffu);
+        put_le16(image + 84u + 72u, 0xffffu);
+        put_le32(image + 84u + 76u, 0xe000ed24u); /* SHCSR */
+        put_le32(image + 84u + 80u, 1u << 18); /* USGFAULTENA */
+    } else {
+        put_le16(image + 84u + 64u, 0xffffu);
+        put_le16(image + 84u + 66u, 0xffffu);
+    }
+    put_le16(image + 84u + 84u, 0xbea6u); /* UsageFault BKPT */
+    put_le16(image + 84u + 88u, 0xbea3u); /* HardFault BKPT */
+    return 176u;
 }
 
 static size_t make_h563_sysreset_elf(mm_u8 image[116])
@@ -193,7 +205,7 @@ int main(void)
     struct mm_web_gpio_output_event gpio_output;
     enum mm_web_error error;
     mm_u8 image[96];
-    mm_u8 fault_image[156];
+    mm_u8 fault_image[176];
 
     session = mm_web_create(&config, &error);
     if (session == 0 || error != MM_WEB_OK) {
@@ -291,13 +303,23 @@ int main(void)
     config.max_image_size = sizeof(fault_image);
     session = mm_web_create(&config, &error);
     if (session == 0 || error != MM_WEB_OK ||
-        make_h563_hardfault_elf(fault_image) != sizeof(fault_image) ||
+        make_h563_fault_elf(fault_image, MM_FALSE) != sizeof(fault_image) ||
         mm_web_load_elf(session, fault_image, sizeof(fault_image)) != MM_WEB_OK ||
         mm_web_step_instructions(session, 2u, &step) != MM_WEB_OK ||
         !step.stopped || mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
         (cpu.xpsr & 0x1ffu) != MM_VECT_HARDFAULT) {
         mm_web_destroy(session);
         fprintf(stderr, "web_session_test: undefined instruction did not escalate to HardFault\n");
+        return 1;
+    }
+    if (make_h563_fault_elf(fault_image, MM_TRUE) != sizeof(fault_image) ||
+        mm_web_load_elf(session, fault_image, sizeof(fault_image)) != MM_WEB_OK ||
+        mm_web_step_instructions(session, 5u, &step) != MM_WEB_OK ||
+        !step.stopped || mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+        (cpu.xpsr & 0x1ffu) != MM_VECT_USAGEFAULT ||
+        cpu.r[1] != (1u << 18)) {
+        mm_web_destroy(session);
+        fprintf(stderr, "web_session_test: enabled UsageFault handler was not reached\n");
         return 1;
     }
     {
