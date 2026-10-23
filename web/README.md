@@ -13,13 +13,14 @@ cmake -S . -B build
 cmake --build build --target webserver
 ```
 
-With the Makefiles generator, `make -C build webserver` does the same thing. The target installs the pinned npm dependencies, builds the Emscripten worker and app, then starts Vite at `http://127.0.0.1:5173/`. Press Ctrl-C to stop it. Node.js/npm and Emscripten must be installed.
+With the Makefiles generator, `make -C build webserver` does the same thing. The target installs the pinned npm dependencies, builds the Emscripten worker and app, then starts Vite at `http://127.0.0.1:5173/`. Press Ctrl-C to stop it. `cmake --build build --target web-app` builds `web/dist/` without starting the server.
+
+The web UI is optional. CMake enables the `web-app` and `webserver` targets, and the WASM/worker tests, only when `emcc`, `emcmake`, `node` and `npm` are all found; otherwise the configuration summary reports `web UI: not found (missing ...)` and the native emulator builds as usual. Pass `-DM33MU_ENABLE_WEB_UI=OFF` to skip detection entirely.
 
 The equivalent manual commands are:
 
 ```sh
-npm --prefix web ci
-scripts/build-web-app.sh
+scripts/build-web-app.sh --install   # runs npm ci first
 npm --prefix web run dev
 ```
 
