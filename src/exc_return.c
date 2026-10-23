@@ -69,6 +69,41 @@ struct mm_exc_return_info mm_exc_return_decode(mm_u32 value)
     return info;
 }
 
+mm_u32 mm_exc_return_encode_ex(enum mm_sec_state stack_sec,
+                               enum mm_sec_state exception_sec,
+                               mm_bool use_psp,
+                               mm_bool to_thread,
+                               mm_bool basic_frame,
+                               mm_bool default_callee_stacking)
+{
+    mm_u32 value = 0xFFFFFF80u;
+    if (stack_sec == MM_SECURE) {
+        value |= 1u << 6;
+    }
+    if (exception_sec == MM_SECURE) {
+        value |= 1u;
+    }
+    if (default_callee_stacking) {
+        value |= 1u << 5;
+    }
+    if (basic_frame) {
+        value |= 1u << 4;
+    }
+    if (to_thread) {
+        value |= 1u << 3;
+        if (use_psp) {
+            value |= 1u << 2;
+        }
+    }
+    return value;
+}
+
+mm_u32 mm_exc_return_encode(enum mm_sec_state sec, mm_bool use_psp, mm_bool to_thread)
+{
+    return mm_exc_return_encode_ex(sec, sec, use_psp, to_thread, MM_TRUE,
+                                   MM_TRUE);
+}
+
 /* deprecated; kept for compatibility: always false now */
 mm_bool exc_return_trace_enabled(void)
 {

@@ -27,6 +27,7 @@
 
 #define NVIC_TEST_WORDS ((MM_MAX_IRQ + 31u) / 32u)
 #define NVIC_TEST_LAST (NVIC_TEST_WORDS - 1u)
+#include "m33mu/vector.h"
 
 static int test_vtor_banked(void)
 {
@@ -350,6 +351,36 @@ static int test_nvic_out_of_range(void)
     return 0;
 }
 
+static int test_exception_active_state_helpers(void)
+{
+    struct mm_scs scs;
+    mm_scs_init(&scs, 0u);
+    scs.shcsr_s = 0x80000000u;
+    scs.shcsr_ns = 0x40000000u;
+    mm_scs_exception_set_active(&scs, MM_SECURE, MM_VECT_SVCALL);
+    mm_scs_exception_set_active(&scs, MM_NONSECURE, MM_VECT_SYSTICK);
+    if (scs.shcsr_s != (0x80000000u | (1u << 7)) ||
+        scs.shcsr_ns != (0x40000000u | (1u << 11))) {
+        return 1;
+    }
+    mm_scs_exception_clear_active(&scs, MM_SECURE, MM_VECT_SVCALL);
+    mm_scs_exception_clear_active(&scs, MM_NONSECURE, MM_VECT_SYSTICK);
+    mm_scs_exception_set_active(&scs, MM_SECURE, MM_VECT_NMI);
+    if (scs.shcsr_s != 0x80000000u || scs.shcsr_ns != 0x40000000u) {
+        return 1;
+    }
+
+    scs.icsr_s = 0xA5000000u;
+    scs.icsr_ns = 0x5A000000u;
+    mm_scs_set_vectactive(&scs, MM_SECURE, 0x1234u);
+    mm_scs_set_vectactive(&scs, MM_NONSECURE, MM_VECT_SYSTICK);
+    if (scs.icsr_s != (0xA5000000u | 0x34u) ||
+        scs.icsr_ns != (0x5A000000u | MM_VECT_SYSTICK)) {
+        return 1;
+    }
+    return 0;
+}
+
 int main(void)
 {
     struct { const char *name; int (*fn)(void); } tests[] = {
@@ -365,6 +396,7 @@ int main(void)
         { "nvic_high_itns", test_nvic_high_itns },
         { "nvic_high_ipr", test_nvic_high_ipr },
         { "nvic_out_of_range", test_nvic_out_of_range },
+        { "exception_active_state_helpers", test_exception_active_state_helpers },
     };
     int failures = 0;
     int i;

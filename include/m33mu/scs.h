@@ -120,6 +120,9 @@ struct mm_scs_mux {
 };
 
 void mm_scs_init(struct mm_scs *scs, mm_u32 cpuid_const);
+void mm_scs_exception_set_active(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num);
+void mm_scs_exception_clear_active(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num);
+void mm_scs_set_vectactive(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num);
 void mm_scs_set_fpu_present(struct mm_scs *scs, mm_bool present);
 
 /* Registers MMIO regions for secure and non-secure SCS views. */

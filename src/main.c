@@ -210,10 +210,6 @@ void mm_system_request_reset(void);
 static void record_bus_fault(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 addr, mm_u32 bfsr_bits);
 static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struct mm_scs *scs, mm_u32 fault_pc, mm_u32 fault_xpsr);
 static mm_bool fpu_access_allowed(const struct mm_cpu *cpu, const struct mm_scs *scs);
-static mm_u32 shcsr_active_mask_for_exc(mm_u32 exc_num);
-static void shcsr_set_exception_active(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num);
-static void shcsr_clear_exception_active(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num);
-static void scs_set_vectactive(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num);
 static struct mm_decoded decode_t32_fast(const struct mm_fetch_result *fetch,
                                          const struct mm_cpu *cpu,
                                          const struct mm_scs *scs);
@@ -2885,96 +2881,6 @@ static mm_bool cross_domain_additional_state_required(enum mm_sec_state pre_sec,
     return (pre_sec == MM_SECURE && handler_sec == MM_NONSECURE) ? MM_TRUE : MM_FALSE;
 }
 
-static mm_u32 shcsr_active_mask_for_exc(mm_u32 exc_num)
-{
-    switch (exc_num) {
-        case MM_VECT_MEMMANAGE: return (1u << 0);
-        case MM_VECT_BUSFAULT: return (1u << 1);
-        case MM_VECT_USAGEFAULT: return (1u << 3);
-        case MM_VECT_SECUREFAULT: return (1u << 4);
-        case MM_VECT_SVCALL: return (1u << 7);
-        case MM_VECT_PENDSV: return (1u << 10);
-        case MM_VECT_SYSTICK: return (1u << 11);
-        default: return 0u;
-    }
-}
-
-static void shcsr_set_exception_active(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num)
-{
-    mm_u32 mask = shcsr_active_mask_for_exc(exc_num);
-    if (scs == 0 || mask == 0u) {
-        return;
-    }
-    if (sec == MM_NONSECURE) {
-        scs->shcsr_ns |= mask;
-    } else {
-        scs->shcsr_s |= mask;
-    }
-}
-
-static void shcsr_clear_exception_active(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num)
-{
-    mm_u32 mask = shcsr_active_mask_for_exc(exc_num);
-    if (scs == 0 || mask == 0u) {
-        return;
-    }
-    if (sec == MM_NONSECURE) {
-        scs->shcsr_ns &= ~mask;
-    } else {
-        scs->shcsr_s &= ~mask;
-    }
-}
-
-static void scs_set_vectactive(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 exc_num)
-{
-    mm_u32 *icsr = 0;
-
-    if (scs == 0) {
-        return;
-    }
-    icsr = (sec == MM_NONSECURE) ? &scs->icsr_ns : &scs->icsr_s;
-    *icsr = (*icsr & ~0x1FFu) | (exc_num & 0x1FFu);
-}
-
-static mm_u32 exc_return_encode(enum mm_sec_state stack_sec,
-                                enum mm_sec_state exception_sec,
-                                mm_bool use_psp,
-                                mm_bool to_thread,
-                                mm_bool basic_frame,
-                                mm_bool default_callee_stacking)
-{
-    /* EXC_RETURN encodings (Armv8-M, DDI0553):
-     *  bits[31:24] = 0xFF, bits[23:7] = RES1
-     *  bit6 S      = stack security (1=Secure, 0=Non-secure)
-     *  bit5 DCRS   = 1 (default callee stacking)
-     *  bit4 FType  = 1 (no FP context)
-     *  bit3 Mode   = 1 Thread, 0 Handler
-     *  bit2 SPSEL  = 1 PSP, 0 MSP
-     *  bit1 RES0
-     *  bit0 ES     = 1 Secure exception, 0 Non-secure exception
-     */
-    mm_u32 base = 0xFFFFFF80u;
-    if (stack_sec == MM_SECURE) {
-        base |= (1u << 6); /* Secure stack */
-    }
-    if (exception_sec == MM_SECURE) {
-        base |= 1u;        /* Secure exception */
-    }
-    if (default_callee_stacking) {
-        base |= (1u << 5); /* DCRS */
-    }
-    if (basic_frame) {
-        base |= (1u << 4); /* FType */
-    }
-    if (to_thread) {
-        base |= (1u << 3);
-        if (use_psp) {
-            base |= (1u << 2);
-        }
-    }
-    return base;
-}
-
 static mm_bool tailchain_select_pending(const struct mm_cpu *cpu,
                                         const struct mm_scs *scs,
                                         mm_u32 *exc_num_out,
@@ -3164,7 +3070,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
             cpu->r[13] = cpu->msp_s;
         }
         cpu->sec_state = tail_handler_sec;
-        scs_set_vectactive(scs, tail_handler_sec, tail_exc_num);
+        mm_scs_set_vectactive(scs, tail_handler_sec, tail_exc_num);
         cpu->r[15] = tail_handler | 1u;
         cpu->sleeping = MM_FALSE;
         cpu->event_reg = MM_FALSE;
@@ -3192,7 +3098,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
             mm_nvic_set_active(nvic, (mm_u32)(exc_num - 16u), MM_FALSE);
         }
     }
-    shcsr_clear_exception_active(scs, cpu->sec_state, exc_num);
+    mm_scs_exception_clear_active(scs, cpu->sec_state, exc_num);
     if (stack_trace_enabled() ||
         (svc_stack_trace_enabled() && (cpu->xpsr & 0x1ffu) == MM_VECT_SVCALL)) {
         printf("[EXC_STACK_POP] exc_ret=0x%08lx depth_after=%u\n",
@@ -3448,7 +3354,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
     handler_sec = cpu->sec_state;
     cpu->sec_state = info.return_sec;
     cpu->mode = info.to_thread ? MM_THREAD : MM_HANDLER;
-    scs_set_vectactive(scs, info.return_sec, info.to_thread ? 0u : (cpu->xpsr & 0x1FFu));
+    mm_scs_set_vectactive(scs, info.return_sec, info.to_thread ? 0u : (cpu->xpsr & 0x1FFu));
     if (exc_num != MM_VECT_NMI) {
         if (handler_sec == MM_NONSECURE) cpu->faultmask_ns = 0u;
         else cpu->faultmask_s = 0u;
@@ -3928,7 +3834,7 @@ static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struc
     fp_stack = fpu_auto_preserve_enabled(cpu, scs);
     fp_lazy = fp_stack && fpu_lazy_preserve_enabled(cpu, scs);
     addl_state = cross_domain_additional_state_required(sec, handler_sec);
-    exc_ret_val = exc_return_encode(stack_sec,
+    exc_ret_val = mm_exc_return_encode_ex(stack_sec,
                                     handler_sec,
                                     use_psp_entry,
                                     pre_mode == MM_THREAD,
@@ -4048,7 +3954,7 @@ static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struc
         cpu->control_s &= ~0x2u;
     }
     cpu->sec_state = handler_sec;
-    scs_set_vectactive(scs, handler_sec, MM_VECT_HARDFAULT);
+    mm_scs_set_vectactive(scs, handler_sec, MM_VECT_HARDFAULT);
     cpu->r[15] = handler | 1u;
     return MM_TRUE;
 }
@@ -4158,12 +4064,12 @@ static mm_bool raise_mem_fault(struct mm_cpu *cpu, struct mm_memmap *map, struct
     /* Deliver MemManage if enabled, otherwise escalate to HardFault. */
     if (sec == MM_NONSECURE) {
         if ((scs->shcsr_ns & (1u << 16)) != 0u) {
-            shcsr_set_exception_active(scs, MM_NONSECURE, MM_VECT_MEMMANAGE);
+            mm_scs_exception_set_active(scs, MM_NONSECURE, MM_VECT_MEMMANAGE);
             return enter_exception(cpu, map, scs, MM_VECT_MEMMANAGE, fault_pc, fault_xpsr);
         }
     } else {
         if ((scs->shcsr_s & (1u << 16)) != 0u) {
-            shcsr_set_exception_active(scs, MM_SECURE, MM_VECT_MEMMANAGE);
+            mm_scs_exception_set_active(scs, MM_SECURE, MM_VECT_MEMMANAGE);
             return enter_exception(cpu, map, scs, MM_VECT_MEMMANAGE, fault_pc, fault_xpsr);
         }
     }
@@ -4214,9 +4120,9 @@ static mm_bool raise_usage_fault(struct mm_cpu *cpu, struct mm_memmap *map, stru
         }
     }
     if (sec == MM_NONSECURE) {
-        shcsr_set_exception_active(scs, MM_NONSECURE, MM_VECT_USAGEFAULT);
+        mm_scs_exception_set_active(scs, MM_NONSECURE, MM_VECT_USAGEFAULT);
     } else {
-        shcsr_set_exception_active(scs, MM_SECURE, MM_VECT_USAGEFAULT);
+        mm_scs_exception_set_active(scs, MM_SECURE, MM_VECT_USAGEFAULT);
     }
     (void)mm_exception_read_handler(map, scs, sec, MM_VECT_USAGEFAULT, &handler);
 
@@ -4253,7 +4159,7 @@ static mm_bool raise_usage_fault(struct mm_cpu *cpu, struct mm_memmap *map, stru
     (void)control_ns_val;
     fp_stack = fpu_auto_preserve_enabled(cpu, scs);
     fp_lazy = fp_stack && fpu_lazy_preserve_enabled(cpu, scs);
-    exc_ret_val = exc_return_encode(sec,
+    exc_ret_val = mm_exc_return_encode_ex(sec,
                                     sec,
                                     use_psp_entry,
                                     cpu->mode == MM_THREAD,
@@ -4382,7 +4288,7 @@ static mm_bool raise_usage_fault(struct mm_cpu *cpu, struct mm_memmap *map, stru
     } else {
         cpu->control_s &= ~0x2u;
     }
-    scs_set_vectactive(scs, sec, MM_VECT_USAGEFAULT);
+    mm_scs_set_vectactive(scs, sec, MM_VECT_USAGEFAULT);
     cpu->r[15] = handler | 1u;
     return MM_TRUE;
 }
@@ -4447,19 +4353,19 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
 
     switch (exc_num) {
     case MM_VECT_SVCALL:
-        shcsr_set_exception_active(scs, sec, MM_VECT_SVCALL);
+        mm_scs_exception_set_active(scs, sec, MM_VECT_SVCALL);
         break;
     case MM_VECT_SECUREFAULT:
-        shcsr_set_exception_active(scs, MM_SECURE, MM_VECT_SECUREFAULT);
+        mm_scs_exception_set_active(scs, MM_SECURE, MM_VECT_SECUREFAULT);
         break;
     case MM_VECT_PENDSV:
         scs->pend_sv = MM_FALSE;
-        shcsr_set_exception_active(scs, handler_sec, MM_VECT_PENDSV);
+        mm_scs_exception_set_active(scs, handler_sec, MM_VECT_PENDSV);
         break;
     case MM_VECT_SYSTICK:
         if (handler_sec == MM_NONSECURE) scs->pend_st_ns = MM_FALSE;
         else scs->pend_st_s = MM_FALSE;
-        shcsr_set_exception_active(scs, handler_sec, MM_VECT_SYSTICK);
+        mm_scs_exception_set_active(scs, handler_sec, MM_VECT_SYSTICK);
         break;
     default:
         break;
@@ -4483,7 +4389,7 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
      * CONTROL.SPSEL from it. */
     if (pre_mode == MM_HANDLER) {
         use_psp_entry = MM_FALSE;
-        exc_ret_val = exc_return_encode(sec, handler_sec, MM_FALSE, MM_FALSE, fp_stack ? MM_FALSE : MM_TRUE, addl_state ? MM_FALSE : MM_TRUE);
+        exc_ret_val = mm_exc_return_encode_ex(sec, handler_sec, MM_FALSE, MM_FALSE, fp_stack ? MM_FALSE : MM_TRUE, addl_state ? MM_FALSE : MM_TRUE);
     } else {
         use_psp_entry = (((sec == MM_NONSECURE) ? cpu->control_ns : cpu->control_s) & 0x2u) != 0u;
         /* Tail-chaining preserves the return context described by the
@@ -4496,7 +4402,7 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
         exc_ret_val = tail_chain ?
             ((cpu->r[14] & ~0x1u) |
              ((handler_sec == MM_SECURE) ? 0x1u : 0x0u)) :
-            exc_return_encode(sec,
+            mm_exc_return_encode_ex(sec,
                               handler_sec,
                               use_psp_entry,
                               MM_TRUE,
@@ -4682,7 +4588,7 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
                (int)cpu->mode);
     }
     cpu->sec_state = handler_sec;
-    scs_set_vectactive(scs, handler_sec, exc_num);
+    mm_scs_set_vectactive(scs, handler_sec, exc_num);
     cpu->r[15] = handler | 1u;
     cpu->sleeping = MM_FALSE;
     cpu->event_reg = MM_FALSE;

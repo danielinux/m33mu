@@ -20,6 +20,7 @@
  */
 
 #include "m33mu/scs.h"
+#include "m33mu/vector.h"
 #include "m33mu/trace.h"
 #include "rp2350/rp2350_mmio.h"
 #include "m33mu/memmap.h"
@@ -739,6 +740,59 @@ void mm_scs_init(struct mm_scs *scs, mm_u32 cpuid_const)
         const char *env = getenv("M33MU_SYSTICK_TRACE");
         scs->trace_enabled = (env != 0 && env[0] != '\0') ? MM_TRUE : MM_FALSE;
     }
+}
+
+static mm_u32 exception_active_mask(mm_u32 exc_num)
+{
+    switch (exc_num) {
+    case MM_VECT_MEMMANAGE: return 1u << 0;
+    case MM_VECT_BUSFAULT: return 1u << 1;
+    case MM_VECT_USAGEFAULT: return 1u << 3;
+    case MM_VECT_SECUREFAULT: return 1u << 4;
+    case MM_VECT_SVCALL: return 1u << 7;
+    case MM_VECT_PENDSV: return 1u << 10;
+    case MM_VECT_SYSTICK: return 1u << 11;
+    default: return 0u;
+    }
+}
+
+void mm_scs_exception_set_active(struct mm_scs *scs, enum mm_sec_state sec,
+                                 mm_u32 exc_num)
+{
+    mm_u32 mask = exception_active_mask(exc_num);
+    if (scs == 0 || mask == 0u) {
+        return;
+    }
+    if (sec == MM_NONSECURE) {
+        scs->shcsr_ns |= mask;
+    } else {
+        scs->shcsr_s |= mask;
+    }
+}
+
+void mm_scs_exception_clear_active(struct mm_scs *scs, enum mm_sec_state sec,
+                                   mm_u32 exc_num)
+{
+    mm_u32 mask = exception_active_mask(exc_num);
+    if (scs == 0 || mask == 0u) {
+        return;
+    }
+    if (sec == MM_NONSECURE) {
+        scs->shcsr_ns &= ~mask;
+    } else {
+        scs->shcsr_s &= ~mask;
+    }
+}
+
+void mm_scs_set_vectactive(struct mm_scs *scs, enum mm_sec_state sec,
+                           mm_u32 exc_num)
+{
+    mm_u32 *icsr;
+    if (scs == 0) {
+        return;
+    }
+    icsr = (sec == MM_NONSECURE) ? &scs->icsr_ns : &scs->icsr_s;
+    *icsr = (*icsr & ~0x1FFu) | (exc_num & 0x1FFu);
 }
 
 void mm_scs_set_fpu_present(struct mm_scs *scs, mm_bool present)

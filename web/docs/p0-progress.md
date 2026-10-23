@@ -36,6 +36,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [x] Extract production virtual-cycle accounting and cycle-driven SysTick, target timer and signal advancement into `mm_execution_advance_cycles()`; use it in production and secondary stepping paths and cover its counter/timer behavior with a native test.
 - [x] Move Secure/Non-secure interrupt masks, BASEPRI/preemption comparisons, current exception priority and dual-bank SysTick priority selection into `execution_irq.c`; production, secondary stepping and NVIC candidate filtering use this shared logic, with banked-priority unit coverage.
 - [x] Extract pending PendSV/SysTick/external IRQ candidate dispatch into `mm_execution_irq_dispatch_pending()`. Its explicit policy preserves production skip-to-next-candidate behavior and the secondary step path's stop-on-blocked behavior; tests cover both policies and external IRQ pending/active updates.
+- [x] Move Armv8-M EXC_RETURN encoding (including separate stack/exception security, frame type and DCRS fields) into `exc_return.c`, and banked SHCSR exception-active plus ICSR VECTACTIVE updates into `scs.c`; production exception paths use these shared helpers. Round-trip and SCS state tests pass. Full exception entry/unstack remains in `main.c`.
 - [ ] Finish the third-party license audit when selecting/importing a solver and adding runtime dependencies or models.
 
 ## Not started

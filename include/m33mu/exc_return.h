@@ -37,6 +37,12 @@ struct mm_exc_return_info {
 };
 
 struct mm_exc_return_info mm_exc_return_decode(mm_u32 value);
+mm_u32 mm_exc_return_encode_ex(enum mm_sec_state stack_sec,
+                               enum mm_sec_state exception_sec,
+                               mm_bool use_psp,
+                               mm_bool to_thread,
+                               mm_bool basic_frame,
+                               mm_bool default_callee_stacking);
 mm_u32 mm_exc_return_encode(enum mm_sec_state sec, mm_bool use_psp, mm_bool to_thread);
 
 #endif /* M33MU_EXC_RETURN_H */

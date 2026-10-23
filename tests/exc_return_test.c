@@ -105,6 +105,54 @@ static int test_secure_exception_to_nonsecure_thread_msp(void)
     return 0;
 }
 
+static int test_encode_decode_roundtrip(void)
+{
+    int stack_sec;
+    int exception_sec;
+    int use_psp;
+    int to_thread;
+    int basic_frame;
+    int default_callee_stacking;
+    for (stack_sec = 0; stack_sec <= 1; ++stack_sec) {
+        for (exception_sec = 0; exception_sec <= 1; ++exception_sec) {
+            for (use_psp = 0; use_psp <= 1; ++use_psp) {
+                for (to_thread = 0; to_thread <= 1; ++to_thread) {
+                    for (basic_frame = 0; basic_frame <= 1; ++basic_frame) {
+                        for (default_callee_stacking = 0;
+                             default_callee_stacking <= 1;
+                             ++default_callee_stacking) {
+                            enum mm_sec_state stack = stack_sec ? MM_SECURE : MM_NONSECURE;
+                            enum mm_sec_state exception = exception_sec ? MM_SECURE : MM_NONSECURE;
+                            struct mm_exc_return_info info = mm_exc_return_decode(
+                                mm_exc_return_encode_ex(
+                                    stack, exception,
+                                    use_psp ? MM_TRUE : MM_FALSE,
+                                    to_thread ? MM_TRUE : MM_FALSE,
+                                    basic_frame ? MM_TRUE : MM_FALSE,
+                                    default_callee_stacking ? MM_TRUE : MM_FALSE));
+                            if (!info.valid || info.target_sec != stack ||
+                                info.return_sec != stack ||
+                                info.exception_sec != exception ||
+                                info.use_psp != (to_thread && use_psp ? MM_TRUE : MM_FALSE) ||
+                                info.to_thread != (to_thread ? MM_TRUE : MM_FALSE) ||
+                                info.basic_frame != (basic_frame ? MM_TRUE : MM_FALSE) ||
+                                info.default_callee_stacking !=
+                                    (default_callee_stacking ? MM_TRUE : MM_FALSE)) {
+                                return 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (mm_exc_return_encode(MM_SECURE, MM_TRUE, MM_TRUE) != 0xFFFFFFFDu ||
+        mm_exc_return_encode(MM_NONSECURE, MM_FALSE, MM_TRUE) != 0xFFFFFFB8u) {
+        return 1;
+    }
+    return 0;
+}
+
 int main(void)
 {
     struct { const char *name; int (*fn)(void); } tests[] = {
@@ -113,6 +161,7 @@ int main(void)
         { "es_distinct_from_stack_security", test_es_distinct_from_stack_security },
         { "dcrs_cleared_for_additional_state", test_dcrs_cleared_for_additional_state },
         { "secure_exception_to_nonsecure_thread_msp", test_secure_exception_to_nonsecure_thread_msp },
+        { "encode_decode_roundtrip", test_encode_decode_roundtrip },
         { "invalid_reserved_bit1", test_invalid_reserved_bit1 },
         { "invalid", test_invalid },
     };
