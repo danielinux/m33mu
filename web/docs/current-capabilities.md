@@ -14,7 +14,7 @@ This is a development status page, not a claim that the browser workbench exists
 | Native library | `m33mu_lib` is assembled from a broad source glob and links optional host libraries | A dedicated Emscripten source target and host-backend exclusions are needed. |
 | Emscripten | `emcc 6.0.5` and Node 24 are installed in the reviewed environment | Toolchain is present. A full CMake cross-build with optional integrations disabled currently fails compiling `src/m33mu/eth_backend.c` because Emscripten lacks `linux/if.h`. |
 | Session isolation | GPIO readers, memory-map lookup and multiple peripheral models use global/static state | First browser version supports one active emulator session per worker. Parallel sessions require a later state-ownership refactor. |
-| Native regression | PUF zeroize expectation was updated in local commit `7188fb9`; full native CTest passed 88/88 enabled tests | The update tests START reactivation after zeroize and confirms recovery survives reboot. |
+| Native regression | PUF zeroize expectation was updated in local commit `7188fb9`; after local PR #15 merge `5799dd5`, serial CTest passed 93/93 enabled tests (one disabled) | The update tests START reactivation after zeroize and confirms recovery survives reboot. |
 
 ## GPIO and board connectivity
 
