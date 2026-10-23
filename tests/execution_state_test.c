@@ -648,20 +648,29 @@ static int test_session_bounded_elf_load(void)
     fetch_fault_handler_calls = 0u;
     fetch_fault_handler_addr = 0xdead0000u;
     fetch_fault_handler_result = MM_FALSE;
-    if (mm_execution_state_fetch_decode_or_fault(
-            &state, test_fpu_allowed, test_decode, test_fetch_fault_handler,
-            &fetch, &decoded, &fpu_ok) != MM_EXECUTION_FETCH_FAULT_UNHANDLED ||
+    {
+        struct mm_execute_ctx context;
+        enum mm_exec_status exec_status = MM_EXEC_CONTINUE;
+        memset(&context, 0, sizeof(context));
+        if (mm_execution_state_step_instruction(
+                &state, 0u, &context, test_fpu_allowed, test_decode,
+                test_fetch_fault_handler, &fetch, &decoded, &fpu_ok,
+                &exec_status) !=
+                MM_EXECUTION_INSTRUCTION_FETCH_FAULT_UNHANDLED ||
         !fetch.fault || fetch_fault_handler_calls != 1u) {
-        mm_execution_state_destroy(&state);
-        return 1;
-    }
-    fetch_fault_handler_result = MM_TRUE;
-    if (mm_execution_state_fetch_decode_or_fault(
-            &state, test_fpu_allowed, test_decode, test_fetch_fault_handler,
-            &fetch, &decoded, &fpu_ok) != MM_EXECUTION_FETCH_FAULT_HANDLED ||
+            mm_execution_state_destroy(&state);
+            return 1;
+        }
+        fetch_fault_handler_result = MM_TRUE;
+        if (mm_execution_state_step_instruction(
+                &state, 0u, &context, test_fpu_allowed, test_decode,
+                test_fetch_fault_handler, &fetch, &decoded, &fpu_ok,
+                &exec_status) !=
+                MM_EXECUTION_INSTRUCTION_FETCH_FAULT_HANDLED ||
         !fetch.fault || fetch_fault_handler_calls != 2u) {
-        mm_execution_state_destroy(&state);
-        return 1;
+            mm_execution_state_destroy(&state);
+            return 1;
+        }
     }
     memset(&result, 0xA5, sizeof(result));
     if (mm_execution_state_load_elf(&state, image, sizeof(image),
