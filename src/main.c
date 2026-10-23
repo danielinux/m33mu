@@ -26,6 +26,7 @@
 #include "m33mu/cpu_db.h"
 #include "m33mu/target.h"
 #include "m33mu/image_loader.h"
+#include "m33mu/target_storage.h"
 #include "m33mu/cpu.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_ops.h"
@@ -544,23 +545,6 @@ static void add_imxrt700_prot_regions(struct mm_prot_ctx *p, const struct mm_tar
         mm_prot_add_region(p, r->base_ns, r->size,
                            MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
     }
-}
-
-static mm_u32 cfg_total_ram(const struct mm_target_cfg *cfg)
-{
-    mm_u32 total = 0;
-    mm_u32 i;
-    if (cfg == 0) return 0;
-    if (cfg->ram_regions != 0 && cfg->ram_region_count > 0u) {
-        for (i = 0; i < cfg->ram_region_count; ++i) {
-            if (cfg->ram_regions[i].alias_of != 0u) {
-                continue;
-            }
-            total += cfg->ram_regions[i].size;
-        }
-        return total;
-    }
-    return cfg->ram_size_s;
 }
 
 static void dump_cpu_regs(const struct mm_cpu *cpu, const char *tag)
@@ -4758,6 +4742,7 @@ int main(int argc, char **argv)
     mm_bool tui_active = MM_FALSE;
     int rc = 0;
     struct mm_load_targets targets;
+    struct mm_target_storage target_storage = { 0 };
     /* IT block tracking: pattern encodes THEN(1)/ELSE(0) for remaining instructions. */
     mm_u8 it_pattern = 0;
     mm_u8 it_remaining = 0;
@@ -5803,7 +5788,7 @@ int main(int argc, char **argv)
             size_t limit = cfg.flash_size_s;
             const char *kind = "flash";
             if (boot_mode == MM_BOOT_RAM) {
-                limit = cfg_total_ram(&cfg);
+                limit = mm_target_storage_ram_size(&cfg);
                 kind = "ram";
             } else if (boot_mode == MM_BOOT_SPIFLASH) {
                 limit = spiflash_size;
@@ -5859,20 +5844,20 @@ int main(int argc, char **argv)
         }
     }
 
-    flash = (mm_u8 *)malloc(cfg.flash_size_s);
-    ram = (mm_u8 *)malloc(cfg_total_ram(&cfg));
-    if (flash == NULL || ram == NULL) {
+    if (!mm_target_storage_init(&target_storage, &cfg)) {
         fprintf(stderr, "out of memory\n");
         rc = 1;
         goto cleanup;
     }
+    flash = target_storage.flash;
+    ram = target_storage.ram;
     {
         size_t i;
         mm_u64 ram_seed_state = opt_puf_seed;
-        for (i = 0; i < cfg.flash_size_s; ++i) {
+        for (i = 0; i < target_storage.flash_size; ++i) {
             flash[i] = 0xFFu;
         }
-        for (i = 0; i < cfg_total_ram(&cfg); ++i) {
+        for (i = 0; i < target_storage.ram_size; ++i) {
             if (opt_puf_seed_set) {
                 if ((i & 7u) == 0u) {
                     ram_seed_state = splitmix64_next(&ram_seed_state);
@@ -5883,15 +5868,15 @@ int main(int argc, char **argv)
             }
         }
         if (opt_puf_seed_set && opt_puf_noise > 0u) {
-            apply_puf_noise(ram, cfg_total_ram(&cfg), opt_puf_seed,
+            apply_puf_noise(ram, target_storage.ram_size, opt_puf_seed,
                             opt_puf_cold_boot_count, opt_puf_noise);
         }
     }
 
     targets.flash = flash;
-    targets.flash_size = cfg.flash_size_s;
+    targets.flash_size = target_storage.flash_size;
     targets.ram = ram;
-    targets.ram_size = cfg_total_ram(&cfg);
+    targets.ram_size = target_storage.ram_size;
     targets.spiflash = spiflash_boot_data;
     targets.spiflash_size = spiflash_boot_size;
     targets.spiflash_base = spiflash_boot_base;
@@ -6203,7 +6188,7 @@ int main(int argc, char **argv)
                     map.flash.length = cfg.flash_size_s;
                     map.ram.base = cfg.ram_base_s;
                 }
-                map.ram.length = cfg_total_ram(&cfg);
+                map.ram.length = target_storage.ram_size;
             }
             if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
                 const struct rp2350_partition_table *pt = mm_rp2350_partition_table_get();
@@ -6756,7 +6741,7 @@ int main(int argc, char **argv)
                          * held (a cut operation stays undone). Operations
                          * count from 0 again; a cut that fired is spent, one
                          * still armed waits for this power-up. */
-                        memset(ram, 0, cfg_total_ram(&cfg));
+                        memset(ram, 0, target_storage.ram_size);
                         if (mm_flash_ops_cut_fired(0)) {
                             mm_flash_ops_clear_cut();
                         }
@@ -7752,6 +7737,7 @@ handle_pending:
     }
 
 cleanup:
+    mm_target_storage_destroy(&target_storage);
     if (opt_covdump != 0) {
         struct mm_covdump_info covinfo;
         char coverr[MM_COVDUMP_ERRSZ];

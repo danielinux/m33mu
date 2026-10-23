@@ -37,6 +37,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [x] Move Secure/Non-secure interrupt masks, BASEPRI/preemption comparisons, current exception priority and dual-bank SysTick priority selection into `execution_irq.c`; production, secondary stepping and NVIC candidate filtering use this shared logic, with banked-priority unit coverage.
 - [x] Extract pending PendSV/SysTick/external IRQ candidate dispatch into `mm_execution_irq_dispatch_pending()`. Its explicit policy preserves production skip-to-next-candidate behavior and the secondary step path's stop-on-blocked behavior; tests cover both policies and external IRQ pending/active updates.
 - [x] Move Armv8-M EXC_RETURN encoding (including separate stack/exception security, frame type and DCRS fields) into `exc_return.c`, and banked SHCSR exception-active plus ICSR VECTACTIVE updates into `scs.c`; production exception paths use these shared helpers. Round-trip and SCS state tests pass. Full exception entry/unstack remains in `main.c`.
+- [x] Add caller-owned `mm_target_storage` for target flash/RAM backing stores, including RAM-region alias sizing. CLI allocation and teardown now use it; tests cover region sizing and lifecycle, and it builds in the Emscripten core. This establishes owned memory but does not yet create a complete execution session.
 - [ ] Finish the third-party license audit when selecting/importing a solver and adding runtime dependencies or models.
 
 ## Not started
