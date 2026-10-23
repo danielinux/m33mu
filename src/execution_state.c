@@ -4,6 +4,35 @@
 
 #include "m33mu/execution_state.h"
 
+#include <string.h>
+
+void mm_execution_state_init(struct mm_execution_state *state)
+{
+    if (state == 0) {
+        return;
+    }
+    memset(state, 0, sizeof(*state));
+    mm_execution_clock_reset(&state->clock);
+}
+
+void mm_execution_state_end_run(struct mm_execution_state *state)
+{
+    if (state == 0) {
+        return;
+    }
+    mm_code_cache_release(&state->code_cache);
+}
+
+void mm_execution_state_destroy(struct mm_execution_state *state)
+{
+    if (state == 0) {
+        return;
+    }
+    mm_execution_state_end_run(state);
+    mm_target_storage_destroy(&state->storage);
+    memset(state, 0, sizeof(*state));
+}
+
 void mm_execution_state_reset_cores(struct mm_execution_state *state,
                                     mm_u32 core_count,
                                     mm_u32 vtor_s,

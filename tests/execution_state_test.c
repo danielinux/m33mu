@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "m33mu/execution_state.h"
@@ -34,10 +35,42 @@ static int test_dual_core_reset_keeps_staged_peripheral_state(void)
     return 0;
 }
 
+static int test_session_resource_lifecycle(void)
+{
+    struct mm_execution_state state;
+    mm_execution_state_init(&state);
+    if (state.active_core != 0u || state.clock.cycle_total != 0u ||
+        state.storage.flash != 0 || state.code_cache.page_gen != 0) {
+        return 1;
+    }
+    state.storage.flash = (mm_u8 *)malloc(1u);
+    state.storage.flash_size = 1u;
+    state.code_cache.page_gen = (mm_u32 *)malloc(sizeof(mm_u32));
+    if (state.storage.flash == 0 || state.code_cache.page_gen == 0) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_end_run(&state);
+    if (state.code_cache.page_gen != 0 || state.storage.flash == 0) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    if (state.storage.flash != 0 || state.storage.ram != 0 ||
+        state.code_cache.page_gen != 0) {
+        return 1;
+    }
+    return 0;
+}
+
 int main(void)
 {
     struct mm_execution_state state;
     struct mmio_region external_regions[2];
+    if (test_session_resource_lifecycle() != 0) {
+        fprintf(stderr, "execution_state_test: session resource lifecycle failed\n");
+        return 1;
+    }
     if (test_dual_core_reset_keeps_staged_peripheral_state() != 0) {
         fprintf(stderr, "execution_state_test: dual-core reset failed\n");
         return 1;

@@ -4724,7 +4724,7 @@ int main(int argc, char **argv)
     int gdb_port = 1234;
     const char *cpu_name = 0;
     int i;
-    struct mm_execution_state execution = { 0 };
+    struct mm_execution_state execution;
     mm_u8 *flash;
     mm_u8 *ram;
     struct mm_gdb_stub gdb;
@@ -4820,6 +4820,7 @@ int main(int argc, char **argv)
     mm_bool opt_disable_tb = (disable_tb_env != 0);
 
     snprintf(usb_udc, sizeof(usb_udc), "dummy_udc.0");
+    mm_execution_state_init(&execution);
 
     if (memwatch_env != 0 && memwatch_env[0] != '\0') {
         if (parse_addr_size(memwatch_env, &memwatch_addr, &memwatch_size)) {
@@ -7619,7 +7620,7 @@ handle_pending:
             if (reset_again) {
                 gdb.vtime_base += execution.clock.virtual_cycles;
                 gdb.vcycles = 0;
-                mm_code_cache_release(&execution.code_cache);
+                mm_execution_state_end_run(&execution);
                 continue;
             }
             if (!opt_gdb) {
@@ -7639,7 +7640,7 @@ handle_pending:
                 dump_trace_tail(&execution.cores[0].cpu, &execution.map, opt_record_dump);
             }
             covdump_cycles = execution.clock.cycle_total;
-            mm_code_cache_release(&execution.code_cache);
+            mm_execution_state_end_run(&execution);
             break;
         }
     }
@@ -7656,7 +7657,6 @@ handle_pending:
     }
 
 cleanup:
-    mm_target_storage_destroy(&execution.storage);
     if (opt_covdump != 0) {
         struct mm_covdump_info covinfo;
         char coverr[MM_COVDUMP_ERRSZ];
@@ -7764,5 +7764,6 @@ cleanup:
     if (opt_expect_bkpt && rc == 0) {
         rc = expect_bkpt_hit ? 0 : 1;
     }
+    mm_execution_state_destroy(&execution);
     return rc;
 }

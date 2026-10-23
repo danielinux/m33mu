@@ -40,6 +40,10 @@ struct mm_execution_state {
     mm_u32 active_core;
 };
 
+void mm_execution_state_init(struct mm_execution_state *state);
+void mm_execution_state_end_run(struct mm_execution_state *state);
+void mm_execution_state_destroy(struct mm_execution_state *state);
+
 /* Reset CPU/IT state while preserving the staged SCS and NVIC initialization
  * order used by target and protection setup. */
 void mm_execution_state_reset_cores(struct mm_execution_state *state,
