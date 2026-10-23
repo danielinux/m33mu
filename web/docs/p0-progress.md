@@ -35,6 +35,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [x] Separate host-independent target callback dispatch from POSIX UART/PTY HAL code; validate callback forwarding natively and compile the runtime into the Emscripten core. This does not yet create the production session or scheduler API.
 - [x] Extract production virtual-cycle accounting and cycle-driven SysTick, target timer and signal advancement into `mm_execution_advance_cycles()`; use it in production and secondary stepping paths and cover its counter/timer behavior with a native test.
 - [x] Move Secure/Non-secure interrupt masks, BASEPRI/preemption comparisons, current exception priority and dual-bank SysTick priority selection into `execution_irq.c`; production, secondary stepping and NVIC candidate filtering use this shared logic, with banked-priority unit coverage.
+- [x] Extract pending PendSV/SysTick/external IRQ candidate dispatch into `mm_execution_irq_dispatch_pending()`. Its explicit policy preserves production skip-to-next-candidate behavior and the secondary step path's stop-on-blocked behavior; tests cover both policies and external IRQ pending/active updates.
 - [ ] Finish the third-party license audit when selecting/importing a solver and adding runtime dependencies or models.
 
 ## Not started

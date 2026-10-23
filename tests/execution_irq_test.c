@@ -8,11 +8,40 @@
 #include "m33mu/execution_irq.h"
 #include "m33mu/vector.h"
 
+struct enter_record {
+    mm_u32 count;
+    mm_u32 exception_number;
+    enum mm_sec_state handler_sec;
+};
+
+static mm_bool record_exception(void *opaque,
+                                struct mm_cpu *cpu,
+                                struct mm_memmap *map,
+                                struct mm_scs *scs,
+                                mm_u32 exception_number,
+                                mm_u32 return_pc,
+                                mm_u32 xpsr,
+                                enum mm_sec_state handler_sec)
+{
+    struct enter_record *record = (struct enter_record *)opaque;
+    (void)cpu;
+    (void)map;
+    (void)scs;
+    (void)return_pc;
+    (void)xpsr;
+    record->count++;
+    record->exception_number = exception_number;
+    record->handler_sec = handler_sec;
+    return MM_TRUE;
+}
+
 int main(void)
 {
     struct mm_cpu cpu;
     struct mm_scs scs;
     struct mm_nvic nvic;
+    struct mm_memmap map;
+    struct enter_record record;
     enum mm_sec_state selected = MM_SECURE;
     mm_u8 preempt = 0u;
     mm_u8 raw = 0u;
@@ -20,6 +49,8 @@ int main(void)
     memset(&cpu, 0, sizeof(cpu));
     mm_scs_init(&scs, 0u);
     mm_nvic_init(&nvic);
+    memset(&map, 0, sizeof(map));
+    memset(&record, 0, sizeof(record));
     cpu.sec_state = MM_SECURE;
 
     cpu.primask_s = 1u;
@@ -103,6 +134,47 @@ int main(void)
         return 1;
     }
 
-    printf("execution_irq_test: security banks and priority masks\n");
+    cpu.mode = MM_THREAD;
+    cpu.sec_state = MM_SECURE;
+    cpu.primask_s = 1u;
+    cpu.primask_ns = 0u;
+    cpu.faultmask_s = 0u;
+    cpu.faultmask_ns = 0u;
+    cpu.basepri_s = 0u;
+    cpu.basepri_ns = 0u;
+    scs.pend_sv = MM_TRUE;
+    scs.pend_st_ns = MM_TRUE;
+    if (mm_execution_irq_dispatch_pending(
+            &cpu, &map, &scs, &nvic, MM_EXECUTION_IRQ_STOP_ON_BLOCKED,
+            record_exception, &record, 0, 0, 0, 0) != MM_EXECUTION_IRQ_BLOCKED ||
+        record.count != 0u) {
+        printf("execution_irq_test: stop-on-blocked policy failed\n");
+        return 1;
+    }
+    if (mm_execution_irq_dispatch_pending(
+            &cpu, &map, &scs, &nvic, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+            record_exception, &record, 0, 0, 0, 0) != MM_EXECUTION_IRQ_DELIVERED ||
+        record.count != 1u || record.exception_number != MM_VECT_SYSTICK ||
+        record.handler_sec != MM_NONSECURE) {
+        printf("execution_irq_test: skip-blocked system exception dispatch failed\n");
+        return 1;
+    }
+
+    scs.pend_sv = MM_FALSE;
+    scs.pend_st_ns = MM_FALSE;
+    cpu.primask_s = 0u;
+    mm_nvic_set_enable(&nvic, 7u, MM_TRUE);
+    mm_nvic_set_pending(&nvic, 7u, MM_TRUE);
+    if (mm_execution_irq_dispatch_pending(
+            &cpu, &map, &scs, &nvic, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+            record_exception, &record, 0, 0, 0, 0) != MM_EXECUTION_IRQ_DELIVERED ||
+        record.count != 2u || record.exception_number != 23u ||
+        record.handler_sec != MM_SECURE || mm_nvic_is_pending(&nvic, 7u) ||
+        (nvic.active_mask[0] & (1u << 7)) == 0u) {
+        printf("execution_irq_test: external IRQ delivery bookkeeping failed\n");
+        return 1;
+    }
+
+    printf("execution_irq_test: priority, dispatch policy and IRQ bookkeeping\n");
     return 0;
 }

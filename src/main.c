@@ -3547,6 +3547,15 @@ static mm_bool fault_clock_add(mm_u64 value, mm_u64 *clocks, mm_u8 *count)
     return MM_TRUE;
 }
 
+static mm_bool execution_irq_enter(void *opaque,
+                                   struct mm_cpu *cpu,
+                                   struct mm_memmap *map,
+                                   struct mm_scs *scs,
+                                   mm_u32 exc_num,
+                                   mm_u32 return_pc,
+                                   mm_u32 xpsr_in,
+                                   enum mm_sec_state handler_sec);
+
 static mm_bool step_core_simple(struct mm_cpu *cpu,
                                 struct mm_scs *scs,
                                 struct mm_nvic *nvic,
@@ -3615,70 +3624,12 @@ static mm_bool step_core_simple(struct mm_cpu *cpu,
         trace_started = MM_TRUE;
     }
 
-    if (scs->pend_sv) {
-        if (mm_execution_irq_primask_blocks_current(cpu) ||
-            mm_execution_irq_faultmask_blocks_current(cpu) ||
-            mm_execution_irq_basepri_blocks_system_exc(cpu, scs, MM_VECT_PENDSV)) {
-            result = MM_TRUE;
-            goto out;
-        }
-        {
-            mm_u8 current_preempt = 0u;
-            mm_u8 current_raw = 0u;
-            mm_u8 pend_prio = mm_execution_irq_system_exc_priority(cpu, scs, MM_VECT_PENDSV);
-            mm_u8 pend_preempt = mm_execution_irq_preempt_priority_value(pend_prio, mm_execution_irq_aircr_prigroup_for_sec(scs, cpu->sec_state));
-            if (mm_execution_irq_current_execution_priority(cpu, scs, nvic, &current_preempt, &current_raw) &&
-                pend_preempt >= current_preempt) {
-                result = MM_TRUE;
-                goto out;
-            }
-        }
-        if (!enter_exception(cpu, map, scs, MM_VECT_PENDSV, cpu->r[15] & ~1u, cpu->xpsr)) {
-            if (done) *done = MM_TRUE;
-        } else {
-            itstate_sync_from_xpsr(cpu->xpsr, it_pattern, it_remaining, it_cond);
-        }
-        result = MM_TRUE;
-        goto out;
-    }
-    if (mm_execution_irq_systick_pending_select(cpu, scs, &systick_sec)) {
-        if (mm_execution_irq_primask_blocks_for_sec(cpu, systick_sec) ||
-            mm_execution_irq_faultmask_blocks_for_sec(cpu, systick_sec) ||
-            mm_execution_irq_basepri_blocks_system_exc_for_sec(cpu, scs, systick_sec, MM_VECT_SYSTICK)) {
-            result = MM_TRUE;
-            goto out;
-        }
-        {
-            mm_u8 current_preempt = 0u;
-            mm_u8 current_raw = 0u;
-            mm_u8 pend_prio = mm_execution_irq_system_exc_priority_for_sec(scs, systick_sec, MM_VECT_SYSTICK);
-            mm_u8 pend_preempt = mm_execution_irq_preempt_priority_value(pend_prio, mm_execution_irq_aircr_prigroup_for_sec(scs, systick_sec));
-            if (mm_execution_irq_current_execution_priority(cpu, scs, nvic, &current_preempt, &current_raw) &&
-                pend_preempt >= current_preempt) {
-                result = MM_TRUE;
-                goto out;
-            }
-        }
-        if (!enter_exception_ex(cpu, map, scs, MM_VECT_SYSTICK, cpu->r[15] & ~1u, cpu->xpsr, systick_sec)) {
-            if (done) *done = MM_TRUE;
-        } else {
-            itstate_sync_from_xpsr(cpu->xpsr, it_pattern, it_remaining, it_cond);
-        }
-        result = MM_TRUE;
-        goto out;
-    }
     {
-        enum mm_sec_state irq_sec = MM_SECURE;
-        int pend_irq = mm_nvic_select_routed_ex(nvic, cpu, scs, &irq_sec);
-        if (pend_irq >= 0) {
-            mm_u32 exc_num = 16u + (mm_u32)pend_irq;
-            mm_nvic_set_pending(nvic, (mm_u32)pend_irq, MM_FALSE);
-            mm_nvic_set_active(nvic, (mm_u32)pend_irq, MM_TRUE);
-            if (!enter_exception_ex(cpu, map, scs, exc_num, cpu->r[15] & ~1u, cpu->xpsr, irq_sec)) {
-                if (done) *done = MM_TRUE;
-            } else {
-                itstate_sync_from_xpsr(cpu->xpsr, it_pattern, it_remaining, it_cond);
-            }
+        enum mm_execution_irq_dispatch_result irq_result;
+        irq_result = mm_execution_irq_dispatch_pending(
+            cpu, map, scs, nvic, MM_EXECUTION_IRQ_STOP_ON_BLOCKED,
+            execution_irq_enter, 0, it_pattern, it_remaining, it_cond, done);
+        if (irq_result != MM_EXECUTION_IRQ_NONE) {
             result = MM_TRUE;
             goto out;
         }
@@ -4736,6 +4687,20 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
     cpu->sleeping = MM_FALSE;
     cpu->event_reg = MM_FALSE;
     return MM_TRUE;
+}
+
+static mm_bool execution_irq_enter(void *opaque,
+                                   struct mm_cpu *cpu,
+                                   struct mm_memmap *map,
+                                   struct mm_scs *scs,
+                                   mm_u32 exc_num,
+                                   mm_u32 return_pc,
+                                   mm_u32 xpsr_in,
+                                   enum mm_sec_state handler_sec)
+{
+    (void)opaque;
+    return enter_exception_ex(cpu, map, scs, exc_num, return_pc, xpsr_in,
+                              handler_sec);
 }
 
 static mm_bool signal_parse_gpio_name(const char *s, int *bank_out, int *pin_out)
@@ -6793,7 +6758,6 @@ int main(int argc, char **argv)
 
             /* Main loop */
             while (!done || hold_lockup(opt_gdb, &gdb, &done, &cpu)) {
-                int pend_irq;
                 mm_bool running_now;
                 hz_now = mm_target_cpu_hz(&cfg);
                 if (hz_now != 0 && hz_now != last_hz) {
@@ -7235,63 +7199,15 @@ int main(int argc, char **argv)
                     continue;
                 }
 
-                /* Handle pending system exceptions (SysTick, PendSV). */
 handle_pending:
-                if (scs.pend_sv &&
-                    !mm_execution_irq_primask_blocks_current(&cpu) &&
-                    !mm_execution_irq_faultmask_blocks_current(&cpu) &&
-                    !mm_execution_irq_basepri_blocks_system_exc(&cpu, &scs, MM_VECT_PENDSV)) {
-                    mm_u8 current_preempt = 0u;
-                    mm_u8 current_raw = 0u;
-                    mm_u8 pend_prio = mm_execution_irq_system_exc_priority(&cpu, &scs, MM_VECT_PENDSV);
-                    mm_u8 pend_preempt = mm_execution_irq_preempt_priority_value(pend_prio, mm_execution_irq_aircr_prigroup_for_sec(&scs, cpu.sec_state));
-                    if (mm_execution_irq_current_execution_priority(&cpu, &scs, &nvic, &current_preempt, &current_raw) &&
-                        pend_preempt >= current_preempt) {
-                        goto check_systick_pending;
-                    }
-                    if (!enter_exception(&cpu, &map, &scs, MM_VECT_PENDSV, cpu.r[15] & ~1u, cpu.xpsr)) {
-                        done = MM_TRUE;
-                    } else {
-                        itstate_sync_from_xpsr(cpu.xpsr, &it_pattern, &it_remaining, &it_cond);
-                    }
-                    continue;
-                }
-check_systick_pending:
-                if (mm_execution_irq_systick_pending_select(&cpu, &scs, &systick_sec) &&
-                    !mm_execution_irq_primask_blocks_for_sec(&cpu, systick_sec) &&
-                    !mm_execution_irq_faultmask_blocks_for_sec(&cpu, systick_sec) &&
-                    !mm_execution_irq_basepri_blocks_system_exc_for_sec(&cpu, &scs, systick_sec, MM_VECT_SYSTICK)) {
-                    mm_u8 current_preempt = 0u;
-                    mm_u8 current_raw = 0u;
-                    mm_u8 pend_prio = mm_execution_irq_system_exc_priority_for_sec(&scs, systick_sec, MM_VECT_SYSTICK);
-                    mm_u8 pend_preempt = mm_execution_irq_preempt_priority_value(pend_prio, mm_execution_irq_aircr_prigroup_for_sec(&scs, systick_sec));
-                    if (mm_execution_irq_current_execution_priority(&cpu, &scs, &nvic, &current_preempt, &current_raw) &&
-                        pend_preempt >= current_preempt) {
-                        goto check_irq_pending;
-                    }
-                    if (!enter_exception_ex(&cpu, &map, &scs, MM_VECT_SYSTICK, cpu.r[15] & ~1u, cpu.xpsr, systick_sec)) {
-                        done = MM_TRUE;
-                    } else {
-                        itstate_sync_from_xpsr(cpu.xpsr, &it_pattern, &it_remaining, &it_cond);
-                    }
-                    continue;
-                }
-
-                /* Manage interrupts */
-check_irq_pending:
+                /* Deliver pending exceptions through the shared production policy. */
                 {
-                    enum mm_sec_state irq_sec = MM_SECURE;
-                    pend_irq = mm_nvic_select_routed_ex(&nvic, &cpu, &scs, &irq_sec);
-                    if (pend_irq >= 0) {
-                        mm_u32 exc_num = 16u + (mm_u32)pend_irq;
-                        /* Clear pending when accepted. */
-                        mm_nvic_set_pending(&nvic, (mm_u32)pend_irq, MM_FALSE);
-                        mm_nvic_set_active(&nvic, (mm_u32)pend_irq, MM_TRUE);
-                        if (!enter_exception_ex(&cpu, &map, &scs, exc_num, cpu.r[15] & ~1u, cpu.xpsr, irq_sec)) {
-                            done = MM_TRUE;
-                        } else {
-                            itstate_sync_from_xpsr(cpu.xpsr, &it_pattern, &it_remaining, &it_cond);
-                        }
+                    enum mm_execution_irq_dispatch_result irq_result;
+                    irq_result = mm_execution_irq_dispatch_pending(
+                        &cpu, &map, &scs, &nvic, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+                        execution_irq_enter, 0, &it_pattern, &it_remaining,
+                        &it_cond, &done);
+                    if (irq_result == MM_EXECUTION_IRQ_DELIVERED) {
                         continue;
                     }
                 }

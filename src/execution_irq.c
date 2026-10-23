@@ -3,6 +3,7 @@
  */
 
 #include "m33mu/execution_irq.h"
+#include "m33mu/execute.h"
 #include "m33mu/vector.h"
 
 mm_bool mm_execution_irq_primask_blocks_current(const struct mm_cpu *cpu)
@@ -272,5 +273,136 @@ mm_bool mm_execution_irq_systick_pending_select(const struct mm_cpu *cpu,
         *handler_sec_out = MM_NONSECURE;
     }
     return MM_TRUE;
+}
+
+static mm_bool execution_irq_can_take_system(const struct mm_cpu *cpu,
+                                             const struct mm_scs *scs,
+                                             const struct mm_nvic *nvic,
+                                             enum mm_sec_state handler_sec,
+                                             mm_u32 exception_number)
+{
+    mm_u8 current_preempt = 0u;
+    mm_u8 current_raw = 0u;
+    mm_u8 pending_priority;
+    mm_u8 pending_preempt;
+    if (exception_number == MM_VECT_PENDSV) {
+        if (mm_execution_irq_primask_blocks_current(cpu) ||
+            mm_execution_irq_faultmask_blocks_current(cpu) ||
+            mm_execution_irq_basepri_blocks_system_exc(cpu, scs, exception_number)) {
+            return MM_FALSE;
+        }
+        pending_priority = mm_execution_irq_system_exc_priority(cpu, scs,
+                                                                exception_number);
+    } else {
+        if (mm_execution_irq_primask_blocks_for_sec(cpu, handler_sec) ||
+            mm_execution_irq_faultmask_blocks_for_sec(cpu, handler_sec) ||
+            mm_execution_irq_basepri_blocks_system_exc_for_sec(cpu, scs,
+                                                               handler_sec,
+                                                               exception_number)) {
+            return MM_FALSE;
+        }
+        pending_priority = mm_execution_irq_system_exc_priority_for_sec(
+            scs, handler_sec, exception_number);
+    }
+    pending_preempt = mm_execution_irq_preempt_priority_value(
+        pending_priority,
+        mm_execution_irq_aircr_prigroup_for_sec(scs, handler_sec));
+    if (mm_execution_irq_current_execution_priority(cpu, scs, nvic,
+                                                    &current_preempt,
+                                                    &current_raw) &&
+        pending_preempt >= current_preempt) {
+        return MM_FALSE;
+    }
+    return MM_TRUE;
+}
+
+static enum mm_execution_irq_dispatch_result execution_irq_deliver(
+    struct mm_cpu *cpu,
+    struct mm_memmap *map,
+    struct mm_scs *scs,
+    struct mm_nvic *nvic,
+    mm_u32 exception_number,
+    enum mm_sec_state handler_sec,
+    mm_bool is_external_irq,
+    mm_u32 irq_number,
+    mm_execution_irq_enter_fn enter_exception,
+    void *enter_opaque,
+    mm_u8 *it_pattern,
+    mm_u8 *it_remaining,
+    mm_u8 *it_cond,
+    mm_bool *done)
+{
+    if (is_external_irq) {
+        mm_nvic_set_pending(nvic, irq_number, MM_FALSE);
+        mm_nvic_set_active(nvic, irq_number, MM_TRUE);
+    }
+    if (!enter_exception(enter_opaque, cpu, map, scs, exception_number,
+                         cpu->r[15] & ~1u, cpu->xpsr, handler_sec)) {
+        if (done != 0) {
+            *done = MM_TRUE;
+        }
+    } else if (it_pattern != 0 && it_remaining != 0 && it_cond != 0) {
+        itstate_sync_from_xpsr(cpu->xpsr, it_pattern, it_remaining, it_cond);
+    }
+    return MM_EXECUTION_IRQ_DELIVERED;
+}
+
+enum mm_execution_irq_dispatch_result mm_execution_irq_dispatch_pending(
+    struct mm_cpu *cpu,
+    struct mm_memmap *map,
+    struct mm_scs *scs,
+    struct mm_nvic *nvic,
+    enum mm_execution_irq_block_policy block_policy,
+    mm_execution_irq_enter_fn enter_exception,
+    void *enter_opaque,
+    mm_u8 *it_pattern,
+    mm_u8 *it_remaining,
+    mm_u8 *it_cond,
+    mm_bool *done)
+{
+    enum mm_sec_state handler_sec = MM_SECURE;
+    int pending_irq;
+    if (cpu == 0 || map == 0 || scs == 0 || enter_exception == 0) {
+        return MM_EXECUTION_IRQ_NONE;
+    }
+
+    if (scs->pend_sv) {
+        if (execution_irq_can_take_system(cpu, scs, nvic, cpu->sec_state,
+                                          MM_VECT_PENDSV)) {
+            return execution_irq_deliver(cpu, map, scs, nvic, MM_VECT_PENDSV,
+                                         cpu->sec_state, MM_FALSE, 0u,
+                                         enter_exception, enter_opaque,
+                                         it_pattern, it_remaining, it_cond, done);
+        }
+        if (block_policy == MM_EXECUTION_IRQ_STOP_ON_BLOCKED) {
+            return MM_EXECUTION_IRQ_BLOCKED;
+        }
+    }
+
+    if (mm_execution_irq_systick_pending_select(cpu, scs, &handler_sec)) {
+        if (execution_irq_can_take_system(cpu, scs, nvic, handler_sec,
+                                          MM_VECT_SYSTICK)) {
+            return execution_irq_deliver(cpu, map, scs, nvic, MM_VECT_SYSTICK,
+                                         handler_sec, MM_FALSE, 0u,
+                                         enter_exception, enter_opaque,
+                                         it_pattern, it_remaining, it_cond, done);
+        }
+        if (block_policy == MM_EXECUTION_IRQ_STOP_ON_BLOCKED) {
+            return MM_EXECUTION_IRQ_BLOCKED;
+        }
+    }
+
+    if (nvic != 0) {
+        pending_irq = mm_nvic_select_routed_ex(nvic, cpu, scs, &handler_sec);
+        if (pending_irq >= 0) {
+            return execution_irq_deliver(cpu, map, scs, nvic,
+                                         16u + (mm_u32)pending_irq,
+                                         handler_sec, MM_TRUE,
+                                         (mm_u32)pending_irq,
+                                         enter_exception, enter_opaque,
+                                         it_pattern, it_remaining, it_cond, done);
+        }
+    }
+    return MM_EXECUTION_IRQ_NONE;
 }
 

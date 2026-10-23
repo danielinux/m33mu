@@ -6,8 +6,29 @@
 #define M33MU_EXECUTION_IRQ_H
 
 #include "m33mu/cpu.h"
+#include "m33mu/memmap.h"
 #include "m33mu/nvic.h"
 #include "m33mu/scs.h"
+
+enum mm_execution_irq_block_policy {
+    MM_EXECUTION_IRQ_SKIP_BLOCKED,
+    MM_EXECUTION_IRQ_STOP_ON_BLOCKED
+};
+
+enum mm_execution_irq_dispatch_result {
+    MM_EXECUTION_IRQ_NONE,
+    MM_EXECUTION_IRQ_BLOCKED,
+    MM_EXECUTION_IRQ_DELIVERED
+};
+
+typedef mm_bool (*mm_execution_irq_enter_fn)(void *opaque,
+                                              struct mm_cpu *cpu,
+                                              struct mm_memmap *map,
+                                              struct mm_scs *scs,
+                                              mm_u32 exception_number,
+                                              mm_u32 return_pc,
+                                              mm_u32 xpsr,
+                                              enum mm_sec_state handler_sec);
 
 mm_bool mm_execution_irq_primask_blocks_current(const struct mm_cpu *cpu);
 mm_bool mm_execution_irq_faultmask_blocks_current(const struct mm_cpu *cpu);
@@ -23,5 +44,17 @@ mm_u8 mm_execution_irq_aircr_prigroup_for_sec(const struct mm_scs *scs, enum mm_
 mm_u8 mm_execution_irq_preempt_priority_value(mm_u8 prio, mm_u8 prigroup);
 mm_bool mm_execution_irq_current_execution_priority(const struct mm_cpu *cpu, const struct mm_scs *scs, const struct mm_nvic *nvic, mm_u8 *preempt_out, mm_u8 *raw_out);
 mm_bool mm_execution_irq_systick_pending_select(const struct mm_cpu *cpu, const struct mm_scs *scs, enum mm_sec_state *handler_sec_out);
+enum mm_execution_irq_dispatch_result mm_execution_irq_dispatch_pending(
+    struct mm_cpu *cpu,
+    struct mm_memmap *map,
+    struct mm_scs *scs,
+    struct mm_nvic *nvic,
+    enum mm_execution_irq_block_policy block_policy,
+    mm_execution_irq_enter_fn enter_exception,
+    void *enter_opaque,
+    mm_u8 *it_pattern,
+    mm_u8 *it_remaining,
+    mm_u8 *it_cond,
+    mm_bool *done);
 
 #endif
