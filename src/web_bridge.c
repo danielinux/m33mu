@@ -10,6 +10,7 @@
 
 #include "m33mu/decode.h"
 #include "m33mu/execution_state.h"
+#include "m33mu/execution_exception.h"
 #include "m33mu/gpio.h"
 #include "m33mu/target_hal.h"
 
@@ -166,25 +167,6 @@ static mm_bool web_apply_due_gpio_events(struct mm_web_session *session)
         session->gpio_event_count--;
     }
     return MM_TRUE;
-}
-
-static mm_bool web_fpu_access_allowed(const struct mm_cpu *cpu,
-                                     const struct mm_scs *scs)
-{
-    mm_u32 cpacr;
-    if (cpu == 0 || scs == 0 || !scs->fpu_present) {
-        return MM_FALSE;
-    }
-    if (cpu->sec_state == MM_NONSECURE &&
-        (((scs->nsacr >> 10) & 3u) != 3u)) {
-        return MM_FALSE;
-    }
-    cpacr = cpu->sec_state == MM_NONSECURE ? scs->cpacr_ns : scs->cpacr_s;
-    if (((cpacr >> 20) & 3u) == 0u || ((cpacr >> 22) & 3u) == 0u) {
-        return MM_FALSE;
-    }
-    return mm_cpu_get_privileged(cpu) ||
-        (((cpacr >> 20) & 3u) == 3u && ((cpacr >> 22) & 3u) == 3u);
 }
 
 static struct mm_decoded web_decode(
@@ -480,7 +462,7 @@ enum mm_web_error mm_web_step_instructions(
         context.exc_return_unstack = web_unhandled_exc_return;
         context.enter_exception = web_unhandled_exception;
         outcome = mm_execution_state_step_instruction(
-            state, 0u, &context, web_fpu_access_allowed, web_decode,
+            state, 0u, &context, mm_execution_exception_fpu_access_allowed, web_decode,
             web_unhandled_mem_fault, &fetch, &decoded, &fpu_ok,
             &exec_status);
         if (session->pending_error != MM_WEB_OK) {

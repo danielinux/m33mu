@@ -19,8 +19,8 @@ list(APPEND M33MU_WASM_SOURCES
 # Host-facing modules stay outside the browser core. The production session
 # owner is compiled below. A Node-linked session regression smoke is built
 # separately; the public H563 session bridge is covered by web_session_test.
-# Browser worker messaging, timestamped input queues and UART adapters remain
-# future work.
+# Exception entry/unstack and UART adapters remain future work; the public
+# worker already supports timestamped GPIO input and output events.
 set(M33MU_WASM_HOST_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/../../src/main.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/gdbstub.c"

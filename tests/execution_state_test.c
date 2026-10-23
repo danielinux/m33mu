@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "m33mu/execution_state.h"
+#include "m33mu/execution_exception.h"
 #include "m33mu/gpio.h"
 #include "m33mu/signal.h"
 #include "m33mu/vector.h"
@@ -892,10 +893,73 @@ static int test_session_core_system_setup(void)
     return 0;
 }
 
+static int test_exception_fpu_and_secure_state_helpers(void)
+{
+    struct mm_cpu cpu;
+    struct mm_scs scs;
+    int i;
+    memset(&cpu, 0, sizeof(cpu));
+    memset(&scs, 0, sizeof(scs));
+    cpu.mode = MM_THREAD;
+    cpu.sec_state = MM_SECURE;
+    cpu.priv_s = MM_FALSE;
+    scs.fpu_present = MM_TRUE;
+    scs.cpacr_s = 0x00f00000u;
+    scs.fpu_present = MM_FALSE;
+    if (mm_execution_exception_fpu_access_allowed(&cpu, &scs)) return 1;
+    scs.fpu_present = MM_TRUE;
+    if (!mm_execution_exception_fpu_access_allowed(&cpu, &scs)) return 1;
+    cpu.priv_s = MM_TRUE;
+    scs.cpacr_s = 0x00500000u;
+    if (mm_execution_exception_fpu_access_allowed(&cpu, &scs)) return 1;
+    scs.cpacr_s = 0x00f00000u;
+    if (!mm_execution_exception_fpu_access_allowed(&cpu, &scs)) return 1;
+    cpu.sec_state = MM_NONSECURE;
+    cpu.priv_ns = MM_TRUE;
+    scs.cpacr_ns = 0x00f00000u;
+    if (mm_execution_exception_fpu_access_allowed(&cpu, &scs)) return 1;
+    scs.nsacr = (1u << 10) | (1u << 11);
+    if (!mm_execution_exception_fpu_access_allowed(&cpu, &scs)) return 1;
+    cpu.sec_state = MM_SECURE;
+    cpu.fp_active = MM_TRUE;
+    cpu.control_s = 1u << 2;
+    scs.fpccr = (1u << 31) | (1u << 30);
+    if (!mm_execution_exception_fpu_auto_preserve_enabled(&cpu, &scs) ||
+        !mm_execution_exception_fpu_lazy_preserve_enabled(&cpu, &scs)) {
+        return 1;
+    }
+    scs.fpccr = 1u << 31;
+    if (!mm_execution_exception_fpu_auto_preserve_enabled(&cpu, &scs) ||
+        mm_execution_exception_fpu_lazy_preserve_enabled(&cpu, &scs)) {
+        return 1;
+    }
+    if (!mm_execution_exception_additional_state_required(
+            MM_SECURE, MM_NONSECURE) ||
+        mm_execution_exception_additional_state_required(
+            MM_NONSECURE, MM_SECURE) ||
+        mm_execution_exception_additional_state_required(
+            MM_SECURE, MM_SECURE)) {
+        return 1;
+    }
+    for (i = 0; i < 8; ++i) cpu.r[4 + i] = (mm_u32)(0x44440000u + i);
+    mm_execution_exception_save_secure_callee_regs(&cpu, 2);
+    for (i = 0; i < 8; ++i) {
+        if (cpu.exc_callee_saved[2][i] != (mm_u32)(0x44440000u + i) ||
+            cpu.r[4 + i] != 0u) return 1;
+    }
+    if (!cpu.exc_cross_domain[2]) return 1;
+    mm_execution_exception_save_secure_callee_regs(&cpu, MM_EXC_STACK_MAX);
+    return 0;
+}
+
 int main(void)
 {
     struct mm_execution_state state;
     struct mmio_region external_regions[2];
+    if (test_exception_fpu_and_secure_state_helpers() != 0) {
+        fprintf(stderr, "execution_state_test: exception state helpers failed\n");
+        return 1;
+    }
     if (test_single_live_session_and_signal_clock() != 0) {
         fprintf(stderr, "execution_state_test: singleton signal clock failed\n");
         return 1;

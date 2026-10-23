@@ -72,6 +72,7 @@
 #include "m33mu/execution_clock.h"
 #include "m33mu/execution_state.h"
 #include "m33mu/execution_irq.h"
+#include "m33mu/execution_exception.h"
 #include "m33mu/spiflash.h"
 #include "m33mu/usbdev.h"
 #include "m33mu/eth_backend.h"
@@ -211,7 +212,6 @@ static int load_file_at(const char *path, mm_u8 *dst, size_t max_len, mm_u32 off
 void mm_system_request_reset(void);
 static void record_bus_fault(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 addr, mm_u32 bfsr_bits);
 static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struct mm_scs *scs, mm_u32 fault_pc, mm_u32 fault_xpsr);
-static mm_bool fpu_access_allowed(const struct mm_cpu *cpu, const struct mm_scs *scs);
 static struct mm_decoded decode_t32_fast(const struct mm_fetch_result *fetch,
                                          const struct mm_cpu *cpu,
                                          const struct mm_scs *scs);
@@ -1344,7 +1344,7 @@ static mm_bool handle_tui(struct mm_tui *tui,
     if (cpu != 0 && steps_latched != 0) {
         mm_bool fpu_enabled = MM_FALSE;
         if (scs != 0) {
-            fpu_enabled = fpu_access_allowed(cpu, scs);
+            fpu_enabled = mm_execution_exception_fpu_access_allowed(cpu, scs);
         }
         mm_tui_set_core_state(tui,
                               cpu->r[15],
@@ -2622,7 +2622,7 @@ static struct mm_decoded decode_t32_fast(const struct mm_fetch_result *fetch,
         return mm_decode_t32(fetch);
     }
     if (fetch->len == 4u && cpu != 0 && scs != 0 &&
-        !fpu_access_allowed(cpu, scs) && mm_is_vfp_insn_fast(fetch->insn)) {
+        !mm_execution_exception_fpu_access_allowed(cpu, scs) && mm_is_vfp_insn_fast(fetch->insn)) {
         d.kind = MM_OP_UNDEFINED;
         d.cond = MM_COND_AL;
         d.rd = 0;
@@ -2779,92 +2779,10 @@ static mm_bool allow_system_reset(const struct mm_target_cfg *cfg, const char *c
 #define FP_STACK_BYTES (FP_STACK_WORDS * 4u)
 #define EXC_ADDITIONAL_STATE_WORDS 9u
 #define EXC_ADDITIONAL_STATE_BYTES (EXC_ADDITIONAL_STATE_WORDS * 4u)
-#define CPACR_CP10_SHIFT 20u
-#define CPACR_CP11_SHIFT 22u
 #define AIRCR_BFHFNMINS (1u << 13)
 #define FPCCR_LSPACT (1u << 0)
 #define FPCCR_LSPEN  (1u << 30)
 #define FPCCR_ASPEN  (1u << 31)
-
-static mm_u32 cpacr_for_sec(const struct mm_scs *scs, enum mm_sec_state sec)
-{
-    if (scs == 0) {
-        return 0u;
-    }
-    return (sec == MM_NONSECURE) ? scs->cpacr_ns : scs->cpacr_s;
-}
-
-static mm_bool fpu_access_allowed(const struct mm_cpu *cpu, const struct mm_scs *scs)
-{
-    mm_u32 cp10;
-    mm_u32 cp11;
-    if (cpu == 0 || scs == 0 || !scs->fpu_present) {
-        return MM_FALSE;
-    }
-    if (cpu->sec_state == MM_NONSECURE) {
-        if (((scs->nsacr >> 10) & 0x1u) == 0u || ((scs->nsacr >> 11) & 0x1u) == 0u) {
-            return MM_FALSE;
-        }
-    }
-    cp10 = (cpacr_for_sec(scs, cpu->sec_state) >> CPACR_CP10_SHIFT) & 0x3u;
-    cp11 = (cpacr_for_sec(scs, cpu->sec_state) >> CPACR_CP11_SHIFT) & 0x3u;
-    if (cp10 == 0u || cp11 == 0u) {
-        return MM_FALSE;
-    }
-    if (!mm_cpu_get_privileged(cpu) && (cp10 != 3u || cp11 != 3u)) {
-        return MM_FALSE;
-    }
-    return MM_TRUE;
-}
-
-static mm_bool fpu_stack_active(const struct mm_cpu *cpu, const struct mm_scs *scs)
-{
-    mm_u32 ctrl;
-    if (!fpu_access_allowed(cpu, scs)) {
-        return MM_FALSE;
-    }
-    ctrl = (cpu->sec_state == MM_NONSECURE) ? cpu->control_ns : cpu->control_s;
-    if ((ctrl & (1u << 2)) == 0u) {
-        return MM_FALSE;
-    }
-    return cpu->fp_active ? MM_TRUE : MM_FALSE;
-}
-
-static mm_bool fpu_auto_preserve_enabled(const struct mm_cpu *cpu, const struct mm_scs *scs)
-{
-    if (!fpu_stack_active(cpu, scs)) {
-        return MM_FALSE;
-    }
-    return (scs->fpccr & FPCCR_ASPEN) != 0u ? MM_TRUE : MM_FALSE;
-}
-
-static mm_bool fpu_lazy_preserve_enabled(const struct mm_cpu *cpu, const struct mm_scs *scs)
-{
-    if (!fpu_auto_preserve_enabled(cpu, scs)) {
-        return MM_FALSE;
-    }
-    return (scs->fpccr & FPCCR_LSPEN) != 0u ? MM_TRUE : MM_FALSE;
-}
-
-static void save_and_clear_secure_callee_regs(struct mm_cpu *cpu, int depth)
-{
-    int i;
-
-    if (cpu == 0 || depth < 0 || depth >= MM_EXC_STACK_MAX) {
-        return;
-    }
-    for (i = 0; i < 8; ++i) {
-        cpu->exc_callee_saved[depth][i] = cpu->r[4 + i];
-        cpu->r[4 + i] = 0u;
-    }
-    cpu->exc_cross_domain[depth] = MM_TRUE;
-}
-
-static mm_bool cross_domain_additional_state_required(enum mm_sec_state pre_sec,
-                                                      enum mm_sec_state handler_sec)
-{
-    return (pre_sec == MM_SECURE && handler_sec == MM_NONSECURE) ? MM_TRUE : MM_FALSE;
-}
 
 static mm_bool tailchain_select_pending(const struct mm_cpu *cpu,
                                         const struct mm_scs *scs,
@@ -3818,9 +3736,9 @@ static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struc
 
     pre_mode = cpu->mode;
     use_psp_entry = (pre_mode == MM_THREAD) && (((stack_sec == MM_NONSECURE) ? cpu->control_ns : cpu->control_s) & 0x2u);
-    fp_stack = fpu_auto_preserve_enabled(cpu, scs);
-    fp_lazy = fp_stack && fpu_lazy_preserve_enabled(cpu, scs);
-    addl_state = cross_domain_additional_state_required(sec, handler_sec);
+    fp_stack = mm_execution_exception_fpu_auto_preserve_enabled(cpu, scs);
+    fp_lazy = fp_stack && mm_execution_exception_fpu_lazy_preserve_enabled(cpu, scs);
+    addl_state = mm_execution_exception_additional_state_required(sec, handler_sec);
     exc_ret_val = mm_exc_return_encode_ex(stack_sec,
                                     handler_sec,
                                     use_psp_entry,
@@ -3829,8 +3747,8 @@ static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struc
                                     addl_state ? MM_FALSE : MM_TRUE);
     {
         mm_u32 ctrl = (stack_sec == MM_NONSECURE) ? cpu->control_ns : cpu->control_s;
-        mm_u32 cpacr = cpacr_for_sec(scs, stack_sec);
-        mm_bool fpu_allowed = fpu_access_allowed(cpu, scs);
+        mm_u32 cpacr = mm_execution_exception_cpacr_for_sec(scs, stack_sec);
+        mm_bool fpu_allowed = mm_execution_exception_fpu_access_allowed(cpu, scs);
         printf("[MEMFAULT_FPU] sec=%d fp_active=%d fpu_allowed=%d fp_stack=%d\n",
                (int)stack_sec,
                (int)cpu->fp_active,
@@ -3917,7 +3835,7 @@ static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struc
         cpu->exc_fp_saved[cpu->exc_depth] = fp_stack;
         cpu->exc_cross_domain[cpu->exc_depth] = MM_FALSE;
         if (addl_state) {
-            save_and_clear_secure_callee_regs(cpu, cpu->exc_depth);
+            mm_execution_exception_save_secure_callee_regs(cpu, cpu->exc_depth);
         }
         cpu->exc_depth++;
     }
@@ -4144,8 +4062,8 @@ static mm_bool raise_usage_fault(struct mm_cpu *cpu, struct mm_memmap *map, stru
     (void)psp_ns_val;
     (void)control_s_val;
     (void)control_ns_val;
-    fp_stack = fpu_auto_preserve_enabled(cpu, scs);
-    fp_lazy = fp_stack && fpu_lazy_preserve_enabled(cpu, scs);
+    fp_stack = mm_execution_exception_fpu_auto_preserve_enabled(cpu, scs);
+    fp_lazy = fp_stack && mm_execution_exception_fpu_lazy_preserve_enabled(cpu, scs);
     exc_ret_val = mm_exc_return_encode_ex(sec,
                                     sec,
                                     use_psp_entry,
@@ -4367,9 +4285,9 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
     frame[6] = return_pc & ~1u;
     frame[7] = xpsr_in | 0x01000000u; /* preserve full xPSR/IT/flags/IPSR; ensure T */
 
-    fp_stack = (!tail_chain) && fpu_auto_preserve_enabled(cpu, scs);
-    fp_lazy = fp_stack && fpu_lazy_preserve_enabled(cpu, scs);
-    addl_state = cross_domain_additional_state_required(sec, handler_sec);
+    fp_stack = (!tail_chain) && mm_execution_exception_fpu_auto_preserve_enabled(cpu, scs);
+    fp_lazy = fp_stack && mm_execution_exception_fpu_lazy_preserve_enabled(cpu, scs);
+    addl_state = mm_execution_exception_additional_state_required(sec, handler_sec);
     /* EXC_RETURN.SPSEL captures CONTROL.SPSEL of the PREEMPTED domain at
      * entry (Armv8-M exception model): bit2 names the stack the frame was
      * pushed to, and the matching return restores the return domain's
@@ -4527,7 +4445,7 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
         cpu->exc_fp_saved[cpu->exc_depth] = fp_stack && !fp_lazy;
         cpu->exc_cross_domain[cpu->exc_depth] = MM_FALSE;
         if (addl_state) {
-            save_and_clear_secure_callee_regs(cpu, cpu->exc_depth);
+            mm_execution_exception_save_secure_callee_regs(cpu, cpu->exc_depth);
         }
         cpu->exc_depth++;
     }
@@ -7010,7 +6928,7 @@ handle_pending:
                     if (opt_disable_tb) {
                         fast_mode = MM_FALSE;
                     }
-                    if (fast_mode && !fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs)) {
+                    if (fast_mode && !mm_execution_exception_fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs)) {
                         fast_fpu_ok = MM_FALSE;
                     }
                     execution.code_cache.fpu_ok = fast_fpu_ok;
@@ -7117,7 +7035,7 @@ handle_pending:
                                 mm_nvic_select_ex(&execution.cores[0].nvic, &execution.cores[0].cpu, &execution.cores[0].scs) >= 0) {
                                 break;
                             }
-                            fast_fpu_ok = fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs) ? MM_TRUE : MM_FALSE;
+                            fast_fpu_ok = mm_execution_exception_fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs) ? MM_TRUE : MM_FALSE;
                             execution.code_cache.fpu_ok = fast_fpu_ok;
                             pc_after = execution.cores[0].cpu.r[15];
                             /* Successor blocks must be resolved in the CURRENT
@@ -7267,7 +7185,7 @@ handle_pending:
                     }
 
                     fetch_status = mm_execution_state_fetch_decode_or_fault(
-                        &execution, fpu_access_allowed, decode_t32_fast,
+                        &execution, mm_execution_exception_fpu_access_allowed, decode_t32_fast,
                         raise_mem_fault, &f, &d, &fpu_ok);
                     if (fetch_status == MM_EXECUTION_FETCH_INVALID) {
                         rc = 1;
