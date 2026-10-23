@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatSi } from '../project/catalog.ts';
 import type { ScopeTrigger } from '../project/model.ts';
+import { type SigcCapture, SigcError, encodeSigc, roundMillivolts } from './sigc.ts';
 
 export const SCOPE_CAPACITY = 400_000;
 
@@ -90,6 +91,41 @@ export class ScopeBuffer {
     }
     return rows.join('\n') + '\n';
   }
+
+  toSigc(units: [string, string]): Uint8Array {
+    if (!this.length) throw new SigcError('The scope has no samples to export');
+    const origin = this.t[this.at(0)];
+    const timesNs: number[] = [];
+    const traces: SigcCapture['traces'] = [];
+    for (let k = 0; k < this.length; k++) timesNs.push(Math.round(this.t[this.at(k)] - origin));
+    for (let c = 0; c < 2; c++) {
+      let hasSamples = false;
+      for (let k = 0; k < this.length; k++) {
+        if (Number.isFinite(this.v[c][this.at(k)])) { hasSamples = true; break; }
+      }
+      if (!hasSamples) continue;
+      if (units[c] !== 'V') throw new SigcError(`CH${c + 1} is ${units[c]}; SIGC stores millivolts only. Export CSV instead.`);
+      const samplesMv = new Int16Array(this.length);
+      for (let k = 0; k < this.length; k++) {
+        const value = this.v[c][this.at(k)];
+        if (!Number.isFinite(value)) throw new SigcError(`CH${c + 1} has missing samples; export CSV instead.`);
+        samplesMv[k] = roundMillivolts(value);
+      }
+      traces.push({ name: `ch${c + 1}`, fullScaleMv: 3300, samplesMv });
+    }
+    return encodeSigc({ timesNs, traces });
+  }
+
+  loadSigc(capture: SigcCapture): void {
+    const width = capture.traces.length + 1;
+    const flat = new Float64Array(capture.timesNs.length * width);
+    capture.timesNs.forEach((t, k) => {
+      flat[k * width] = t;
+      capture.traces.forEach((tr, c) => { flat[k * width + c + 1] = tr.samplesMv[k] / 1000; });
+    });
+    this.clear();
+    this.append(flat, width, capture.traces.length === 1 ? [0, null] : [0, 1]);
+  }
 }
 
 type Props = {
@@ -102,12 +138,15 @@ type Props = {
   onWindow(ns: number): void;
   onTrigger(trigger: ScopeTrigger | null): void;
   onExport(): void;
+  onExportSigc(): void;
+  onImportSigc(file: File): void;
 };
 
 const COLORS = ['#e8a33d', '#3dc1e8'];
 const WINDOWS = [10_000, 50_000, 200_000, 1_000_000, 5_000_000, 20_000_000, 50_000_000, 100_000_000, 1_000_000_000, 5_000_000_000];
 
-export function Scope({ buffer, version, labels, units, windowNs, trigger, onWindow, onTrigger, onExport }: Props) {
+export function Scope({ buffer, version, labels, units, windowNs, trigger, onWindow, onTrigger,
+  onExport, onExportSigc, onImportSigc }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [cursors, setCursors] = useState<[number | null, number | null]>([null, null]);
   const end = buffer.lastTime();
@@ -241,6 +280,13 @@ export function Scope({ buffer, version, labels, units, windowNs, trigger, onWin
         {trigger && <span data-testid="trigger-status">{triggerTime === null ? 'Waiting for edge' :
           `Triggered at ${formatSi(triggerTime * 1e-9, 's')}`}</span>}
         <button type="button" onClick={onExport} disabled={buffer.length === 0}>Export CSV</button>
+        <button type="button" onClick={onExportSigc} disabled={buffer.length === 0}>Export .sigc</button>
+        <label className="scope-import">Import .sigc<input type="file" accept=".sigc,application/octet-stream"
+          data-testid="sigc-input" onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) onImportSigc(file);
+          }} /></label>
         {buffer.dropped > 0 && <span className="warning">{buffer.dropped} oldest samples discarded</span>}
       </header>
       <canvas ref={canvas} onClick={click} data-testid="scope" title="Click: cursor A · Shift-click: cursor B" />

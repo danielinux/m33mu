@@ -2,6 +2,7 @@ import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } f
 import { BenchCanvas, type Selection, type Tool } from './canvas/BenchCanvas.tsx';
 import { Inspector, type McuPadInfo, type Observation } from './Inspector.tsx';
 import { Scope, ScopeBuffer } from './instruments/Scope.tsx';
+import { decodeSigc, SIGC_MAX_BYTES, SigcError } from './instruments/sigc.ts';
 import { CATALOG, formatSi, type PartKind, type Rotation } from './project/catalog.ts';
 import { commit, createHistory, redo, replace, undo } from './project/history.ts';
 import {
@@ -37,8 +38,9 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-function download(name: string, text: string, type: string) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+function download(name: string, data: string | Uint8Array, type: string) {
+  const blobData = typeof data === 'string' ? data : data.slice().buffer;
+  const url = URL.createObjectURL(new Blob([blobData], { type }));
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
@@ -68,6 +70,7 @@ export function App() {
   const [message, setMessage] = useState('Place parts from the palette, wire them to CN7-10 (PA5) or CN9-1 (PA6), load an ELF and run.');
   const [fault, setFault] = useState('');
   const [scopeVersion, setScopeVersion] = useState(0);
+  const [scopePreview, setScopePreview] = useState<[string, string] | null>(null);
   const [realTime, setRealTime] = useState(true);
   const [examples, setExamples] = useState<{ id: string; name: string; project: string; firmware: string | null; description: string }[]>([]);
   const scope = useRef(new ScopeBuffer());
@@ -221,6 +224,7 @@ export function App() {
     setFirmware({ name, hash, bytes });
     setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
     scope.current.clear(); setScopeVersion(scope.current.version);
+    setScopePreview(null);
     setRunState('paused');
   }
 
@@ -273,6 +277,9 @@ export function App() {
   async function run() {
     setFault('');
     try {
+      if (scopePreview) {
+        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null);
+      }
       if (hasCircuit) {
         if (!benchActive || benchStale) await startBench();
         await worker().request('runUntil', realTime ? { maxRatio: 1 } : {});
@@ -305,6 +312,7 @@ export function App() {
       await worker().request('reset');
       setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null); setMcuPads({});
       scope.current.clear(); setScopeVersion(scope.current.version);
+      setScopePreview(null);
       setRunState('paused');
       setMessage('Firmware reset; the circuit restarts from its DC operating point on the next run.');
     } catch (err) { fail(err); }
@@ -334,7 +342,7 @@ export function App() {
         ...(firmware ? { firmwareBase64: toBase64(firmware.bytes) } : {}) } };
       if (!firmware) delete p.simulator.firmwareBase64;
       download(`${p.name.replace(/[^a-zA-Z0-9_-]+/g, '-') || 'bench'}.m33mu.json`, serializeProject(p), 'application/json');
-      setMessage('Project saved (circuit, probes, solver settings, view and embedded ELF).');
+      setMessage(`Project saved (circuit, probes, solver settings, view and embedded ELF).${scopePreview ? ' Imported waveform preview is not included.' : ''}`);
     } catch (err) { fail(err); }
   }
 
@@ -354,6 +362,7 @@ export function App() {
         client.current?.terminate();
         client.current = null;
         setFirmware(null); setMachine(null); setRunState('idle'); setBenchActive(false);
+        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null);
       }
       const { firmwareBase64: _drop, ...simulator } = p.simulator;
       void _drop;
@@ -378,6 +387,7 @@ export function App() {
         if (benchActive) await worker().request('destroyBench');
         setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
         scope.current.clear(); setScopeVersion(scope.current.version);
+        setScopePreview(null);
         setRunState(firmware ? 'paused' : 'idle');
       }
       setHistory(createHistory(p));
@@ -388,6 +398,26 @@ export function App() {
 
   function exportCsv() {
     download('m33mu-scope.csv', scope.current.toCsv(['ch1', 'ch2']), 'text/csv');
+  }
+
+  function exportSigc() {
+    try {
+      download('m33mu-scope.sigc', scope.current.toSigc([u1, u2]), 'application/octet-stream');
+      setMessage('Exported voltage traces as SIGC v1 (ch1/ch2, millivolts, time relative to first sample).');
+    } catch (err) { fail(err); }
+  }
+
+  async function importSigc(file: File) {
+    setFault('');
+    try {
+      if (runState === 'running') throw new SigcError('Pause the bench before importing a SIGC preview');
+      if (file.size > SIGC_MAX_BYTES) throw new SigcError('SIGC input exceeds 8 MiB');
+      const capture = decodeSigc(new Uint8Array(await file.arrayBuffer()));
+      scope.current.loadSigc(capture);
+      setScopeVersion(scope.current.version);
+      setScopePreview([capture.traces[0].name, capture.traces[1]?.name ?? '—']);
+      setMessage(`Imported ${capture.traces.length} voltage trace(s) for scope preview. Waveforms are not stored in the project; export them separately.`);
+    } catch (err) { fail(err); }
   }
 
   // ------------------------------------------------------------ render
@@ -405,8 +435,8 @@ export function App() {
     const t = terminalMap.get(refKey(ch.at));
     return [`V(${t?.label ?? 'net'})`, 'V'];
   };
-  const [l1, u1] = channelLabel(project.instruments.scope.channels[0]);
-  const [l2, u2] = channelLabel(project.instruments.scope.channels[1]);
+  const [l1, u1] = scopePreview ? [scopePreview[0], 'V'] : channelLabel(project.instruments.scope.channels[0]);
+  const [l2, u2] = scopePreview ? [scopePreview[1], 'V'] : channelLabel(project.instruments.scope.channels[1]);
   const timeNs = stats?.timeNs ?? (machine ? Number(machine.virtualTimeNs) : 0);
   const canRun = runState !== 'running' && (hasCircuit ? errors.length === 0 : !!firmware && runState !== 'stopped');
 
@@ -500,7 +530,7 @@ export function App() {
         trigger={project.instruments.scope.trigger ?? null}
         onWindow={(ns) => view({ ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope, windowNs: ns } } })}
         onTrigger={(trigger) => view({ ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope, trigger } } })}
-        onExport={exportCsv} />
+        onExport={exportCsv} onExportSigc={exportSigc} onImportSigc={(file) => void importSigc(file)} />
       <footer className="status">
         <span className={fault ? 'fault' : ''} data-testid="status-message">{fault || message}</span>
         <span className="spacer" />

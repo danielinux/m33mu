@@ -200,6 +200,12 @@ try {
     assert.deepEqual(saved.instruments.scope.trigger, { channel: 0, edge: 'rising', level: 1.5 });
     await page.getByRole('button', { name: 'Pause' }).click();
     await page.getByTestId('run').waitFor();
+    const [sigc] = await Promise.all([page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export .sigc' }).click()]);
+    const sigcFile = await sigc.path();
+    assert.equal(readFileSync(sigcFile).subarray(0, 4).toString(), 'SIGC');
+    await page.getByTestId('sigc-input').setInputFiles(sigcFile);
+    await page.waitForFunction(() => /Imported 2 voltage trace/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
   });
 
   await check('scope aligns to an RC rising crossing', async () => {
@@ -216,6 +222,9 @@ try {
       null, { timeout: 60000 });
     await page.mouse.up();
     await page.getByRole('button', { name: 'Pause' }).click();
+    await page.getByTestId('run').waitFor();
+    await page.getByRole('button', { name: 'Export .sigc' }).click();
+    await page.waitForFunction(() => /SIGC stores millivolts only/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
   });
 
   await check('worker destroy and recreate in the browser', async () => {
