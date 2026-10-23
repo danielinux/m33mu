@@ -1,0 +1,65 @@
+{
+  "solver": "Perun",
+  "hz": 64000000,
+  "quantumNs": 15.625,
+  "thresholdsMv": {
+    "rise": 1775,
+    "fall": 1525
+  },
+  "crossings": [
+    {
+      "cycle": 557,
+      "level": 1,
+      "mv": 1776
+    },
+    {
+      "cycle": 678,
+      "level": 0,
+      "mv": 1524
+    },
+    {
+      "cycle": 799,
+      "level": 1,
+      "mv": 1776
+    },
+    {
+      "cycle": 920,
+      "level": 0,
+      "mv": 1524
+    }
+  ],
+  "outputEdges": [
+    {
+      "cycle": 37,
+      "timeNs": "578",
+      "level": 0
+    },
+    {
+      "cycle": 62,
+      "timeNs": "968",
+      "level": 1
+    },
+    {
+      "cycle": 569,
+      "timeNs": "8890",
+      "level": 0
+    },
+    {
+      "cycle": 690,
+      "timeNs": "10781",
+      "level": 1
+    },
+    {
+      "cycle": 811,
+      "timeNs": "12671",
+      "level": 0
+    },
+    {
+      "cycle": 932,
+      "timeNs": "14562",
+      "level": 1
+    }
+  ],
+  "finalCycle": 940,
+  "finalSolverCycle": 940
+}
