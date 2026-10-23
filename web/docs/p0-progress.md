@@ -4,6 +4,7 @@ Updated 2026-10-23 (full-suite validation HEAD `3c80ef1`). Keep this checklist c
 
 ## Completed
 
+- [x] Probe nonlinear breadth in pinned Perun at `067d1c9c59e27f72f6498ec224f3735d0da6364a`: `./node_modules/.bin/vitest run tools/golden/src/next.test.ts` passes 132/132 tests, including smoothed/adaptive rectifiers, LED/Zener, NPN/PNP bias, NMOS/PMOS switching and inverting op-amp traces. This proves candidate coverage against its pinned CircuitJS1 reference fixtures; cross-solver accuracy tolerance, worker scheduling and runtime teardown remain open. Details are in `adr-001-solver.md`.
 - [x] Re-run full serial CTest after the web scheduler boundary and IRQ work-budget fixes: **108/108 enabled tests pass; one test is disabled**. This includes CLI/worker parity, native web session, WFI/EXTI worker wake, active-core EXTI boundary ordering, flash/TZ parity and GDB harness coverage.
 - [x] Re-run the current full serial CTest suite after live-coupling harness work: build succeeds; **106/106 enabled tests pass** (one disabled), including native session, Emscripten loader/session, worker API, flash/TZ parity and GDB harness tests.
 - [x] Re-run full native CTest after bounded WFI/WFE worker slices: **106/106 enabled tests pass** (one disabled). The Node/WASM worker smoke covers idle WFI pause, queued GPIO deadline advancement across yielding slices, and paused state after the event is consumed without an interrupt.

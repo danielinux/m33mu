@@ -29,3 +29,14 @@ Defer selection. Do not wire firmware GPIO into an assumed ideal voltage source.
 2. A controllable simulation quantum, bounded worker execution, pause/resume, and deterministic replay.
 3. Firmware output edge -> analog RC threshold crossing -> GPIO/EXTI event with ordering and timing tolerance measured against a reference fixture.
 4. Numerical fixture comparisons, solver build ID, license notices and complete model/dependency provenance.
+
+## Pinned Perun nonlinear fixture probe (2026-10-23)
+
+The isolated Perun checkout at `067d1c9c59e27f72f6498ec224f3735d0da6364a` passed
+`./node_modules/.bin/vitest run tools/golden/src/next.test.ts`: 132 tests passed in 1.53 s.
+The golden manifest includes nonlinear transient fixtures for a smoothed rectifier, an adaptive
+rectifier, LED/Zener regulation, NPN and PNP bias, NMOS/PMOS switching and an inverting op-amp.
+This verifies that these candidate models run against Perun's pinned reference traces. It does not
+compare those traces against ngspice or hardware, quantify acceptable cross-solver error, or prove
+the engine can be scheduled and torn down inside the browser worker. It therefore establishes
+candidate model breadth only; it does not close solver selection.
