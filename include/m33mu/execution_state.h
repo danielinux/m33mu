@@ -81,6 +81,17 @@ mm_bool mm_execution_state_fetch_decode(
     struct mm_fetch_result *fetch_out,
     struct mm_decoded *decoded_out,
     mm_bool *fpu_ok_out);
+mm_bool mm_execution_state_should_execute(struct mm_execution_state *state,
+                                          mm_u32 core_index,
+                                          const struct mm_decoded *decoded);
+void mm_execution_state_advance_it(struct mm_execution_state *state,
+                                   mm_u32 core_index,
+                                   const struct mm_decoded *decoded);
+mm_bool mm_execution_state_advance_it_if_sequential(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    const struct mm_fetch_result *fetch,
+    const struct mm_decoded *decoded);
 
 /* Reset CPU/IT state while preserving the staged SCS and NVIC initialization
  * order used by target and protection setup. */

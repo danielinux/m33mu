@@ -7394,7 +7394,7 @@ handle_pending:
                     }
 
                     /* ITSTATE handling: if inside IT block and not IT instruction, conditionally execute. */
-                    execute_it = mm_it_should_execute(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
+                    execute_it = mm_execution_state_should_execute(&execution, 0u, &d);
                     if ((g_record_trace_fp != NULL || g_record_trace_live) &&
                         g_record_started && g_record_start_remaining > 0u) {
                         FILE *trace_out = g_record_trace_fp ? g_record_trace_fp : stderr;
@@ -7432,7 +7432,7 @@ handle_pending:
                                 (unsigned long long)execution.clock.cycle_total);
                     }
                     if (!execute_it && d.kind != MM_OP_IT) {
-                        mm_it_advance(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
+                        mm_execution_state_advance_it(&execution, 0u, &d);
                         if (trace_started) {
                             mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                             mm_trace_end_step(&execution.cores[0].cpu);
@@ -7451,13 +7451,7 @@ handle_pending:
                         printf("[FAULT-CLOCK] skip pc=0x%08lx cycle=%llu\n",
                                (unsigned long)(f.pc_fetch | 1u),
                                (unsigned long long)execution.clock.cycle_total);
-                        if (execution.cores[0].it_remaining > 0u && d.kind != MM_OP_IT) {
-                            mm_u8 raw = itstate_get(execution.cores[0].cpu.xpsr);
-                            execution.cores[0].it_pattern >>= 1;
-                            execution.cores[0].it_remaining--;
-                            raw = itstate_advance(raw);
-                            execution.cores[0].cpu.xpsr = itstate_set(execution.cores[0].cpu.xpsr, raw);
-                        }
+                        mm_execution_state_advance_it(&execution, 0u, &d);
                         if (trace_started) {
                             mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                             mm_trace_end_step(&execution.cores[0].cpu);
@@ -7519,10 +7513,9 @@ handle_pending:
                                  * or EXC_RETURN). For EXC_RETURN, ITSTATE was
                                  * just restored from the saved exception
                                  * frame and represents the resumed context. */
-                                mm_u32 expected_next = (f.pc_fetch + f.len) | 1u;
-                                if (execute_it && d.kind != MM_OP_IT &&
-                                    execution.cores[0].cpu.r[15] == expected_next) {
-                                    mm_it_advance(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
+                                if (execute_it && d.kind != MM_OP_IT) {
+                                    (void)mm_execution_state_advance_it_if_sequential(
+                                        &execution, 0u, &f, &d);
                                 }
                                 if (trace_started) {
                                     mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
@@ -7559,10 +7552,8 @@ handle_pending:
                     }
 
                     {
-                        mm_u32 expected_next = (f.pc_fetch + f.len) | 1u;
-                        if (execution.cores[0].cpu.r[15] == expected_next) {
-                            mm_it_advance(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
-                        }
+                        (void)mm_execution_state_advance_it_if_sequential(
+                            &execution, 0u, &f, &d);
                     }
                 }
 

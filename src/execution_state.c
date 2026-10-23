@@ -127,6 +127,52 @@ mm_bool mm_execution_state_fetch_decode(
     return MM_TRUE;
 }
 
+mm_bool mm_execution_state_should_execute(struct mm_execution_state *state,
+                                          mm_u32 core_index,
+                                          const struct mm_decoded *decoded)
+{
+    struct mm_execution_core_state *core;
+    if (state == 0 || core_index >= 2u || decoded == 0) {
+        return MM_TRUE;
+    }
+    core = &state->cores[core_index];
+    return mm_it_should_execute(&core->cpu, decoded, &core->it_pattern,
+                                &core->it_remaining, &core->it_cond);
+}
+
+void mm_execution_state_advance_it(struct mm_execution_state *state,
+                                   mm_u32 core_index,
+                                   const struct mm_decoded *decoded)
+{
+    struct mm_execution_core_state *core;
+    if (state == 0 || core_index >= 2u || decoded == 0) {
+        return;
+    }
+    core = &state->cores[core_index];
+    mm_it_advance(&core->cpu, decoded, &core->it_pattern,
+                  &core->it_remaining, &core->it_cond);
+}
+
+mm_bool mm_execution_state_advance_it_if_sequential(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    const struct mm_fetch_result *fetch,
+    const struct mm_decoded *decoded)
+{
+    struct mm_execution_core_state *core;
+    mm_u32 expected_next;
+    if (state == 0 || core_index >= 2u || fetch == 0 || decoded == 0) {
+        return MM_FALSE;
+    }
+    core = &state->cores[core_index];
+    expected_next = (fetch->pc_fetch + fetch->len) | 1u;
+    if (core->cpu.r[15] != expected_next) {
+        return MM_FALSE;
+    }
+    mm_execution_state_advance_it(state, core_index, decoded);
+    return MM_TRUE;
+}
+
 void mm_execution_state_init_memory_map(struct mm_execution_state *state)
 {
     if (state == 0) {

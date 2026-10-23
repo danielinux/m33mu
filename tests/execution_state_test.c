@@ -70,6 +70,52 @@ static int test_target_setup_order(void)
     return 0;
 }
 
+static int test_session_it_state(void)
+{
+    struct mm_execution_state state;
+    struct mm_decoded decoded;
+    struct mm_fetch_result fetch;
+    mm_bool should_execute;
+    mm_execution_state_init(&state);
+    memset(&decoded, 0, sizeof(decoded));
+    decoded.kind = MM_OP_ADD_IMM;
+    state.cores[0].it_pattern = 1u;
+    state.cores[0].it_remaining = 1u;
+    state.cores[0].it_cond = MM_COND_EQ;
+    state.cores[0].cpu.xpsr = itstate_set(1u << 30, 0x08u);
+    should_execute = mm_execution_state_should_execute(&state, 0u, &decoded);
+    if (!should_execute) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    state.cores[0].cpu.xpsr = itstate_set(0u, 0x08u);
+    should_execute = mm_execution_state_should_execute(&state, 0u, &decoded);
+    if (should_execute) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    memset(&fetch, 0, sizeof(fetch));
+    fetch.pc_fetch = 0x1000u;
+    fetch.len = 2u;
+    state.cores[0].cpu.r[15] = 0x1003u;
+    if (!mm_execution_state_advance_it_if_sequential(&state, 0u,
+                                                      &fetch, &decoded) ||
+        state.cores[0].it_remaining != 0u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    state.cores[0].it_remaining = 1u;
+    state.cores[0].cpu.r[15] = 0x2001u;
+    if (mm_execution_state_advance_it_if_sequential(&state, 0u,
+                                                    &fetch, &decoded) ||
+        state.cores[0].it_remaining != 1u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
 static int test_dual_core_reset_keeps_staged_peripheral_state(void)
 {
     struct mm_execution_state state;
@@ -239,6 +285,10 @@ int main(void)
     }
     if (test_target_setup_order() != 0) {
         fprintf(stderr, "execution_state_test: target setup ordering failed\n");
+        return 1;
+    }
+    if (test_session_it_state() != 0) {
+        fprintf(stderr, "execution_state_test: IT state handling failed\n");
         return 1;
     }
     if (test_session_bounded_elf_load() != 0) {
