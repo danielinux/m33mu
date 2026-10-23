@@ -82,6 +82,36 @@ static size_t make_h563_elf(mm_u8 image[96])
     return 96u;
 }
 
+static size_t make_h563_hardfault_elf(mm_u8 image[156])
+{
+    const mm_u32 flash_base = 0x0c000000u;
+    const mm_u32 ram_top = 0x30080000u;
+    const mm_u32 payload_size = 72u;
+    memset(image, 0, 156u);
+    image[0] = 0x7fu; image[1] = 'E'; image[2] = 'L'; image[3] = 'F';
+    image[4] = 1u; image[5] = 1u; image[6] = 1u;
+    put_le16(image + 18u, 40u);
+    put_le32(image + 24u, flash_base + 65u);
+    put_le32(image + 28u, 52u);
+    put_le16(image + 40u, 52u);
+    put_le16(image + 42u, 32u);
+    put_le16(image + 44u, 1u);
+    put_le32(image + 52u, 1u);
+    put_le32(image + 56u, 84u);
+    put_le32(image + 60u, flash_base);
+    put_le32(image + 64u, flash_base);
+    put_le32(image + 68u, payload_size);
+    put_le32(image + 72u, payload_size);
+    put_le32(image + 76u, 4u);
+    put_le32(image + 84u, ram_top);
+    put_le32(image + 88u, flash_base + 65u);
+    put_le32(image + 84u + 3u * 4u, flash_base + 69u);
+    put_le16(image + 84u + 64u, 0xffffu); /* undefined instruction */
+    put_le16(image + 84u + 66u, 0xffffu);
+    put_le16(image + 84u + 68u, 0xbeabu); /* HardFault handler BKPT */
+    return 156u;
+}
+
 static size_t make_h563_sysreset_elf(mm_u8 image[116])
 {
     const mm_u32 flash_base = 0x0c000000u;
@@ -163,6 +193,7 @@ int main(void)
     struct mm_web_gpio_output_event gpio_output;
     enum mm_web_error error;
     mm_u8 image[96];
+    mm_u8 fault_image[156];
 
     session = mm_web_create(&config, &error);
     if (session == 0 || error != MM_WEB_OK) {
@@ -256,12 +287,17 @@ int main(void)
         fprintf(stderr, "web_session_test: reset did not restore boot state\n");
         return 1;
     }
-    put_le16(image + 94u, 0xffffu);
-    if (mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK ||
-        mm_web_step_instructions(session, 2u, &step) !=
-            MM_WEB_UNSUPPORTED_INSTRUCTION || step.instructions != 1u) {
+    mm_web_destroy(session);
+    config.max_image_size = sizeof(fault_image);
+    session = mm_web_create(&config, &error);
+    if (session == 0 || error != MM_WEB_OK ||
+        make_h563_hardfault_elf(fault_image) != sizeof(fault_image) ||
+        mm_web_load_elf(session, fault_image, sizeof(fault_image)) != MM_WEB_OK ||
+        mm_web_step_instructions(session, 2u, &step) != MM_WEB_OK ||
+        !step.stopped || mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+        (cpu.xpsr & 0x1ffu) != MM_VECT_HARDFAULT) {
         mm_web_destroy(session);
-        fprintf(stderr, "web_session_test: unsupported opcode was not reported\n");
+        fprintf(stderr, "web_session_test: undefined instruction did not escalate to HardFault\n");
         return 1;
     }
     {

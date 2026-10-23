@@ -14,6 +14,7 @@
 #include "m33mu/execution_exception.h"
 #include "m33mu/gpio.h"
 #include "m33mu/target_hal.h"
+#include "m33mu/vector.h"
 
 #define MM_WEB_DEFAULT_IMAGE_LIMIT (32u * 1024u * 1024u)
 #define MM_WEB_CPUID 0x410fc241u
@@ -208,23 +209,52 @@ static mm_bool web_unhandled_mem_fault(struct mm_cpu *cpu,
     return MM_FALSE;
 }
 
-static mm_bool web_unhandled_usage_fault(struct mm_cpu *cpu,
-                                         struct mm_memmap *map,
-                                         struct mm_scs *scs,
-                                         mm_u32 fault_pc,
-                                         mm_u32 fault_xpsr,
-                                         mm_u32 ufsr_bits)
+static mm_bool web_exception_enter(void *opaque,
+                                   struct mm_cpu *cpu,
+                                   struct mm_memmap *map,
+                                   struct mm_scs *scs,
+                                   mm_u32 exc_num,
+                                   mm_u32 return_pc,
+                                   mm_u32 xpsr,
+                                   enum mm_sec_state handler_sec);
+
+/* Match the production UsageFault policy for architectural undefined
+ * instructions: set UFSR, deliver UsageFault when enabled, otherwise escalate
+ * to HardFault and set HFSR.FORCED. The CLI adds diagnostics around this same
+ * architectural entry path. */
+static mm_bool web_raise_usage_fault(struct mm_cpu *cpu,
+                                     struct mm_memmap *map,
+                                     struct mm_scs *scs,
+                                     mm_u32 fault_pc,
+                                     mm_u32 fault_xpsr,
+                                     mm_u32 ufsr_bits)
 {
-    if (g_web_active_session != 0) {
-        g_web_active_session->pending_error = MM_WEB_EXECUTION_FAULT;
+    enum mm_sec_state sec;
+    mm_u32 *cfsr;
+    mm_u32 enabled;
+    mm_u32 exception;
+    if (cpu == 0 || map == 0 || scs == 0) return MM_FALSE;
+    sec = cpu->sec_state;
+    cfsr = mm_scs_cfsr_ptr(scs, sec);
+    if (cfsr == 0) return MM_FALSE;
+    *cfsr |= ufsr_bits != 0u ? ufsr_bits : (1u << 16);
+    enabled = sec == MM_NONSECURE ? scs->shcsr_ns : scs->shcsr_s;
+    if ((enabled & (1u << 18)) != 0u) {
+        exception = MM_VECT_USAGEFAULT;
+        mm_scs_exception_set_active(scs, sec, exception);
+    } else {
+        exception = MM_VECT_HARDFAULT;
+        scs->hfsr |= 1u << 30; /* FORCED */
+        mm_scs_exception_set_active(scs, sec, exception);
     }
-    (void)cpu;
-    (void)map;
-    (void)scs;
-    (void)fault_pc;
-    (void)fault_xpsr;
-    (void)ufsr_bits;
-    return MM_FALSE;
+    if (!web_exception_enter(g_web_active_session, cpu, map, scs,
+                             exception, fault_pc, fault_xpsr, sec)) {
+        if (g_web_active_session != 0) {
+            g_web_active_session->pending_error = MM_WEB_EXECUTION_FAULT;
+        }
+        return MM_FALSE;
+    }
+    return MM_TRUE;
 }
 
 static mm_bool web_execution_exc_return(struct mm_cpu *cpu,
@@ -624,7 +654,7 @@ static enum mm_web_error web_execute_budgeted(
         context.opt_expect_bkpt = MM_TRUE;
         context.handle_pc_write = web_handle_pc_write;
         context.raise_mem_fault = web_unhandled_mem_fault;
-        context.raise_usage_fault = web_unhandled_usage_fault;
+        context.raise_usage_fault = web_raise_usage_fault;
         context.exc_return_unstack = web_execution_exc_return;
         context.enter_exception = web_execution_instruction_exception;
         outcome = mm_execution_state_step_instruction(
@@ -638,8 +668,15 @@ static enum mm_web_error web_execute_budgeted(
             return result_out->error;
         }
         if (outcome == MM_EXECUTION_INSTRUCTION_UNDEFINED) {
-            result_out->error = MM_WEB_UNSUPPORTED_INSTRUCTION;
-            return result_out->error;
+            enum mm_execution_fault_status fault_status =
+                mm_execution_state_raise_undefined(
+                    state, 0u, web_raise_usage_fault, &fetch, &decoded);
+            if (fault_status != MM_EXECUTION_FAULT_HANDLED) {
+                result_out->error = session->pending_error != MM_WEB_OK ?
+                    session->pending_error : MM_WEB_EXECUTION_FAULT;
+                return result_out->error;
+            }
+            continue;
         }
         if (outcome == MM_EXECUTION_INSTRUCTION_FETCH_FAULT_UNHANDLED ||
             outcome == MM_EXECUTION_INSTRUCTION_INVALID) {
