@@ -528,6 +528,97 @@ mm_bool mm_execution_state_signal_check_trigger(
     return MM_TRUE;
 }
 
+mm_bool mm_execution_state_signal_set_vdd_mv(
+    struct mm_execution_state *state,
+    mm_i32 vdd_mv)
+{
+    if (state == 0 || state != g_active_execution_state) {
+        return MM_FALSE;
+    }
+    mm_signal_set_vdd_mv(vdd_mv);
+    return MM_TRUE;
+}
+
+mm_bool mm_execution_state_signal_set_gpio_vil_mv(
+    struct mm_execution_state *state,
+    mm_i32 vil_mv)
+{
+    if (state == 0 || state != g_active_execution_state) {
+        return MM_FALSE;
+    }
+    mm_signal_set_gpio_vil_mv(vil_mv);
+    return MM_TRUE;
+}
+
+mm_bool mm_execution_state_signal_set_gpio_vih_mv(
+    struct mm_execution_state *state,
+    mm_i32 vih_mv)
+{
+    if (state == 0 || state != g_active_execution_state) {
+        return MM_FALSE;
+    }
+    mm_signal_set_gpio_vih_mv(vih_mv);
+    return MM_TRUE;
+}
+
+mm_i32 mm_execution_state_signal_gpio_vil_mv(
+    const struct mm_execution_state *state)
+{
+    return state == 0 || state != g_active_execution_state ?
+        0 : mm_signal_gpio_vil_mv();
+}
+
+mm_i32 mm_execution_state_signal_gpio_vih_mv(
+    const struct mm_execution_state *state)
+{
+    return state == 0 || state != g_active_execution_state ?
+        0 : mm_signal_gpio_vih_mv();
+}
+
+mm_bool mm_execution_state_signal_load(
+    struct mm_execution_state *state,
+    const char *path)
+{
+    return state != 0 && state == g_active_execution_state ?
+        mm_signal_load(path) : MM_FALSE;
+}
+
+int mm_execution_state_signal_bind(
+    struct mm_execution_state *state,
+    const char *trace_name,
+    int bank,
+    int pin,
+    enum mm_signal_role role)
+{
+    return state != 0 && state == g_active_execution_state ?
+        mm_signal_bind(trace_name, bank, pin, role) : -1;
+}
+
+mm_bool mm_execution_state_signal_set_trigger(
+    struct mm_execution_state *state,
+    mm_u32 trigger_pc)
+{
+    if (state == 0 || state != g_active_execution_state) {
+        return MM_FALSE;
+    }
+    mm_signal_set_trigger(trigger_pc);
+    return MM_TRUE;
+}
+
+mm_bool mm_execution_state_signal_trigger_set(
+    const struct mm_execution_state *state)
+{
+    return state != 0 && state == g_active_execution_state ?
+        mm_signal_trigger_set() : MM_FALSE;
+}
+
+mm_bool mm_execution_state_signal_triggered(
+    const struct mm_execution_state *state)
+{
+    return state != 0 && state == g_active_execution_state ?
+        mm_signal_triggered() : MM_FALSE;
+}
+
 mm_bool mm_execution_state_apply_reset_vector(
     struct mm_execution_state *state,
     enum mm_sec_state boot_security)

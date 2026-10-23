@@ -14,6 +14,7 @@
 #include "m33mu/mem_prot.h"
 #include "m33mu/core_sys.h"
 #include "m33mu/target_storage.h"
+#include "m33mu/signal.h"
 #include "m33mu/image_loader.h"
 #include "m33mu/fetch.h"
 #include "m33mu/decode.h"
@@ -224,6 +225,35 @@ mm_bool mm_execution_state_signal_prepare_for_run(
 mm_bool mm_execution_state_signal_check_trigger(
     struct mm_execution_state *state,
     mm_u32 pc);
+mm_bool mm_execution_state_signal_set_vdd_mv(
+    struct mm_execution_state *state,
+    mm_i32 vdd_mv);
+mm_bool mm_execution_state_signal_set_gpio_vil_mv(
+    struct mm_execution_state *state,
+    mm_i32 vil_mv);
+mm_bool mm_execution_state_signal_set_gpio_vih_mv(
+    struct mm_execution_state *state,
+    mm_i32 vih_mv);
+mm_i32 mm_execution_state_signal_gpio_vil_mv(
+    const struct mm_execution_state *state);
+mm_i32 mm_execution_state_signal_gpio_vih_mv(
+    const struct mm_execution_state *state);
+mm_bool mm_execution_state_signal_load(
+    struct mm_execution_state *state,
+    const char *path);
+int mm_execution_state_signal_bind(
+    struct mm_execution_state *state,
+    const char *trace_name,
+    int bank,
+    int pin,
+    enum mm_signal_role role);
+mm_bool mm_execution_state_signal_set_trigger(
+    struct mm_execution_state *state,
+    mm_u32 trigger_pc);
+mm_bool mm_execution_state_signal_trigger_set(
+    const struct mm_execution_state *state);
+mm_bool mm_execution_state_signal_triggered(
+    const struct mm_execution_state *state);
 mm_bool mm_execution_state_apply_reset_vector(
     struct mm_execution_state *state,
     enum mm_sec_state boot_security);

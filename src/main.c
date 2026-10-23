@@ -5649,28 +5649,30 @@ int main(int argc, char **argv)
     }
 
     if (has_signal_file) {
-        mm_signal_set_vdd_mv(opt_vdd_mv);
+        (void)mm_execution_state_signal_set_vdd_mv(&execution, opt_vdd_mv);
         if (has_gpio_vil) {
-            mm_signal_set_gpio_vil_mv(opt_gpio_vil_mv);
+            (void)mm_execution_state_signal_set_gpio_vil_mv(&execution, opt_gpio_vil_mv);
         }
         if (has_gpio_vih) {
-            mm_signal_set_gpio_vih_mv(opt_gpio_vih_mv);
+            (void)mm_execution_state_signal_set_gpio_vih_mv(&execution, opt_gpio_vih_mv);
         }
-        if (mm_signal_gpio_vil_mv() >= mm_signal_gpio_vih_mv()) {
+        if (mm_execution_state_signal_gpio_vil_mv(&execution) >=
+            mm_execution_state_signal_gpio_vih_mv(&execution)) {
             fprintf(stderr, "GPIO VIL (%d mV) must be below VIH (%d mV); "
                             "check --gpio-vil-mv, --gpio-vih-mv and --vdd-mv\n",
-                    (int)mm_signal_gpio_vil_mv(), (int)mm_signal_gpio_vih_mv());
+                    (int)mm_execution_state_signal_gpio_vil_mv(&execution),
+                    (int)mm_execution_state_signal_gpio_vih_mv(&execution));
             return 1;
         }
-        if (!mm_signal_load(opt_signal_file)) {
+        if (!mm_execution_state_signal_load(&execution, opt_signal_file)) {
             fprintf(stderr, "failed to load --signal-file %s\n", opt_signal_file);
             return 1;
         }
         for (i = 0; i < signal_bind_count; ++i) {
-            int bid = mm_signal_bind(signal_bind_specs[i].trace_name,
-                                      signal_bind_specs[i].bank,
-                                      signal_bind_specs[i].pin,
-                                      MM_SIGNAL_ROLE_GPIO);
+            int bid = mm_execution_state_signal_bind(
+                &execution, signal_bind_specs[i].trace_name,
+                signal_bind_specs[i].bank, signal_bind_specs[i].pin,
+                MM_SIGNAL_ROLE_GPIO);
             if (bid < 0) {
                 fprintf(stderr, "failed to bind signal trace '%s'\n",
                         signal_bind_specs[i].trace_name);
@@ -5687,7 +5689,7 @@ int main(int argc, char **argv)
                                               image_count, &trig_addr)) {
                 return 1;
             }
-            mm_signal_set_trigger(trig_addr);
+            (void)mm_execution_state_signal_set_trigger(&execution, trig_addr);
         }
     } else if (signal_bind_count > 0) {
         fprintf(stderr, "--signal-bind given without --signal-file\n");
@@ -5704,7 +5706,7 @@ int main(int argc, char **argv)
                                               image_count, &trig_addr)) {
                 return 1;
             }
-            mm_signal_set_trigger(trig_addr);
+            (void)mm_execution_state_signal_set_trigger(&execution, trig_addr);
         }
         for (i = 0; i < signal_watch_count; ++i) {
             if (!mm_signal_record_watch(signal_watch_specs[i].bank, signal_watch_specs[i].pin)) {
@@ -7597,8 +7599,10 @@ handle_pending:
     if (has_signal_record && !mm_signal_record_close()) {
         rc = 1;
     }
-    if ((signal_bind_count > 0 || (has_signal_record && mm_signal_trigger_set())) &&
-        !mm_signal_triggered()) {
+    if ((signal_bind_count > 0 ||
+         (has_signal_record &&
+          mm_execution_state_signal_trigger_set(&execution))) &&
+        !mm_execution_state_signal_triggered(&execution)) {
         fprintf(stderr, "signal: --signal-sync=%s was never reached, no trace was replayed\n",
                 opt_signal_sync);
         if (!opt_gdb && !opt_tui) {

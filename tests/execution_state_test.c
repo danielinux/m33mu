@@ -525,14 +525,34 @@ static int test_single_live_session_and_signal_clock(void)
         mm_execution_state_signal_now_ns(&second) != 0u ||
         mm_execution_state_signal_set_cpu_hz(&second, 64000000u) ||
         mm_execution_state_signal_prepare_for_run(&second) ||
-        mm_execution_state_signal_check_trigger(&second, 0u)) {
+        mm_execution_state_signal_check_trigger(&second, 0u) ||
+        mm_execution_state_signal_set_vdd_mv(&second, 3300) ||
+        mm_execution_state_signal_set_gpio_vil_mv(&second, 1525) ||
+        mm_execution_state_signal_set_gpio_vih_mv(&second, 1775) ||
+        mm_execution_state_signal_load(&second, "unused.sigc") ||
+        mm_execution_state_signal_bind(&second, "vin", 0, 5,
+                                       MM_SIGNAL_ROLE_GPIO) != -1 ||
+        mm_execution_state_signal_set_trigger(&second, 1u) ||
+        mm_execution_state_signal_trigger_set(&second) ||
+        mm_execution_state_signal_triggered(&second)) {
         mm_execution_state_destroy(&first);
         return 1;
     }
     if (!mm_execution_state_signal_set_cpu_hz(&first, 64000000u) ||
         mm_execution_state_signal_set_cpu_hz(&first, 0u) ||
         !mm_execution_state_signal_prepare_for_run(&first) ||
-        !mm_execution_state_signal_check_trigger(&first, 0u)) {
+        !mm_execution_state_signal_check_trigger(&first, 0u) ||
+        !mm_execution_state_signal_set_vdd_mv(&first, 3300) ||
+        !mm_execution_state_signal_set_gpio_vil_mv(&first, 1525) ||
+        !mm_execution_state_signal_set_gpio_vih_mv(&first, 1775) ||
+        mm_execution_state_signal_gpio_vil_mv(&first) != 1525 ||
+        mm_execution_state_signal_gpio_vih_mv(&first) != 1775 ||
+        !mm_execution_state_signal_set_trigger(&first, 1u) ||
+        !mm_execution_state_signal_trigger_set(&first) ||
+        !mm_execution_state_signal_check_trigger(&first, 0u) ||
+        mm_execution_state_signal_triggered(&first) ||
+        !mm_execution_state_signal_check_trigger(&first, 1u) ||
+        !mm_execution_state_signal_triggered(&first)) {
         mm_execution_state_destroy(&first);
         return 1;
     }
