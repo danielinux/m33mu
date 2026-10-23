@@ -12,6 +12,7 @@
 - The main execution loop assembles `mm_execute_ctx` and calls `mm_execute_decoded()`, but the surrounding fetch/decode, interrupt dispatch, cycle accounting, timers, SCS, signal hooks, TrustZone state, faults, WFI/WFE and core-system state are managed inline in `main.c`.
 - Startup also composes target MMIO, memory regions, flash/RAM aliases, code cache, SoC reset, timer, USART/SPI, protection, boot resolution, and peripheral reset. A thin wrapper around `mm_execute_decoded()` alone would omit these production behaviors.
 - Process-wide state in memory-map and signal facilities, and static target drivers, means the planned first API must own and enforce one live session. Concurrent session isolation is not an incidental worker feature.
+- Board caveat: the supplied H563 layout declares `geometryStatus: stylized_provisional_not_manufacturing_scale` and `electricalMapStatus: UNVERIFIED_VENDOR_SCHEMATIC_REQUIRED`. ST's official CMSIS-Pack documentation identifies the MB1404 C01 schematic, but the drawing has not been reviewed and the sprite's contact coordinates/IDs cannot be reconciled to CN7/CN9. The PA5/CN7-10 and PA6/CN9-1 facts stay metadata-only until schematic and artwork anchors are established.
 
 ## Extraction requirements
 
