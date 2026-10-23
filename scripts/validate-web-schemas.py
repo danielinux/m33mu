@@ -53,8 +53,17 @@ def main():
     check(worker_schema, request, True, "worker request")
     request_bad = {**request, "operation": "eval"}
     check(worker_schema, request_bad, False, "unknown worker operation")
+    bench_request = {"schemaVersion": 1, "kind": "request", "requestId": 2, "operation": "createBench",
+                     "payload": {"netlist": {"schemaVersion": 1, "devices": [
+                         {"kind": "resistor", "id": "r1", "a": "n", "b": "gnd", "ohms": 1000}]},
+                         "probes": [{"id": "v", "kind": "voltage", "net": "n"}]}}
+    check(worker_schema, bench_request, True, "createBench request")
+    check(worker_schema, {**bench_request, "payload": {"netlist": {"schemaVersion": 1, "devices": [
+        {"kind": "transformer", "id": "t"}]}}}, False, "unsupported device kind")
+    check(worker_schema, {**bench_request, "operation": "runUntil", "payload": {"targetNs": "-5"}},
+          False, "negative runUntil target")
 
-    print("web schema validation: 4 schemas valid; 4 positive and 3 negative fixtures pass")
+    print("web schema validation: 4 schemas valid; 5 positive and 5 negative fixtures pass")
 
 
 if __name__ == "__main__":

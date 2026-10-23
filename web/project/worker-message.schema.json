@@ -42,7 +42,12 @@
             "pause",
             "step",
             "reset",
-            "gpioWrite"
+            "gpioWrite",
+            "compileNetlist",
+            "createBench",
+            "runUntil",
+            "setSwitch",
+            "destroyBench"
           ]
         },
         "payload": {
@@ -81,6 +86,250 @@
                   "eventTimeNs": {
                     "type": "string",
                     "pattern": "^[0-9]+$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "compileNetlist"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "netlist"
+                ],
+                "properties": {
+                  "netlist": {
+                    "type": "object",
+                    "required": [
+                      "schemaVersion",
+                      "devices"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "const": 1
+                      },
+                      "devices": {
+                        "type": "array",
+                        "maxItems": 2000,
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "enum": [
+                                "ground",
+                                "resistor",
+                                "capacitor",
+                                "inductor",
+                                "vsource",
+                                "isource",
+                                "diode",
+                                "led",
+                                "switch",
+                                "npn",
+                                "pnp",
+                                "nmos",
+                                "pmos",
+                                "pad"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "createBench"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "netlist"
+                ],
+                "properties": {
+                  "netlist": {
+                    "type": "object",
+                    "required": [
+                      "schemaVersion",
+                      "devices"
+                    ],
+                    "properties": {
+                      "schemaVersion": {
+                        "const": 1
+                      },
+                      "devices": {
+                        "type": "array",
+                        "maxItems": 2000,
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "enum": [
+                                "ground",
+                                "resistor",
+                                "capacitor",
+                                "inductor",
+                                "vsource",
+                                "isource",
+                                "diode",
+                                "led",
+                                "switch",
+                                "npn",
+                                "pnp",
+                                "nmos",
+                                "pmos",
+                                "pad"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "probes": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "kind"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "kind": {
+                          "enum": [
+                            "voltage",
+                            "current",
+                            "pad"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "options": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "lookaheadNs": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "sampleNs": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "maxSamples": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    }
+                  },
+                  "solver": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "runUntil"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "targetNs": {
+                    "type": "string",
+                    "pattern": "^[0-9]{1,16}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "setSwitch"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "device",
+                  "closed"
+                ],
+                "properties": {
+                  "device": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "closed": {
+                    "type": "boolean"
                   }
                 }
               }
@@ -159,7 +408,8 @@
             "uart",
             "fault",
             "traceChunk",
-            "capabilities"
+            "capabilities",
+            "bench"
           ]
         },
         "payload": {

@@ -1,3 +1,8 @@
+import { Circuit, SolverError } from '../sim/circuit.ts';
+import { Bench } from '../sim/bench.ts';
+import { validateNetlist } from '../sim/netlist.ts';
+import { createMcuPort } from './mcu-port.mjs';
+
 const ERROR_NAMES = [
   'OK', 'INVALID_ARGUMENT', 'UNSUPPORTED_TARGET', 'SESSION_BUSY',
   'OUT_OF_MEMORY', 'INITIALIZATION_FAILED', 'IMAGE_REJECTED', 'NOT_BOOTED',
@@ -8,6 +13,10 @@ const ERROR_NAMES = [
 const MAX_FIRMWARE_BYTES = 32 * 1024 * 1024;
 const MAX_STEP_BUDGET = 100000;
 const RUN_SLICE = 512;
+const MAX_NETLIST_JSON = 1024 * 1024;
+const MAX_PROBES = 32;
+const BENCH_SLICE_MS = 12;
+const BENCH_BATCH_SAMPLES = 4096;
 
 function requestError(message) {
   return message && message.kind === 'request' &&
@@ -23,6 +32,9 @@ export function attachM33muWorker(scope, createModule) {
   let firmwareLoaded = false;
   let sequence = 0;
   let runGeneration = 0;
+  let bench = null;
+  let benchSequence = 0;
+  let benchFault = null;
 
   function postResponse(requestId, result) {
     scope.postMessage({
@@ -56,6 +68,14 @@ export function attachM33muWorker(scope, createModule) {
         step: wrap('mm_web_abi_step', 'number', ['number', 'number']),
         runSlice: wrap('mm_web_abi_run_slice', 'number',
           ['number', 'number', 'number']),
+        runUntil: wrap('mm_web_abi_run_until', 'number',
+          ['number', 'number', 'number', 'number', 'number', 'number']),
+        deadlineReached: wrap('mm_web_abi_last_deadline_reached', 'number', []),
+        padChanged: wrap('mm_web_abi_last_pad_changed', 'number', []),
+        cancelInputs: wrap('mm_web_abi_cancel_gpio_inputs', 'number',
+          ['number', 'string', 'number', 'number']),
+        padState: wrap('mm_web_abi_pad_state', 'number', ['number', 'string']),
+        gpioOutputConfig: wrap('mm_web_abi_gpio_output_config', 'number', []),
         hasPendingDeadline: wrap('mm_web_abi_has_pending_deadline', 'number',
           ['number']),
         reset: wrap('mm_web_abi_reset', 'number', ['number']),
@@ -100,6 +120,13 @@ export function attachM33muWorker(scope, createModule) {
       }
     }
     return wasm;
+  }
+
+  function requireNoBench() {
+    if (bench && bench.mcu) {
+      throw Object.assign(new Error(
+        'The MCU is coupled to a circuit; use runUntil or destroyBench'), { code: 'BENCH_ACTIVE' });
+    }
   }
 
   function requireFirmware() {
@@ -183,6 +210,81 @@ export function attachM33muWorker(scope, createModule) {
     }
   }
 
+  function invalid(message) {
+    return Object.assign(new Error(message), { code: 'INVALID_ARGUMENT' });
+  }
+
+  function checkNetlist(netlist) {
+    let size;
+    try { size = JSON.stringify(netlist).length; } catch { size = Infinity; }
+    if (size > MAX_NETLIST_JSON) throw invalid(`Netlist exceeds ${MAX_NETLIST_JSON} bytes`);
+    const problems = validateNetlist(netlist);
+    if (problems.length) {
+      throw Object.assign(new Error(problems.join('; ')), { code: 'INVALID_NETLIST', problems });
+    }
+    return netlist.devices.filter((d) => d.kind === 'pad').map((d) => d.pad.socPad);
+  }
+
+  function parseTimeNs(value, name) {
+    if (typeof value !== 'string' || !/^[0-9]{1,16}$/.test(value)) {
+      throw invalid(`${name} must be a decimal nanosecond string`);
+    }
+    return Number(value);
+  }
+
+  function benchFlush(requestId, report) {
+    const samples = bench.takeSamples();
+    const events = bench.takeEvents();
+    const width = bench.probes.length + 1;
+    for (let start = 0; start < samples.length || start === 0; start += BENCH_BATCH_SAMPLES) {
+      const chunk = samples.slice(start, start + BENCH_BATCH_SAMPLES);
+      const flat = new Float64Array(chunk.length * width);
+      chunk.forEach((row, i) => flat.set(row, i * width));
+      scope.postMessage({
+        schemaVersion: 1, kind: 'event', sequence: ++sequence, event: 'bench',
+        payload: {
+          requestId, benchSequence: ++benchSequence, probes: bench.probes.map((p) => p.id),
+          samples: flat, sampleOverflow: bench.sampleOverflow,
+          events: start === 0 ? events : [], ...report
+        }
+      }, [flat.buffer]);
+      if (samples.length === 0) break;
+    }
+  }
+
+  function benchSlice(generation, requestId, targetNs, started) {
+    if (generation !== runGeneration || !bench) return;
+    const wall0 = Date.now();
+    const sim0 = bench.timeNs;
+    let report;
+    benchFault = null;
+    try {
+      do {
+        report = bench.runUntil(targetNs, 8);
+        if (benchFault) throw benchFault;
+      } while (!report.reachedTarget && !report.mcuStopped &&
+               Date.now() - wall0 < BENCH_SLICE_MS);
+    } catch (error) {
+      const code = error instanceof SolverError ? error.code : (error.code || 'BENCH_FAILED');
+      postEvent('fault', { requestId, code, message: error.message });
+      ++runGeneration;
+      return;
+    }
+    const wallMs = Math.max(Date.now() - started.wall, 1);
+    benchFlush(requestId, {
+      timeNs: Math.round(report.timeNs).toString(),
+      reachedTarget: report.reachedTarget, mcuStopped: report.mcuStopped,
+      systemReset: report.systemReset, rollbacks: report.rollbacks,
+      solverSteps: bench.circuit.stepCount, rejectedSteps: bench.circuit.rejected,
+      simulatedPerWall: (report.timeNs - started.sim) * 1e-9 / (wallMs * 1e-3),
+      sliceSimulatedNs: report.timeNs - sim0
+    });
+    if (bench.mcu) emitState(requestId, report.mcuStopped, { paused: report.reachedTarget });
+    if (!report.reachedTarget && !report.mcuStopped && generation === runGeneration) {
+      scope.setTimeout(() => benchSlice(generation, requestId, targetNs, started), 0);
+    }
+  }
+
   async function dispatch(message) {
     if (!requestError(message)) {
       postError(message && Number.isSafeInteger(message.requestId) ?
@@ -202,6 +304,7 @@ export function attachM33muWorker(scope, createModule) {
         }
         const wasm = await ensureSession();
         ++runGeneration;
+        bench = null;
         const ptr = wasm._malloc(bytes.byteLength);
         if (!ptr) throw Object.assign(new Error('WASM memory allocation failed'),
           { code: 'OUT_OF_MEMORY' });
@@ -221,6 +324,7 @@ export function attachM33muWorker(scope, createModule) {
       case 'step': {
         await ensureSession();
         requireFirmware();
+        requireNoBench();
         const budget = payload.instructionBudget;
         if (!Number.isInteger(budget) || budget < 1 || budget > MAX_STEP_BUDGET) {
           throw Object.assign(new Error('instructionBudget must be 1..100000'),
@@ -243,6 +347,7 @@ export function attachM33muWorker(scope, createModule) {
       case 'run': {
         await ensureSession();
         requireFirmware();
+        requireNoBench();
         const generation = ++runGeneration;
         postResponse(requestId, { running: true, sliceInstructions: RUN_SLICE });
         scope.setTimeout(() => runSlice(generation, requestId), 0);
@@ -257,6 +362,7 @@ export function attachM33muWorker(scope, createModule) {
         await ensureSession();
         requireFirmware();
         ++runGeneration;
+        bench = null;
         const status = api.reset(session);
         if (status !== 0) throw errorFromCode(status);
         postResponse(requestId, { reset: true });
@@ -267,6 +373,7 @@ export function attachM33muWorker(scope, createModule) {
       case 'gpioWrite': {
         await ensureSession();
         requireFirmware();
+        requireNoBench();
         if (typeof payload.socPad !== 'string' ||
             typeof payload.eventTimeNs !== 'string' ||
             !/^[0-9]+$/.test(payload.eventTimeNs) ||
@@ -292,6 +399,74 @@ export function attachM33muWorker(scope, createModule) {
         if (!drainGpioOutput(requestId)) return;
         return;
       }
+      case 'compileNetlist': {
+        const pads = checkNetlist(payload.netlist);
+        postResponse(requestId, { valid: true, devices: payload.netlist.devices.length, pads });
+        return;
+      }
+      case 'createBench': {
+        const pads = checkNetlist(payload.netlist);
+        const probes = payload.probes ?? [];
+        if (!Array.isArray(probes) || probes.length > MAX_PROBES) {
+          throw invalid(`probes must be an array of at most ${MAX_PROBES}`);
+        }
+        const options = payload.options ?? {};
+        for (const key of Object.keys(options)) {
+          if (!['lookaheadNs', 'sampleNs', 'maxSamples'].includes(key) ||
+              !(Number.isFinite(options[key]) && options[key] > 0)) {
+            throw invalid(`Unsupported or invalid bench option ${key}`);
+          }
+        }
+        ++runGeneration;
+        bench = null;
+        let port = null;
+        if (pads.length > 0) {
+          await ensureSession();
+          requireFirmware();
+          port = createMcuPort(api, session, (status) => {
+            benchFault = benchFault || errorFromCode(status);
+          });
+          // GPIO events already emitted belong to the MCU-only timeline.
+          drainGpioOutput(requestId);
+        }
+        const circuit = new Circuit(payload.netlist, payload.solver ?? {});
+        bench = new Bench(circuit, port, probes, options);
+        if (benchFault) { const f = benchFault; bench = null; throw f; }
+        postResponse(requestId, {
+          created: true, nets: circuit.netNames, pads, probes: probes.map((p) => p.id),
+          timeNs: Math.round(bench.timeNs).toString()
+        });
+        benchFlush(requestId, { timeNs: Math.round(bench.timeNs).toString(), reachedTarget: true,
+          mcuStopped: false, systemReset: false, rollbacks: 0, solverSteps: 0, rejectedSteps: 0,
+          simulatedPerWall: 0, sliceSimulatedNs: 0 });
+        return;
+      }
+      case 'runUntil': {
+        if (!bench) throw Object.assign(new Error('Create a bench first'), { code: 'NO_BENCH' });
+        const targetNs = payload.targetNs === undefined ? Number.MAX_SAFE_INTEGER :
+          parseTimeNs(payload.targetNs, 'targetNs');
+        const generation = ++runGeneration;
+        postResponse(requestId, { running: true });
+        const started = { wall: Date.now(), sim: bench.timeNs };
+        scope.setTimeout(() => benchSlice(generation, requestId, targetNs, started), 0);
+        return;
+      }
+      case 'setSwitch': {
+        if (!bench) throw Object.assign(new Error('Create a bench first'), { code: 'NO_BENCH' });
+        if (typeof payload.device !== 'string' || typeof payload.closed !== 'boolean') {
+          throw invalid('setSwitch requires device and boolean closed');
+        }
+        const dev = bench.circuit.byId.get(payload.device);
+        if (!dev || dev.kind !== 'switch') throw invalid(`No switch ${payload.device}`);
+        const changed = bench.setSwitch(payload.device, payload.closed);
+        postResponse(requestId, { changed, timeNs: Math.round(bench.timeNs).toString() });
+        return;
+      }
+      case 'destroyBench':
+        ++runGeneration;
+        bench = null;
+        postResponse(requestId, { destroyed: true });
+        return;
       default:
         throw Object.assign(new Error(`Unsupported operation: ${operation}`),
           { code: 'UNSUPPORTED_OPERATION' });
@@ -305,6 +480,7 @@ export function attachM33muWorker(scope, createModule) {
   return {
     dispose() {
       ++runGeneration;
+      bench = null;
       if (session) api.destroy(session);
       session = 0;
     }

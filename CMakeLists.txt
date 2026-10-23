@@ -658,6 +658,12 @@ if(M33MU_BUILD_TESTS)
     )
   endif()
   if(M33MU_HAS_WEB_UI)
+    add_test(NAME web_sim_unit_test
+      COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
+        "${CMAKE_SOURCE_DIR}/scripts/test-web-unit.sh")
+    set_tests_properties(web_sim_unit_test PROPERTIES
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
     add_test(NAME wasm_core_build_test
       COMMAND "${CMAKE_COMMAND}" -E env
         "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
@@ -711,6 +717,13 @@ if(M33MU_BUILD_TESTS)
           "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
           "${CMAKE_SOURCE_DIR}/scripts/test-web-worker-active-exti.sh")
       set_tests_properties(wasm_worker_active_exti_boundary_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      )
+      add_test(NAME wasm_worker_bench_rc_exti_test
+        COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
+          "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
+          "${CMAKE_SOURCE_DIR}/scripts/test-web-bench.sh")
+      set_tests_properties(wasm_worker_bench_rc_exti_test PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
       )
     endif()
