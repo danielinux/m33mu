@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "m33mu/cpu_db.h"
+#include "m33mu/exec_helpers.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/timer.h"
 
@@ -78,6 +79,52 @@ int mm_execution_state_load_elf(struct mm_execution_state *state,
     return mm_elf_load_memory_bounded(image, image_size, max_image_size,
                                       &state->target, &state->load_targets,
                                       flash_offset, result);
+}
+
+mm_bool mm_execution_state_fetch_decode(
+    struct mm_execution_state *state,
+    mm_execution_fpu_access_fn fpu_access_allowed,
+    mm_execution_decode_fn decode,
+    struct mm_fetch_result *fetch_out,
+    struct mm_decoded *decoded_out,
+    mm_bool *fpu_ok_out)
+{
+    struct mm_execution_core_state *core;
+    mm_bool fpu_ok = MM_TRUE;
+
+    if (fetch_out != 0) {
+        memset(fetch_out, 0, sizeof(*fetch_out));
+    }
+    if (decoded_out != 0) {
+        memset(decoded_out, 0, sizeof(*decoded_out));
+    }
+    if (fpu_ok_out != 0) {
+        *fpu_ok_out = MM_TRUE;
+    }
+    if (state == 0 || fetch_out == 0 || decoded_out == 0 || fpu_ok_out == 0) {
+        return MM_FALSE;
+    }
+    core = &state->cores[state->active_core < 2u ? state->active_core : 0u];
+    *fetch_out = mm_fetch_t32_memmap(&core->cpu, &state->map,
+                                     core->cpu.sec_state);
+    if (fetch_out->fault) {
+        return MM_FALSE;
+    }
+    if (fetch_out->len == 4u && fpu_access_allowed != 0 &&
+        !fpu_access_allowed(&core->cpu, &core->scs) &&
+        mm_is_vfp_insn_fast(fetch_out->insn)) {
+        fpu_ok = MM_FALSE;
+    }
+    if (!mm_icache_lookup(&state->code_cache, fetch_out,
+                          core->cpu.sec_state, fpu_ok, decoded_out)) {
+        *decoded_out = (decode != 0) ? decode(fetch_out, &core->cpu, &core->scs)
+                                     : mm_decode_t32(fetch_out);
+        mm_icache_store(&state->code_cache, fetch_out,
+                        core->cpu.sec_state, fpu_ok, decoded_out);
+    }
+    mm_memmap_set_last_pc(fetch_out->pc_fetch);
+    *fpu_ok_out = fpu_ok;
+    return MM_TRUE;
 }
 
 void mm_execution_state_init_memory_map(struct mm_execution_state *state)

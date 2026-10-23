@@ -28,6 +28,23 @@ static void test_eth_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 static void test_timer_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 { (void)bus; (void)nvic; note_target_setup('8'); }
 
+static mm_bool test_fpu_allowed(const struct mm_cpu *cpu,
+                                const struct mm_scs *scs)
+{
+    (void)cpu;
+    (void)scs;
+    return MM_TRUE;
+}
+
+static struct mm_decoded test_decode(const struct mm_fetch_result *fetch,
+                                     const struct mm_cpu *cpu,
+                                     const struct mm_scs *scs)
+{
+    (void)cpu;
+    (void)scs;
+    return mm_decode_t32(fetch);
+}
+
 static int test_target_setup_order(void)
 {
     struct mm_execution_state state;
@@ -175,6 +192,31 @@ static int test_session_bounded_elf_load(void)
     if (state.map.code_cache != &state.code_cache) {
         mm_execution_state_destroy(&state);
         return 1;
+    }
+    mm_execution_state_reset_cores(&state, 1u,
+                                   state.target.flash_base_s,
+                                   state.target.flash_base_ns);
+    state.cores[0].cpu.r[15] = state.target.flash_base_s | 1u;
+    mm_scs_init(&state.cores[0].scs, 0x410fc241u);
+    {
+        struct mm_fetch_result fetch;
+        struct mm_decoded decoded;
+        mm_bool fpu_ok = MM_FALSE;
+        if (!mm_execution_state_fetch_decode(&state, test_fpu_allowed,
+                                             test_decode, &fetch, &decoded,
+                                             &fpu_ok) ||
+            fetch.fault || fetch.pc_fetch != state.target.flash_base_s ||
+            fetch.len != 2u || !fpu_ok || decoded.kind != MM_OP_MOV_IMM ||
+            decoded.rd != 0u || decoded.imm != 1u ||
+            state.cores[0].cpu.r[15] != state.target.flash_base_s + 3u) {
+            fprintf(stderr, "fetch/decode: fault=%u pc=%08x len=%u fpu=%u kind=%u rd=%u imm=%u next=%08x base=%08x\n",
+                    (unsigned)fetch.fault, fetch.pc_fetch, (unsigned)fetch.len,
+                    (unsigned)fpu_ok, (unsigned)decoded.kind,
+                    (unsigned)decoded.rd, decoded.imm,
+                    state.cores[0].cpu.r[15], state.target.flash_base_s);
+            mm_execution_state_destroy(&state);
+            return 1;
+        }
     }
     memset(&result, 0xA5, sizeof(result));
     if (mm_execution_state_load_elf(&state, image, sizeof(image),

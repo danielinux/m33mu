@@ -15,6 +15,8 @@
 #include "m33mu/core_sys.h"
 #include "m33mu/target_storage.h"
 #include "m33mu/image_loader.h"
+#include "m33mu/fetch.h"
+#include "m33mu/decode.h"
 
 struct mm_execution_core_state {
     struct mm_cpu cpu;
@@ -24,6 +26,13 @@ struct mm_execution_core_state {
     mm_u8 it_remaining;
     mm_u8 it_cond;
 };
+
+typedef mm_bool (*mm_execution_fpu_access_fn)(const struct mm_cpu *cpu,
+                                              const struct mm_scs *scs);
+typedef struct mm_decoded (*mm_execution_decode_fn)(
+    const struct mm_fetch_result *fetch,
+    const struct mm_cpu *cpu,
+    const struct mm_scs *scs);
 
 /* Owned architectural, memory and scheduler state for a single emulation
  * session. Target peripheral instances and signal state remain to be moved. */
@@ -63,6 +72,15 @@ int mm_execution_state_load_elf(struct mm_execution_state *state,
                                 size_t max_image_size,
                                 mm_u32 flash_offset,
                                 struct mm_image_load_result *result);
+/* Fetch one instruction, apply the FPU-aware cache key, decode on cache miss,
+ * and update the map's last-PC field. A fetch fault is returned in fetch_out. */
+mm_bool mm_execution_state_fetch_decode(
+    struct mm_execution_state *state,
+    mm_execution_fpu_access_fn fpu_access_allowed,
+    mm_execution_decode_fn decode,
+    struct mm_fetch_result *fetch_out,
+    struct mm_decoded *decoded_out,
+    mm_bool *fpu_ok_out);
 
 /* Reset CPU/IT state while preserving the staged SCS and NVIC initialization
  * order used by target and protection setup. */

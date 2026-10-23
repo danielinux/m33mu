@@ -7313,7 +7313,11 @@ handle_pending:
                         continue;
                     }
 
-                    f = mm_fetch_t32_memmap(&execution.cores[0].cpu, &execution.map, execution.cores[0].cpu.sec_state);
+                    (void)mm_execution_state_fetch_decode(&execution,
+                                                          fpu_access_allowed,
+                                                          decode_t32_fast,
+                                                          &f, &d,
+                                                          &fpu_ok);
                     if (f.fault) {
                         if (!raise_mem_fault(&execution.cores[0].cpu, &execution.map, &execution.cores[0].scs, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.xpsr, f.fault_addr, MM_TRUE)) {
                             printf("Fault on fetch at 0x%08lx (PC=0x%08lx SP=0x%08lx LR=0x%08lx xPSR=0x%08lx)\n",
@@ -7339,14 +7343,6 @@ handle_pending:
                         }
                         continue;
                     }
-                    if (f.len == 4u && !fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs) && mm_is_vfp_insn_fast(f.insn)) {
-                        fpu_ok = MM_FALSE;
-                    }
-                    if (!mm_icache_lookup(&execution.code_cache, &f, execution.cores[0].cpu.sec_state, fpu_ok, &d)) {
-                        d = decode_t32_fast(&f, &execution.cores[0].cpu, &execution.cores[0].scs);
-                        mm_icache_store(&execution.code_cache, &f, execution.cores[0].cpu.sec_state, fpu_ok, &d);
-                    }
-                    mm_memmap_set_last_pc(f.pc_fetch);
                     if (opt_capstone) {
                         mm_bool capstone_match = MM_TRUE;
                         if (opt_capstone_pc) {
