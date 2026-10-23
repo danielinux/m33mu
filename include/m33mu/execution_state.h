@@ -68,7 +68,9 @@ struct mm_execution_state {
     mm_u32 active_core;
 };
 
-void mm_execution_state_init(struct mm_execution_state *state);
+/* Signal and target runtime modules contain process-global state; only one
+ * initialized execution session may be live at a time. */
+mm_bool mm_execution_state_init(struct mm_execution_state *state);
 void mm_execution_state_end_run(struct mm_execution_state *state);
 void mm_execution_state_destroy(struct mm_execution_state *state);
 /* Select one supported SoC before allocating its owned flash/RAM storage. */
@@ -157,6 +159,10 @@ void mm_execution_state_advance_cycles(
     mm_u64 cycles,
     mm_bool check_signal_trigger,
     mm_u32 trigger_pc);
+mm_u64 mm_execution_state_signal_cycles_until_event(
+    const struct mm_execution_state *state);
+mm_u64 mm_execution_state_signal_now_ns(
+    const struct mm_execution_state *state);
 mm_bool mm_execution_state_apply_reset_vector(
     struct mm_execution_state *state,
     enum mm_sec_state boot_security);

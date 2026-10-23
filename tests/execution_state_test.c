@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "m33mu/execution_state.h"
+#include "m33mu/signal.h"
 #include "m33mu/vector.h"
 
 static char target_setup_order[16];
@@ -422,6 +423,39 @@ static int test_session_resource_lifecycle(void)
     return 0;
 }
 
+static int test_single_live_session_and_signal_clock(void)
+{
+    struct mm_execution_state first;
+    struct mm_execution_state second;
+    if (!mm_execution_state_init(&first)) {
+        return 1;
+    }
+    if (mm_execution_state_init(&second) ||
+        mm_execution_state_signal_cycles_until_event(&second) !=
+            (mm_u64)-1 ||
+        mm_execution_state_signal_now_ns(&second) != 0u) {
+        mm_execution_state_destroy(&first);
+        return 1;
+    }
+    mm_signal_reset();
+    mm_signal_set_cpu_hz(64000000u);
+    mm_execution_state_advance_cycles(&first, 0u, 64000000u,
+                                      MM_FALSE, 0u);
+    if (mm_execution_state_signal_now_ns(&first) != 1000000000u ||
+        mm_execution_state_signal_cycles_until_event(&first) !=
+            (mm_u64)-1) {
+        mm_execution_state_destroy(&first);
+        return 1;
+    }
+    mm_execution_state_destroy(&second);
+    mm_execution_state_destroy(&first);
+    if (!mm_execution_state_init(&second)) {
+        return 1;
+    }
+    mm_execution_state_destroy(&second);
+    return 0;
+}
+
 static void write_le16(mm_u8 *p, mm_u16 value)
 {
     p[0] = (mm_u8)value;
@@ -564,6 +598,10 @@ int main(void)
 {
     struct mm_execution_state state;
     struct mmio_region external_regions[2];
+    if (test_single_live_session_and_signal_clock() != 0) {
+        fprintf(stderr, "execution_state_test: singleton signal clock failed\n");
+        return 1;
+    }
     if (test_session_resource_lifecycle() != 0) {
         fprintf(stderr, "execution_state_test: session resource lifecycle failed\n");
         return 1;

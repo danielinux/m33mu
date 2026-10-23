@@ -4819,7 +4819,10 @@ int main(int argc, char **argv)
     mm_bool opt_disable_tb = (disable_tb_env != 0);
 
     snprintf(usb_udc, sizeof(usb_udc), "dummy_udc.0");
-    mm_execution_state_init(&execution);
+    if (!mm_execution_state_init(&execution)) {
+        fprintf(stderr, "failed to create execution session\n");
+        return 1;
+    }
 
     if (memwatch_env != 0 && memwatch_env[0] != '\0') {
         if (parse_addr_size(memwatch_env, &memwatch_addr, &memwatch_size)) {
@@ -6897,7 +6900,9 @@ int main(int argc, char **argv)
                         continue;
                     } else if (execution.cores[0].cpu.sleeping) {
                         mm_u64 delta = mm_scs_systick_cycles_until_fire(&execution.cores[0].scs);
-                        mm_u64 signal_delta = mm_signal_cycles_until_next_event();
+                        mm_u64 signal_delta =
+                            mm_execution_state_signal_cycles_until_event(
+                                &execution);
                         if (signal_delta < delta) {
                             delta = (signal_delta != 0u) ? signal_delta : 1u;
                         }

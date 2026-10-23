@@ -12,14 +12,22 @@
 #include "m33mu/target_hal.h"
 #include "m33mu/timer.h"
 #include "m33mu/vector.h"
+#include "m33mu/signal.h"
 
-void mm_execution_state_init(struct mm_execution_state *state)
+static struct mm_execution_state *g_active_execution_state;
+
+mm_bool mm_execution_state_init(struct mm_execution_state *state)
 {
     if (state == 0) {
-        return;
+        return MM_FALSE;
+    }
+    if (g_active_execution_state != 0) {
+        return MM_FALSE;
     }
     memset(state, 0, sizeof(*state));
     mm_execution_clock_reset(&state->clock);
+    g_active_execution_state = state;
+    return MM_TRUE;
 }
 
 void mm_execution_state_end_run(struct mm_execution_state *state)
@@ -32,12 +40,13 @@ void mm_execution_state_end_run(struct mm_execution_state *state)
 
 void mm_execution_state_destroy(struct mm_execution_state *state)
 {
-    if (state == 0) {
+    if (state == 0 || state != g_active_execution_state) {
         return;
     }
     mm_execution_state_end_run(state);
     mm_target_storage_destroy(&state->storage);
     memset(state, 0, sizeof(*state));
+    g_active_execution_state = 0;
 }
 
 mm_bool mm_execution_state_select_target(struct mm_execution_state *state,
@@ -364,6 +373,24 @@ void mm_execution_state_advance_cycles(
                                &state->target, cycles,
                                check_signal_trigger, trigger_pc,
                                &state->clock);
+}
+
+mm_u64 mm_execution_state_signal_cycles_until_event(
+    const struct mm_execution_state *state)
+{
+    if (state == 0 || state != g_active_execution_state) {
+        return (mm_u64)-1;
+    }
+    return mm_signal_cycles_until_next_event();
+}
+
+mm_u64 mm_execution_state_signal_now_ns(
+    const struct mm_execution_state *state)
+{
+    if (state == 0 || state != g_active_execution_state) {
+        return 0u;
+    }
+    return mm_signal_now_ns();
 }
 
 mm_bool mm_execution_state_apply_reset_vector(
