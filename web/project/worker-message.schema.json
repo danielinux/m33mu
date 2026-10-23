@@ -165,7 +165,53 @@
         "payload": {
           "type": "object"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "event": {
+                "const": "gpio"
+              }
+            },
+            "required": [
+              "event"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "requestId",
+                  "socPad",
+                  "level",
+                  "eventTimeNs"
+                ],
+                "properties": {
+                  "requestId": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "socPad": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "level": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "eventTimeNs": {
+                    "type": "string",
+                    "pattern": "^[0-9]+$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

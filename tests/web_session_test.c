@@ -88,6 +88,7 @@ int main(void)
     struct mm_web_session *second;
     struct mm_web_cpu_state cpu;
     struct mm_web_step_result step;
+    struct mm_web_gpio_output_event gpio_output;
     enum mm_web_error error;
     mm_u8 image[96];
 
@@ -134,6 +135,14 @@ int main(void)
         return 1;
     }
     mm_gpio_notify_pad(0, 5, 1u);
+    if (mm_web_pop_gpio_output(session, &gpio_output) != MM_WEB_OK ||
+        strcmp(gpio_output.soc_pad, "PA5") != 0 ||
+        gpio_output.level != 1u || gpio_output.virtual_time_ns != 0u ||
+        mm_web_pop_gpio_output(session, &gpio_output) != MM_WEB_NO_EVENT) {
+        mm_web_destroy(session);
+        fprintf(stderr, "web_session_test: GPIO output queue failed\n");
+        return 1;
+    }
     {
         enum mm_web_error gpio_result =
             mm_web_set_gpio_input(session, "PA5", MM_TRUE);
@@ -144,6 +153,19 @@ int main(void)
             invalid_result != MM_WEB_INVALID_ARGUMENT) {
             mm_web_destroy(session);
             fprintf(stderr, "web_session_test: GPIO adapter failed\n");
+            return 1;
+        }
+    }
+    {
+        mm_u32 i;
+        for (i = 0u; i < 4097u; ++i) {
+            mm_gpio_notify_pad(0, 5, (mm_u8)(i & 1u));
+        }
+        if (mm_web_pop_gpio_output(session, &gpio_output) !=
+                MM_WEB_EVENT_QUEUE_FULL ||
+            mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK) {
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: GPIO output overflow handling failed\n");
             return 1;
         }
     }

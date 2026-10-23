@@ -22,7 +22,8 @@ enum mm_web_error {
     MM_WEB_EXECUTION_FAULT,
     MM_WEB_UNSUPPORTED_INSTRUCTION,
     MM_WEB_EVENT_IN_PAST,
-    MM_WEB_EVENT_QUEUE_FULL
+    MM_WEB_EVENT_QUEUE_FULL,
+    MM_WEB_NO_EVENT
 };
 
 struct mm_web_config {
@@ -50,6 +51,12 @@ struct mm_web_step_result {
     mm_u32 instructions;
     mm_bool stopped;
     enum mm_web_error error;
+};
+
+struct mm_web_gpio_output_event {
+    char soc_pad[16];
+    mm_u8 level;
+    mm_u64 virtual_time_ns;
 };
 
 typedef void (*mm_web_pad_listener_fn)(void *opaque,
@@ -86,6 +93,11 @@ enum mm_web_error mm_web_set_pad_listener(
     struct mm_web_session *session,
     mm_web_pad_listener_fn listener,
     void *opaque);
+/* Pop queued output transitions. Returns MM_WEB_NO_EVENT when empty and
+ * MM_WEB_EVENT_QUEUE_FULL after any output was lost due to queue overflow. */
+enum mm_web_error mm_web_pop_gpio_output(
+    struct mm_web_session *session,
+    struct mm_web_gpio_output_event *event_out);
 enum mm_web_error mm_web_cpu_snapshot(
     const struct mm_web_session *session,
     struct mm_web_cpu_state *snapshot_out);

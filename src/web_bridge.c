@@ -16,6 +16,7 @@
 #define MM_WEB_DEFAULT_IMAGE_LIMIT (32u * 1024u * 1024u)
 #define MM_WEB_CPUID 0x410fc241u
 #define MM_WEB_GPIO_EVENT_CAPACITY 64u
+#define MM_WEB_GPIO_OUTPUT_CAPACITY 4096u
 #define MM_WEB_NSEC_PER_SEC 1000000000u
 
 struct mm_web_gpio_event {
@@ -24,6 +25,13 @@ struct mm_web_gpio_event {
     mm_bool level;
     mm_u64 cycle;
     mm_u64 sequence;
+};
+
+struct mm_web_gpio_output_entry {
+    int bank;
+    int pin;
+    mm_u8 level;
+    mm_u64 virtual_time_ns;
 };
 
 struct mm_web_session {
@@ -37,6 +45,11 @@ struct mm_web_session {
     struct mm_web_gpio_event gpio_events[MM_WEB_GPIO_EVENT_CAPACITY];
     size_t gpio_event_count;
     mm_u64 gpio_event_sequence;
+    struct mm_web_gpio_output_entry
+        gpio_output_events[MM_WEB_GPIO_OUTPUT_CAPACITY];
+    size_t gpio_output_head;
+    size_t gpio_output_count;
+    mm_bool gpio_output_overflow;
 };
 
 static struct mm_web_session *g_web_active_session;
@@ -51,11 +64,24 @@ static void web_gpio_pad_changed(void *opaque,
     char pad_name[16];
     int pins;
     if (session == 0 || session != g_web_active_session ||
-        session->pad_listener == 0 ||
         !mm_gpio_bank_info(bank, 0, 0u, &pins) ||
         pin < 0 || pin >= pins) {
         return;
     }
+    if (session->gpio_output_count < MM_WEB_GPIO_OUTPUT_CAPACITY) {
+        size_t tail = (session->gpio_output_head +
+                       session->gpio_output_count) %
+            MM_WEB_GPIO_OUTPUT_CAPACITY;
+        session->gpio_output_events[tail].bank = bank;
+        session->gpio_output_events[tail].pin = pin;
+        session->gpio_output_events[tail].level = level;
+        session->gpio_output_events[tail].virtual_time_ns =
+            mm_execution_state_signal_now_ns(&session->execution);
+        session->gpio_output_count++;
+    } else {
+        session->gpio_output_overflow = MM_TRUE;
+    }
+    if (session->pad_listener == 0) return;
     (void)snprintf(pad_name, sizeof(pad_name), "P%c%d", 'A' + bank, pin);
     session->pad_listener(session->pad_listener_opaque, pad_name, level);
 }
@@ -322,6 +348,7 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
         return 0;
     }
     g_web_active_session = session;
+    mm_gpio_set_pad_listener(web_gpio_pad_changed, session);
     session->max_image_size = config != 0 && config->max_image_size != 0u ?
         config->max_image_size : MM_WEB_DEFAULT_IMAGE_LIMIT;
     if (!mm_execution_state_select_target(&session->execution, cpu_name) ||
@@ -329,6 +356,7 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
         !web_initialize_target_hardware(session)) {
         mm_execution_state_destroy(&session->execution);
         g_web_active_session = 0;
+        mm_gpio_set_pad_listener(0, 0);
         free(session);
         if (error_out != 0) *error_out = MM_WEB_INITIALIZATION_FAILED;
         return 0;
@@ -364,6 +392,9 @@ enum mm_web_error mm_web_load_elf(struct mm_web_session *session,
     }
     session->gpio_event_count = 0u;
     session->gpio_event_sequence = 0u;
+    session->gpio_output_head = 0u;
+    session->gpio_output_count = 0u;
+    session->gpio_output_overflow = MM_FALSE;
     (void)mm_execution_state_signal_reset(&session->execution);
     (void)mm_execution_state_signal_set_cpu_hz(
         &session->execution,
@@ -393,6 +424,9 @@ enum mm_web_error mm_web_reset(struct mm_web_session *session)
     }
     session->gpio_event_count = 0u;
     session->gpio_event_sequence = 0u;
+    session->gpio_output_head = 0u;
+    session->gpio_output_count = 0u;
+    session->gpio_output_overflow = MM_FALSE;
     (void)mm_execution_state_signal_reset(&session->execution);
     (void)mm_execution_state_signal_set_cpu_hz(
         &session->execution,
@@ -551,8 +585,27 @@ enum mm_web_error mm_web_set_pad_listener(
     }
     session->pad_listener = listener;
     session->pad_listener_opaque = opaque;
-    mm_gpio_set_pad_listener(listener != 0 ? web_gpio_pad_changed : 0,
-                             listener != 0 ? session : 0);
+    mm_gpio_set_pad_listener(web_gpio_pad_changed, session);
+    return MM_WEB_OK;
+}
+
+enum mm_web_error mm_web_pop_gpio_output(
+    struct mm_web_session *session,
+    struct mm_web_gpio_output_event *event_out)
+{
+    struct mm_web_gpio_output_entry entry;
+    if (session == 0 || event_out == 0) return MM_WEB_INVALID_ARGUMENT;
+    if (session != g_web_active_session) return MM_WEB_INITIALIZATION_FAILED;
+    if (session->gpio_output_overflow) return MM_WEB_EVENT_QUEUE_FULL;
+    if (session->gpio_output_count == 0u) return MM_WEB_NO_EVENT;
+    entry = session->gpio_output_events[session->gpio_output_head];
+    session->gpio_output_head = (session->gpio_output_head + 1u) %
+        MM_WEB_GPIO_OUTPUT_CAPACITY;
+    session->gpio_output_count--;
+    (void)snprintf(event_out->soc_pad, sizeof(event_out->soc_pad),
+                   "P%c%d", 'A' + entry.bank, entry.pin);
+    event_out->level = entry.level;
+    event_out->virtual_time_ns = entry.virtual_time_ns;
     return MM_WEB_OK;
 }
 

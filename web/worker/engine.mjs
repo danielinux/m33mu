@@ -57,6 +57,11 @@ export function attachM33muWorker(scope, createModule) {
         reset: wrap('mm_web_abi_reset', 'number', ['number']),
         gpio: wrap('mm_web_abi_gpio_input', 'number',
           ['number', 'string', 'number', 'number', 'number']),
+        gpioOutputNext: wrap('mm_web_abi_gpio_output_next', 'number', ['number']),
+        gpioOutputPad: wrap('mm_web_abi_gpio_output_pad', 'string', []),
+        gpioOutputLevel: wrap('mm_web_abi_gpio_output_level', 'number', []),
+        gpioOutputTimeLow: wrap('mm_web_abi_gpio_output_time_low', 'number', []),
+        gpioOutputTimeHigh: wrap('mm_web_abi_gpio_output_time_high', 'number', []),
         lastError: wrap('mm_web_abi_last_error', 'number', []),
         instructionCount: wrap('mm_web_abi_last_instruction_count', 'number', []),
         stopped: wrap('mm_web_abi_last_stopped', 'number', []),
@@ -133,9 +138,27 @@ export function attachM33muWorker(scope, createModule) {
     postEvent('state', { requestId, ...snapshot(), stopped, ...extra });
   }
 
+  function drainGpioOutput(requestId) {
+    for (;;) {
+      const status = api.gpioOutputNext(session);
+      if (status === 0) return true;
+      if (status < 0) {
+        const error = errorFromCode(api.lastError());
+        postEvent('fault', { requestId, code: error.code, message: error.message });
+        return false;
+      }
+      postEvent('gpio', {
+        requestId, socPad: api.gpioOutputPad(), level: api.gpioOutputLevel(),
+        eventTimeNs: ((BigInt(api.gpioOutputTimeHigh()) << 32n) |
+          BigInt(api.gpioOutputTimeLow())).toString()
+      });
+    }
+  }
+
   function runSlice(generation, requestId) {
     if (generation !== runGeneration || !session) return;
     const status = api.step(session, RUN_SLICE);
+    if (!drainGpioOutput(requestId)) return;
     if (status !== 0) {
       const error = errorFromCode(status);
       postEvent('fault', { requestId, code: error.code, message: error.message });
@@ -179,6 +202,7 @@ export function attachM33muWorker(scope, createModule) {
           wasm._free(ptr);
         }
         postResponse(requestId, { loaded: true, format: 'elf32-arm' });
+        if (!drainGpioOutput(requestId)) return;
         emitState(requestId);
         return;
       }
@@ -192,6 +216,7 @@ export function attachM33muWorker(scope, createModule) {
         }
         ++runGeneration;
         const status = api.step(session, budget);
+        if (!drainGpioOutput(requestId)) return;
         if (status !== 0) throw errorFromCode(status);
         const result = {
           instructions: api.instructionCount(),
@@ -222,6 +247,7 @@ export function attachM33muWorker(scope, createModule) {
         const status = api.reset(session);
         if (status !== 0) throw errorFromCode(status);
         postResponse(requestId, { reset: true });
+        if (!drainGpioOutput(requestId)) return;
         emitState(requestId);
         return;
       }
@@ -250,6 +276,7 @@ export function attachM33muWorker(scope, createModule) {
           accepted: true, socPad: payload.socPad,
           eventTimeNs: eventTime.toString()
         });
+        if (!drainGpioOutput(requestId)) return;
         return;
       }
       default:

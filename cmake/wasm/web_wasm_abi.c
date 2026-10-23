@@ -6,6 +6,7 @@
 
 static enum mm_web_error g_last_error = MM_WEB_OK;
 static struct mm_web_step_result g_last_step;
+static struct mm_web_gpio_output_event g_last_gpio_output;
 
 void *mm_web_abi_create(void)
 {
@@ -45,6 +46,35 @@ int mm_web_abi_gpio_input(void *session,
         (struct mm_web_session *)session, pad,
         level ? MM_TRUE : MM_FALSE, event_time_ns);
     return (int)g_last_error;
+}
+
+int mm_web_abi_gpio_output_next(void *session)
+{
+    g_last_error = mm_web_pop_gpio_output(
+        (struct mm_web_session *)session, &g_last_gpio_output);
+    if (g_last_error == MM_WEB_OK) return 1;
+    if (g_last_error == MM_WEB_NO_EVENT) return 0;
+    return -1;
+}
+
+const char *mm_web_abi_gpio_output_pad(void)
+{
+    return g_last_gpio_output.soc_pad;
+}
+
+unsigned int mm_web_abi_gpio_output_level(void)
+{
+    return g_last_gpio_output.level;
+}
+
+unsigned int mm_web_abi_gpio_output_time_low(void)
+{
+    return (unsigned int)g_last_gpio_output.virtual_time_ns;
+}
+
+unsigned int mm_web_abi_gpio_output_time_high(void)
+{
+    return (unsigned int)(g_last_gpio_output.virtual_time_ns >> 32);
 }
 
 unsigned int mm_web_abi_last_error(void)
