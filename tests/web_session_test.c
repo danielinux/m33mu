@@ -3,6 +3,7 @@
 
 #include "m33mu/web.h"
 #include "m33mu/gpio.h"
+#include "m33mu/exception.h"
 
 static char observed_pad[16];
 static mm_u8 observed_level;
@@ -79,6 +80,45 @@ static size_t make_h563_elf(mm_u8 image[96])
     put_le16(image + 92u, 0x2001u); /* movs r0, #1 */
     put_le16(image + 94u, 0xbeabu); /* bkpt #0xab */
     return 96u;
+}
+
+static size_t make_h563_pendsv_elf(mm_u8 image[172])
+{
+    const mm_u32 flash_base = 0x0c000000u;
+    const mm_u32 ram_top = 0x30080000u;
+    const mm_u32 code_offset = 64u;
+    const mm_u32 payload_size = 88u;
+    mm_u32 i;
+    memset(image, 0, 172u);
+    image[0] = 0x7fu; image[1] = 'E'; image[2] = 'L'; image[3] = 'F';
+    image[4] = 1u; image[5] = 1u; image[6] = 1u;
+    put_le16(image + 18u, 40u);
+    put_le32(image + 24u, flash_base + code_offset + 1u);
+    put_le32(image + 28u, 52u);
+    put_le16(image + 40u, 52u);
+    put_le16(image + 42u, 32u);
+    put_le16(image + 44u, 1u);
+    put_le32(image + 52u, 1u);
+    put_le32(image + 56u, 84u);
+    put_le32(image + 60u, flash_base);
+    put_le32(image + 64u, flash_base);
+    put_le32(image + 68u, payload_size);
+    put_le32(image + 72u, payload_size);
+    put_le32(image + 76u, 4u);
+    put_le32(image + 84u, ram_top);
+    put_le32(image + 88u, flash_base + code_offset + 1u);
+    put_le32(image + 84u + MM_VECT_PENDSV * 4u, flash_base + 85u);
+    for (i = 0u; i < 8u; ++i) {
+        put_le16(image + 84u + code_offset + i * 2u,
+                 i == 0u ? 0x4802u :
+                 i == 1u ? 0x4903u :
+                 i == 2u ? 0x6001u :
+                 i == 3u ? 0xbeabu : 0xbf00u);
+    }
+    put_le32(image + 84u + 76u, 0xe000ed04u);
+    put_le32(image + 84u + 80u, 0x10000000u);
+    put_le16(image + 84u + 84u, 0x4770u); /* bx lr: EXC_RETURN */
+    return 172u;
 }
 
 int main(void)
@@ -247,6 +287,31 @@ int main(void)
         mm_gpio_set_external_input_writer(0, 0);
     }
     mm_web_destroy(session);
+    {
+        mm_u8 irq_image[172];
+        enum mm_web_error load_result;
+        enum mm_web_error step_result;
+        enum mm_web_error snapshot_result;
+        (void)make_h563_pendsv_elf(irq_image);
+        config.max_image_size = sizeof(irq_image);
+        session = mm_web_create(&config, &error);
+        load_result = session != 0 ?
+            mm_web_load_elf(session, irq_image, sizeof(irq_image)) : error;
+        step_result = load_result == MM_WEB_OK ?
+            mm_web_step_instructions(session, 8u, &step) : load_result;
+        snapshot_result = step_result == MM_WEB_OK ?
+            mm_web_cpu_snapshot(session, &cpu) : step_result;
+        if (session == 0 || error != MM_WEB_OK || load_result != MM_WEB_OK ||
+            step_result != MM_WEB_OK || !step.stopped ||
+            step.instructions != 5u || snapshot_result != MM_WEB_OK ||
+            cpu.mode != 0u || cpu.security_state != 1u ||
+            cpu.msp_s != 0x30080000u || cpu.xpsr != 0x01000000u) {
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: pending PendSV roundtrip failed\n");
+            return 1;
+        }
+        mm_web_destroy(session);
+    }
     puts("web_session_test: ok");
     return 0;
 }

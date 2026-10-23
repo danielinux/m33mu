@@ -64,8 +64,9 @@ typedef void (*mm_web_pad_listener_fn)(void *opaque,
                                        mm_u8 level);
 
 /* Initial P0 bridge. Stepping is instruction-budgeted and stops on BKPT;
- * unsupported faults/exceptions return errors. It is not yet the complete CLI
- * scheduler. Sessions are process-singleton while target GPIO/peripheral state
+ * supported architectural exceptions use shared entry/unstack behavior, while
+ * unhandled faults return errors. It is not yet the complete CLI scheduler.
+ * Sessions are process-singleton while target GPIO/peripheral state
  * is global; a second create fails with MM_WEB_SESSION_BUSY. */
 struct mm_web_session *mm_web_create(const struct mm_web_config *config,
                                      enum mm_web_error *error_out);

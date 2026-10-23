@@ -219,6 +219,11 @@ static mm_bool web_unhandled_usage_fault(struct mm_cpu *cpu,
     return MM_FALSE;
 }
 
+static mm_bool web_execution_exc_return(struct mm_cpu *cpu,
+                                        struct mm_memmap *map,
+                                        struct mm_scs *scs,
+                                        mm_u32 exc_return);
+
 static mm_bool web_handle_pc_write(struct mm_cpu *cpu,
                                    struct mm_memmap *map,
                                    struct mm_scs *scs,
@@ -229,7 +234,10 @@ static mm_bool web_handle_pc_write(struct mm_cpu *cpu,
 {
     (void)map;
     (void)scs;
-    if (cpu == 0 || (value & 0xffffff00u) == 0xffffff00u) {
+    if (cpu != 0 && (value & 0xffffff00u) == 0xffffff00u) {
+        return web_execution_exc_return(cpu, map, scs, value);
+    }
+    if (cpu == 0) {
         if (g_web_active_session != 0) {
             g_web_active_session->pending_error = MM_WEB_EXECUTION_FAULT;
         }
