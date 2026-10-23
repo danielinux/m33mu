@@ -1,5 +1,33 @@
 # Web workbench P0 tracker
 
+Updated 2026-10-24. The 2026-10-24 section records the milestone work done against `../m33mu-ui-plan/m33mu_luna_web_ui_todo.md` (M0-M4); entries below it are the historical 2026-10-23 record and keep their original commit/test claims.
+
+## 2026-10-24 milestone record
+
+Validated on this checkout with `cmake -S . -B build -DM33MU_BUILD_TESTS=ON && cmake --build build -j8 && ctest --test-dir build -j6 --output-on-failure`: **114/114 enabled tests pass** (one disabled), including `web_sim_unit_test`, `wasm_worker_bench_rc_exti_test`, `wasm_worker_demos_test`, `web_acceptance_matrix_test` and `web_browser_chromium_test` (Chromium 154.0.8037.92, Node 24.21.0, Emscripten 6.0.5, arm-none-eabi-gcc 15.2). App: `scripts/build-web-app.sh --install` (strict `tsc --noEmit` then `vite build`).
+
+- [x] **Optional web UI** (`674ec8c`). `M33MU_ENABLE_WEB_UI` (default ON) enables `web-app`, `webserver` and every web test only when `emcc`, `emcmake`, `node` and `npm` are found; the summary prints `web UI: enabled/not found (missing ...)/disabled`. Verified in three configurations (all found; emcc+npm forced missing; option OFF).
+- [x] **M0 acceptance matrix** (`cf69bd6`, `acceptance-matrix.md`). New fixture `tests/firmware/test-stm32h563-web-parity` logs DWT CYCCNT at SysTick, WFI wake, PendSV, SVC, handled UsageFault and after an RCC clock change; CLI interpreter, native session (`web/tools/web_parity_runner.c`), Node/WASM worker and Chromium worker all report r0=0x90d8192b, r1=15, r2=0x13ab5, r3=0x1434, 5346 cycles, 32 MHz (`web/fixtures/acceptance/parity.json`). The CLI translated-block mode stops at 5332 cycles (block-granular interrupt entry) and is recorded as an informational deviation.
+- [x] **M0 scheduler gaps.** Flash-stall charging moved to `mm_execution_state_charge_flash_stall()` and used by CLI and web. Unhandled fetch/undefined faults and failed fault entry now lock the web core up like the CLI (`lockup`/`lockup_pc` in `mm_web_step_result`, worker `LOCKUP` fault event); the native lockup fixture stops at PC 0xffffffff after 16385 cycles in both. `mm_web_run_until()` stops at a virtual-time deadline (sleep advancement included) and optionally at the first pad drive/mode/pull change; `mm_web_cancel_gpio_inputs()` and `mm_web_get_pad_state()` support analog rollback (`015a4ec`).
+- [x] **M0 lifecycle.** `scripts/test-web-worker-lifecycle.mjs`: rejected/oversize images, failing `createBench`, 50 load/bench/destroy/reset cycles with a stable 18,481,152-byte WASM heap; Chromium test creates, uses and terminates three worker instances with identical results.
+- [x] **Emulator fix found by the blink demo** (`f389409`): SysTick period is now RELOAD+1 cycles (was RELOAD), per the Armv8-M SysTick definition; `scs_test` covers it.
+- [x] **M1 contacts** (`ae717fa`). UM3115 Rev 3 Tables 21/23/25 and Figure 6 (local PDF; the MB1404 schematic pack download timed out). The provisional sprite could not be matched to CN7/CN9, so `scripts/gen-h563-board.py` redraws the board to scale (10 px/mm, 70.00 x 133.34 mm) with CN7/CN9/CN11/CN12 measured from the Figure 6 photo (+/-0.5 mm). Only CN7-10 (PA5) and CN9-1 (PA6) are enabled; contact-ID uniqueness, enabled-set agreement with `web/boards/nucleo-h563zi-pins.json` and a 0.9-pitch hit-test separation are checked by `scripts/validate-web-boards.py`; multi-zoom hit tests run in unit and browser tests.
+- [x] **M1 solver decision** (`70983ed`, `adr-001-solver.md`). In-repository MNA solver selected because the coupling scheduler needs exact snapshot/rollback. Class tolerances and measured results are tabulated in the ADR (divider 1e-6; RC 0.1% of peak; diode/NPN/NMOS operating points within 1e-5 of the recorded ngspice 47 values; RC threshold timing 0.1% of tau; LC energy 1%). No third-party solver code ships; `THIRD_PARTY.md` updated.
+- [x] **M2 worker bench.** `compileNetlist`/`createBench`/`runUntil`/`setSwitch`/`destroyBench`/`diagnostics` in the v1 envelope and schema. Scheduling and rounding rules are documented in `web/sim/bench.ts`. Live H563 PA5→1 kΩ→10 nF→PA6 EXTI→PA5 feedback: four crossings at -2.9/+2.4/-2.1/+1.8 ns from the piecewise analytic response (tolerance 10.4 ns), bit-identical replay after reload, pause cancels further batches (`web/fixtures/solver/bench-rc-exti.json`). Batches carry sequence IDs, overflow counts, solver/rollback statistics and the simulated/wall ratio; events are released only after they can no longer be retracted.
+- [x] **M3 editor** (`0c23811`). `web/src/` split into app, canvas, parts, project (catalog, model, net graph, history), inspector and scope modules. Project v2 with v1 migration; malformed, oversize and unsupported projects are rejected with messages (`project.test.ts`). Screenshots: `web/docs/screenshots/`.
+- [x] **M4 demos.** `tests/firmware/test-stm32h563-web-blink` and `-web-button` (prebuilt ELFs in `web/public/examples/`). Blink: 100 ms toggles exact to the cycle, LED on-current 3.857 mA through 330 Ω with KCL checked to 1e-6, continues past 2^31 ns. Button: rise/fall crossings -14 / +37 ns from analytic (tolerances 909 / 10,000 ns), EXTI handler mirrors PA6 to the PA5 LED within 2 us. Golden: `web/fixtures/demos/golden.json`. Analog-only divider, RC switch and NPN examples are checked against references in `examples.test.ts`.
+- [x] Fixed: 32-bit ABI halves were read as signed, so virtual time and cycle counts went negative after 2^31 (about 2.15 s); worker now treats them as unsigned.
+
+### Open after 2026-10-24
+
+- [ ] Firefox and WebKit runs (only Chromium was available to the test driver).
+- [ ] MB1404 schematic/Gerber cross-check of the measured CN7/CN9 geometry (+/-0.5 mm today).
+- [ ] P2 (M5): op-amp/regulator models, ADC/DAC/PWM coupling (no H563 ADC/timer-output electrical path exists), scope triggers, `.sigc` import/export.
+- [ ] P3 (M6): mappings for the other 14 boards, protocol adapters, Falstad import, debugger panes, coupled MCU+circuit snapshot/replay, multi-MCU.
+- [ ] CLI translated-block interrupt timing differs from the instruction scheduler (14 cycles on the parity fixture).
+
+## 2026-10-23 historical record
+
 Updated 2026-10-23 (full-suite validation HEAD `158ff47`; solver acceptance probe HEAD `c5cd333`). Keep this checklist current as P0 work advances.
 
 ## Completed

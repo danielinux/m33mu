@@ -1,47 +1,27 @@
 # Web workbench: current capabilities
 
-Reviewed through local HEAD `0535afa` on 2026-10-23. The upstream base was `34cc86d550b4a471be9bde3f397f56507bdb1d3b`; PR #15 head `012eaf51e57c4803956952ee5dc1f38ddfd54699` was merged locally as `5799dd587dcba1768367ad6dd29af64ac36eff3a`.
+Reviewed on 2026-10-24 at local `master` (see `git log`; tracker: `p0-progress.md`). Earlier revisions of this page described a pre-solver state and are in git history.
 
-This is a development status page, not a claim that the browser workbench exists yet.
+## What works
 
-## Emulator and build
-
-| Area | Current state | Browser consequence |
+| Area | State | Evidence |
 |---|---|---|
-| CPU profiles | 15 SoC profiles listed in `docs/supported-cpus.md` | Profiles identify MCU models, not verified dev-board wiring. |
-| Firmware formats | CLI loads ELF, BIN, Intel HEX and UF2. ELF32/ARM PT_LOAD parsing is shared and has a caller-limited memory API. | Native and Node/WASM parser fixtures pass. Session-level loader targets and browser worker integration remain open. Start with H563 ELF. |
-| Production execution | `mm_execution_state` owns much of production target, memory, per-core CPU/SCS/NVIC/IT, core-system and clock state; reset requests and boot-mode overrides are shared with the CLI scheduler. | `src/runloop.c` is a NOP/branch placeholder and is not used. The browser session API supports exception entry/unstack, pending dispatch, WFI/WFE scheduling, and H563 `SYSRESETREQ` restart at the reset vector while preserving signal time and future GPIO events. Timestamped GPIO deadlines are rebased when firmware changes the H563 CPU clock; exact whole-scheduler behavior, peripheral polling order and full fault recovery remain incomplete. |
-| Native library | `m33mu_lib` is assembled from a broad source glob and links optional host libraries | The dedicated Emscripten target excludes host modules and builds a static core. |
-| Emscripten | `emcc` 6.0.5 and Node 24 are installed in the reviewed environment | `cmake/wasm` builds; Node/WASM loader and session smokes pass. This is not yet a worker API or browser app. |
-| Session isolation | GPIO readers, memory-map lookup and multiple peripheral models use global/static state | First browser version supports one active emulator session per worker. Parallel sessions require a later state-ownership refactor. |
-| Native regression | PUF zeroize expectation was updated in `7188fb9`; current serial CTest at `158ff47` passes 109 enabled tests (one disabled) | Includes reset request state, native session coverage, CLI ELF boot, WASM core and worker builds, and Node/WASM loader/session/worker smokes. |
+| Build | Optional: CMake enables the `web-app` and `webserver` targets and all web tests only when `emcc`, `emcmake`, `node` and `npm` are found (`-DM33MU_ENABLE_WEB_UI=OFF` skips detection). | Configuration summary line `web UI:` |
+| Firmware | STM32H563 ELF32/ARM up to 32 MiB through the one-session C API (`include/m33mu/web.h`) and the ES-module worker. Run, pause, one-instruction step, reset, CPU snapshot, firmware `SYSRESETREQ`, WFI/WFE, PendSV/SVC/SysTick/EXTI, handled faults, and CLI-style lockup when a fault cannot be taken. | `web_session_test` (native and Node/WASM), worker smokes, `web_acceptance_matrix_test` |
+| Scheduler parity | One differential fixture (SysTick, WFI wake, PendSV, SVC, handled UsageFault, CPU clock change; DWT CYCCNT log digest) gives identical r0-r3, cycles and clock across the CLI interpreter, native session, Node/WASM worker and Chromium worker. See `acceptance-matrix.md`. | `web/fixtures/acceptance/parity.json` |
+| Analog solver | In-repository MNA transient solver (`web/sim/`): R, C, L, V/I sources, switch, diode (with breakdown), LED, NPN/PNP, NMOS/PMOS, MCU pad. Snapshot/restore, threshold localization. Decision and tolerances: `adr-001-solver.md`. | `web_sim_unit_test` |
+| Coupling | Firmware and circuit share one virtual clock in the worker (`createBench`/`runUntil`); pad drive/mode/pull changes come from the GPIO registers; input levels come from solved voltage with Schmitt thresholds. Pad model: `electrical-model.md`. | `wasm_worker_bench_rc_exti_test`, `wasm_worker_demos_test` |
+| Board | NUCLEO-H563ZI (MB1404 H563ZI-C01) redrawn to scale. **CN7 pin 10 (PA5)** and **CN9 pin 1 (PA6)** are the only electrical contacts; all others are visual locators and the wiring tool refuses them. | `web/boards/nucleo-h563zi-pins.json`, `scripts/validate-web-boards.py` |
+| Editor | Place/move/rotate/delete parts, breadboard strips, wiring with snap and hit-testing, pan/zoom, undo/redo (200 steps), keyboard shortcuts, inspector (parameters, terminal voltages, branch current, pad mode/pull/drive/voltage/current, LED brightness), two-channel scope with cursors and CSV export, v2 project save/open with embedded verified ELF and v1 migration, examples menu. | `web_browser_chromium_test` |
+| Examples | H563 LED blink, H563 RC button → EXTI → LED, DC divider, RC switch, NPN LED switch. | `web/public/examples/`, `examples.test.ts`, demo golden `web/fixtures/demos/golden.json` |
+| Offline | All assets, the worker and WASM are served from the app; the browser test blocks every non-local request. | `web_browser_chromium_test` |
 
-## GPIO and board connectivity
+## Not supported (shown as such in the UI)
 
-| Target / board | Emulator GPIO signal support | Board signal mapping in supplied artwork | Browser state |
-|---|---|---|---|
-| STM32H533 / NUCLEO-H533RE | PR #15 digital GPIO input/output, EXTI; timer capture | 0 verified contacts | Display only until mappings are audited |
-| STM32H563 / NUCLEO-H563ZI | PR #15 digital GPIO input/output, EXTI; timer capture | 0 verified contacts | Initial demo candidate; verify exact header contacts first |
-| STM32H5F4 / Nucleo-style proxy | PR #15 digital GPIO input/output, EXTI; timer capture | 0 verified contacts; proxy artwork | Display only until board and mappings are verified |
-| STM32U585 / U585 Nucleo-style proxy | PR #15 digital GPIO input/output and EXTI | 0 verified contacts; proxy artwork | Display only until board and mappings are verified |
-| STM32L552 / NUCLEO-L552ZE-Q | PR #15 digital GPIO input/output and EXTI | 0 verified contacts | Display only until mappings are audited |
-| Other ten profiles | No PR #15 signal pad adapter | 0 verified contacts except Pico 2 package pin signals | CPU firmware may be emulated; circuit wiring to MCU is disabled |
-| Raspberry Pi Pico 2 package pads | No emulator GPIO signal adapter | 40 side-pad signals checked against official pinout; SWD provisional | Package metadata only; no firmware signal coupling |
-
-The signal hooks provide digital `0/1/Z` output observation and digital level injection. They do not provide solved analog pad voltage/current, configurable output resistance, a generic analog input, ADC behavior, PWM waveforms, or analog voltage/current streaming. The GPIO signal state and callbacks are process-wide. H563 timing uses one instruction per virtual cycle and output observations may be delayed to a translation-block boundary.
-
-## Other browser-facing capabilities
-
-- CPU snapshots, bounded stepping, reset, timestamped GPIO input and output-pad events are available through the typed H563 browser API. UART state and a browser UART stream remain unsupported.
-- A first public H563 API now exists in `include/m33mu/web.h`: bounded ELF loading, CPU snapshot, reset, bounded instruction execution, timestamped digital input and output-pad observation. The ES-module worker in `web/worker/` implements v1 RPC and 512-instruction yielding slices, and runs under a Node Worker-like harness against the generated Emscripten module. Timestamped inputs queue up to 64 events and apply at instruction boundaries; callers must submit them before a synchronous worker slice starts. Output pad transitions are queued and streamed to the worker client after each slice, with explicit overflow reporting. Pending exception dispatch, entry/unstack and H563 PendSV round trips are implemented in the session API. Exact scheduler timing, sleeping-worker resume behavior, full fault recovery, UART and analog solving remain incomplete. No web canvas, adopted analog solver, circuit instrument, or browser UI regression fixture exists yet.
-- No ngspice executable or development headers are installed. A system `libngspice.so.0` runtime is present, but it is native Linux only and cannot establish a WASM build path.
-- The public EEcircuit `eecircuit-engine` API inspected at upstream `eelab-dev/EEcircuit-engine` exposes `setNetList()` and whole-run `runSim()`. Its implementation runs `source test.cir`, `destroy all`, `run`, then exports the completed `out.raw`; that interface does not expose incremental transient stepping or mid-run source updates. It is not suitable as-is for a coupled live worker. The package is MIT, but its ngspice WASM build and bundled model licenses still need separate audit before reuse.
-- CircuitJS1 TypeScript is GPL-2.0-or-later. Its `CircuitMatrix` is a promising computational component, while `CirSim` imports menus, mouse handling, scopes, serializers, and model/UI classes. No standalone interactive kernel extraction or license combination review has passed.
-- Board artwork in `../m33mu-ui-plan/m33mu_board_sprites.zip` is provisional original CC0 geometry. Import it when implementing the catalog; preserve disabled electrical mappings until vendor sources are checked.
-
-## Immediate gates
-
-1. Expose production H563 startup, bounded ELF loading, instruction stepping, and CPU/pad inspection through a one-session C API and headless worker; preserve CLI behavior and reject unsupported operations explicitly.
-2. Verify the actual H563 pins selected for LED and RC/EXTI demos against the exact NUCLEO-H563ZI schematic and SoC pin table.
-3. Benchmark controllable incremental stepping for ngspice WASM and CircuitJS TypeScript. Neither candidate has passed the required coordinated firmware/analog timing spike yet.
-4. Document timing error and event ordering before making the RC/EXTI demo a correctness claim.
+- ADC, DAC, PWM/timer outputs and every other alternate function on a pad: an AF-mode pad is high impedance and the bench raises an `unsupported` notice.
+- UART, SPI, I²C; serial console in the browser.
+- Board contacts other than CN7-10 and CN9-1; the other 14 boards (display assets exist, no reviewed mapping, no browser firmware profile).
+- More than one MCU per bench; more than one emulator session per worker (process-global target state).
+- Op-amps, regulators, transformers, junction/gate capacitance, temperature.
+- Timing: one virtual cycle per instruction (no pipeline/bus model); the CLI's default translated-block mode takes interrupts at block boundaries and differs from the instruction-stepped web scheduler (14 cycles on the parity fixture).
+- Browsers: only Chromium is tested (Firefox and WebKit drivers were not available in the build environment).

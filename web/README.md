@@ -1,8 +1,13 @@
 # m33mu Web Workbench
 
-This first browser app is a visual-only H563 workbench shell around the real m33mu Emscripten worker. It loads the supplied board illustrations and layout coordinates, accepts H563 ELF32/ARM firmware up to 32 MiB, and provides bounded run, pause, one-instruction step, reset, CPU registers, virtual time, and GPIO output events. It saves and opens the v1 JSON project format, embedding the ELF and checking its SHA-256 on restore. The current editor supports one visual H563 board and an empty circuit; projects with contacts, nets, components, or instruments are rejected until those features can be preserved by the UI.
+A browser bench where real STM32H563 firmware, running in the m33mu emulator compiled to WebAssembly, drives an analog circuit on the same virtual clock. You place parts on a to-scale NUCLEO-H563ZI drawing and a breadboard, wire them to the board's two verified contacts — **CN7 pin 10 (PA5)** and **CN9 pin 1 (PA6)** — load an ELF and run. The worker solves the circuit (`sim/`), feeds solved pad voltages back to the firmware through Schmitt thresholds, and streams waveforms to a two-channel scope.
 
-The board geometry and connector numbering are provisional. Contact selection is a visual locator only. Wiring, analog components, voltage probes, ADC, UART, and other CPU execution profiles are not implemented; the UI labels these capabilities as unavailable.
+- Parts: breadboard, resistor, capacitor, LED, diode, push button, NPN, N-MOSFET, DC supply, ground.
+- Instruments: inspector (terminal voltages, branch currents, pad mode/pull/drive, LED brightness from current), scope with cursors and CSV export, virtual time and real-time ratio.
+- Projects: v2 JSON with the circuit, probes, solver settings, view and an embedded ELF checked by SHA-256; undo/redo; examples in `public/examples/`.
+- Not modelled: ADC, PWM/timer outputs and other alternate functions, UART/SPI/I²C, other board contacts and other boards. The UI says so rather than approximating. See `docs/current-capabilities.md`.
+
+Design and evidence: `docs/adr-001-solver.md` (solver choice and tolerances), `docs/electrical-model.md` (pad model), `docs/acceptance-matrix.md` (CLI/session/worker parity), `docs/p0-progress.md` (tracker), `boards/nucleo-h563zi-pins.json` (contact evidence).
 
 ## Build and run
 
@@ -26,4 +31,11 @@ npm --prefix web run dev
 
 The app build compiles the Emscripten worker into `web/public/worker/` and builds the static app into `web/dist/`. The worker and board assets are served locally. No server-side emulator, CDN font, or network service is required at runtime.
 
-The development toolchain requires Node.js/npm, CMake, and Emscripten. The worker currently runs H563 firmware only, through the production session bridge. Run slices are bounded to 512 scheduler work units and yield to browser messages, including during long WFI/WFE waits with a scheduled wake source.
+The development toolchain requires Node.js/npm, CMake, and Emscripten. The worker runs H563 firmware only, through the production session bridge, in slices that yield to browser messages; a coupled bench runs in 12 ms slices and can be capped at real time.
+
+## Tests
+
+- `node tests/run-unit.mjs` — solver, scheduler, project model, net graph and example unit tests (bundled with Vite's esbuild; CTest `web_sim_unit_test`).
+- `scripts/test-web-bench.sh`, `scripts/test-web-demos.sh` — worker integration with real firmware (RC/EXTI feedback, LED blink, RC button, lifecycle).
+- `scripts/test-web-acceptance-matrix.sh` — CLI vs native session vs Node/WASM vs Chromium worker.
+- `scripts/test-web-browser.sh [screenshot-dir]` — Chromium interaction tests against `dist/` with external network blocked (needs `chromium`; `M33MU_CHROMIUM` overrides the path).
