@@ -149,7 +149,8 @@ Replay recorded voltage traces onto GPIO inputs. See
 [signal-injection-gpio.md](signal-injection-gpio.md).
 
 - `--signal-file=<path>`: load a `.sigc` signal container
-- `--signal-bind:trace=<name>:target=<PXn>:role=gpio`: drive input pin `PXn` from a trace
+- `--signal-bind:trace=<name>:target=<PXn>[:role=gpio]`: drive input pin `PXn` from a trace.
+  `role=` defaults to `gpio`, the only role supported
 - `--signal-sync=<symbol|addr>`: start replay when the PC first reaches this address
   (a symbol requires an ELF image). Required with `--signal-bind`, optional with
   `--signal-record`; the run exits with 1 if the address is never reached

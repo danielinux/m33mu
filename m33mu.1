@@ -549,9 +549,13 @@ Load a
 signal container for pin signal injection (see
 .IR docs/signal-injection-gpio.md ).
 .TP
-.BR --signal-bind:trace=NAME:target=PXn:role=gpio
+.BR --signal-bind:trace=NAME:target=PXn [ :role=gpio ]
 Replay the named trace onto input pin
 .BR PXn .
+.B role
+defaults to
+.BR gpio ,
+the only supported role.
 May be repeated.
 .TP
 .BR --signal-sync= SYMBOL|ADDR
