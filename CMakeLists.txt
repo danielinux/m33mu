@@ -602,6 +602,18 @@ if(M33MU_BUILD_TESTS)
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
   endif()
+  find_program(M33MU_EMCC emcc)
+  find_program(M33MU_NODE node)
+  if(M33MU_EMCC AND M33MU_NODE)
+    add_test(NAME wasm_elf_loader_test
+      COMMAND "${CMAKE_COMMAND}" -E env
+        "M33MU_EMCC=${M33MU_EMCC}"
+        "M33MU_NODE=${M33MU_NODE}"
+        "${CMAKE_SOURCE_DIR}/scripts/test-web-elf-loader.sh")
+    set_tests_properties(wasm_elf_loader_test PROPERTIES
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+  endif()
 endif()
 
 # -----------------------------------------------------------------------------
