@@ -1,12 +1,12 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BenchCanvas, type Selection, type Tool } from './canvas/BenchCanvas.tsx';
 import { Inspector, type McuPadInfo, type Observation } from './Inspector.tsx';
-import { Scope, ScopeBuffer } from './instruments/Scope.tsx';
+import { Scope, ScopeAcquisitionEngine, ScopeBuffer } from './instruments/Scope.tsx';
 import { decodeSigc, SIGC_MAX_BYTES, SigcError } from './instruments/sigc.ts';
 import { CATALOG, formatSi, type PartKind, type Rotation } from './project/catalog.ts';
 import { commit, createHistory, redo, replace, undo } from './project/history.ts';
 import {
-  type Project, type ProbeTarget, MAX_FIRMWARE_BYTES, ProjectError, emptyProject, parseProject,
+  type Project, type ProbeTarget, type ScopeAcquisition, type ScopeTrigger, MAX_FIRMWARE_BYTES, ProjectError, emptyProject, parseProject,
   refKey, serializeProject
 } from './project/model.ts';
 import { type BoardLayout, allTerminals, compileCircuit } from './project/netgraph.ts';
@@ -71,10 +71,14 @@ export function App() {
   const [fault, setFault] = useState('');
   const [scopeVersion, setScopeVersion] = useState(0);
   const [scopePreview, setScopePreview] = useState<[string, string] | null>(null);
-  const [heldScope, setHeldScope] = useState<{ buffer: ScopeBuffer; labels: [string, string]; units: [string, string] } | null>(null);
+  const [heldScope, setHeldScope] = useState<{ buffer: ScopeBuffer; labels: [string, string]; units: [string, string];
+    kind: 'manual' | 'normal' | 'single'; triggerTime?: number } | null>(null);
   const [realTime, setRealTime] = useState(true);
   const [examples, setExamples] = useState<{ id: string; name: string; project: string; firmware: string | null; description: string }[]>([]);
   const scope = useRef(new ScopeBuffer());
+  const scopeAcquisition = useRef(new ScopeAcquisitionEngine());
+  const manualScopeHold = useRef(false);
+  const scopeMetadata = useRef<{ labels: [string, string]; units: [string, string] }>({ labels: ['—', '—'], units: ['V', 'V'] });
   const scopeMap = useRef<(number | null)[]>([null, null]);
   const client = useRef<WorkerClient | null>(null);
 
@@ -115,6 +119,12 @@ export function App() {
       const width = p.probes.length + 1;
       if (p.samples?.length) {
         scope.current.append(p.samples as Float64Array, width, scopeMap.current);
+        const captured = scopeAcquisition.current.observe(scope.current);
+        if (captured && !manualScopeHold.current) {
+          const meta = scopeMetadata.current;
+          setHeldScope({ buffer: scope.current.snapshotRange(captured.fromNs, captured.throughNs),
+            labels: [...meta.labels], units: [...meta.units], kind: captured.mode, triggerTime: captured.timeNs });
+        }
         setScopeVersion(scope.current.version);
       }
       if (p.observation) setObservation(p.observation);
@@ -193,6 +203,14 @@ export function App() {
     channels[channel] = target;
     edit({ ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope, channels } } },
       `Scope CH${channel + 1} set`);
+    armScope(project, scope.current.lastTime());
+  }
+
+  function armScope(p: Project, afterNs: number) {
+    scopeAcquisition.current.arm(p.instruments.scope.acquisition ?? 'auto', p.instruments.scope.trigger ?? null,
+      p.instruments.scope.windowNs, afterNs);
+    manualScopeHold.current = false;
+    setHeldScope(null);
   }
 
   useEffect(() => {
@@ -225,7 +243,7 @@ export function App() {
     setFirmware({ name, hash, bytes });
     setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
     scope.current.clear(); setScopeVersion(scope.current.version);
-    setScopePreview(null); setHeldScope(null);
+    setScopePreview(null); armScope(project, 0);
     setRunState('paused');
   }
 
@@ -271,6 +289,8 @@ export function App() {
     scopeMap.current = map;
     await worker().request('createBench', { netlist: compiled.netlist, probes,
       options: { lookaheadNs: project.solver.lookaheadNs, sampleNs: project.solver.sampleNs, initial } });
+    scope.current.clear(); setScopeVersion(scope.current.version);
+    armScope(project, 0);
     setBenchActive(true);
     setBenchStale(false);
   }
@@ -279,7 +299,7 @@ export function App() {
     setFault('');
     try {
       if (scopePreview) {
-        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null); setHeldScope(null);
+        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null); armScope(project, 0);
       }
       if (hasCircuit) {
         if (!benchActive || benchStale) await startBench();
@@ -313,7 +333,7 @@ export function App() {
       await worker().request('reset');
       setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null); setMcuPads({});
       scope.current.clear(); setScopeVersion(scope.current.version);
-      setScopePreview(null); setHeldScope(null);
+      setScopePreview(null); armScope(project, 0);
       setRunState('paused');
       setMessage('Firmware reset; the circuit restarts from its DC operating point on the next run.');
     } catch (err) { fail(err); }
@@ -363,11 +383,12 @@ export function App() {
         client.current?.terminate();
         client.current = null;
         setFirmware(null); setMachine(null); setRunState('idle'); setBenchActive(false);
-        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null); setHeldScope(null);
+        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null); armScope(p, 0);
       }
       const { firmwareBase64: _drop, ...simulator } = p.simulator;
       void _drop;
       setHistory(createHistory({ ...p, simulator }));
+      armScope(p, 0);
       setSelection(null);
       setMessage(`Opened ${p.name}${p.simulator.firmwareBase64 ? ' with its verified ELF' : ''}.`);
     } catch (err) { fail(err); }
@@ -388,10 +409,11 @@ export function App() {
         if (benchActive) await worker().request('destroyBench');
         setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
         scope.current.clear(); setScopeVersion(scope.current.version);
-        setScopePreview(null); setHeldScope(null);
+        setScopePreview(null); armScope(p, 0);
         setRunState(firmware ? 'paused' : 'idle');
       }
       setHistory(createHistory(p));
+      armScope(p, 0);
       setSelection(null);
       setMessage(`${ex.name}: ${ex.description}`);
     } catch (err) { fail(err); }
@@ -415,7 +437,10 @@ export function App() {
       if (file.size > SIGC_MAX_BYTES) throw new SigcError('SIGC input exceeds 8 MiB');
       const capture = decodeSigc(new Uint8Array(await file.arrayBuffer()));
       scope.current.loadSigc(capture);
-      setHeldScope(null);
+      armScope(project, scope.current.lastTime());
+      manualScopeHold.current = true;
+      setHeldScope({ buffer: scope.current.snapshot(), labels: [capture.traces[0].name, capture.traces[1]?.name ?? '—'],
+        units: ['V', 'V'], kind: 'manual' });
       setScopeVersion(scope.current.version);
       setScopePreview([capture.traces[0].name, capture.traces[1]?.name ?? '—']);
       setMessage(`Imported ${capture.traces.length} voltage trace(s) for scope preview. Waveforms are not stored in the project; export them separately.`);
@@ -439,12 +464,33 @@ export function App() {
   };
   const [l1, u1] = scopePreview ? [scopePreview[0], 'V'] : channelLabel(project.instruments.scope.channels[0]);
   const [l2, u2] = scopePreview ? [scopePreview[1], 'V'] : channelLabel(project.instruments.scope.channels[1]);
+  scopeMetadata.current = { labels: [l1, l2], units: [u1, u2] };
   const displayScope = heldScope?.buffer ?? scope.current;
   const displayLabels: [string, string] = heldScope?.labels ?? [l1, l2];
   const displayUnits: [string, string] = heldScope?.units ?? [u1, u2];
+  const acquisition = project.instruments.scope.acquisition ?? 'auto';
   function toggleScopeHold() {
-    if (heldScope) setHeldScope(null);
-    else setHeldScope({ buffer: scope.current.snapshot(), labels: [l1, l2], units: [u1, u2] });
+    if (heldScope?.kind === 'manual' || heldScope?.kind === 'single') armScope(project, scope.current.lastTime());
+    else if (heldScope?.kind === 'normal') {
+      manualScopeHold.current = true;
+      setHeldScope({ ...heldScope, kind: 'manual' });
+    } else {
+      manualScopeHold.current = true;
+      setHeldScope({ buffer: scope.current.snapshot(), labels: [l1, l2], units: [u1, u2], kind: 'manual' });
+    }
+  }
+  function setScopeAcquisition(mode: ScopeAcquisition) {
+    if (mode !== 'auto' && !project.instruments.scope.trigger) return;
+    const next = { ...project, instruments: { ...project.instruments,
+      scope: { ...project.instruments.scope, acquisition: mode } } };
+    view(next);
+    armScope(next, scope.current.lastTime());
+  }
+  function setScopeTrigger(trigger: ScopeTrigger | null) {
+    const next = { ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope,
+      trigger, acquisition: trigger ? acquisition : 'auto' } } };
+    view(next);
+    armScope(next, scope.current.lastTime());
   }
   const timeNs = stats?.timeNs ?? (machine ? Number(machine.virtualTimeNs) : 0);
   const canRun = runState !== 'running' && (hasCircuit ? errors.length === 0 : !!firmware && runState !== 'stopped');
@@ -535,11 +581,17 @@ export function App() {
         </aside>
       </div>
       <Scope buffer={displayScope} version={heldScope ? displayScope.version : scopeVersion}
-        labels={displayLabels} units={displayUnits} held={!!heldScope} onHold={toggleScopeHold}
+        labels={displayLabels} units={displayUnits} captureKind={heldScope?.kind ?? null} onHold={toggleScopeHold}
         windowNs={project.instruments.scope.windowNs}
-        trigger={project.instruments.scope.trigger ?? null}
-        onWindow={(ns) => view({ ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope, windowNs: ns } } })}
-        onTrigger={(trigger) => view({ ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope, trigger } } })}
+        trigger={project.instruments.scope.trigger ?? null} acquisition={acquisition}
+        fixedTriggerTime={heldScope?.triggerTime} onAcquisition={setScopeAcquisition}
+        onWindow={(ns) => {
+          const next = { ...project, instruments: { ...project.instruments,
+            scope: { ...project.instruments.scope, windowNs: ns } } };
+          view(next);
+          armScope(next, scope.current.lastTime());
+        }}
+        onTrigger={setScopeTrigger}
         onExport={exportCsv} onExportSigc={exportSigc} onImportSigc={(file) => void importSigc(file)} />
       <footer className="status">
         <span className={fault ? 'fault' : ''} data-testid="status-message">{fault || message}</span>

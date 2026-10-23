@@ -46,6 +46,13 @@ def main():
     v2_bad["instruments"]["scope"]["trigger"] = {
         "channel": 2, "edge": "up", "level": "1 V"}
     check(project_v2_schema, v2_bad, False, "invalid v2 scope trigger")
+    v2_bad_mode = json.loads(json.dumps(v2_bad))
+    v2_bad_mode["instruments"]["scope"]["trigger"] = None
+    v2_bad_mode["instruments"]["scope"]["acquisition"] = "loop"
+    check(project_v2_schema, v2_bad_mode, False, "invalid v2 acquisition mode")
+    v2_no_trigger = json.loads(json.dumps(v2_bad_mode))
+    v2_no_trigger["instruments"]["scope"]["acquisition"] = "single"
+    check(project_v2_schema, v2_no_trigger, False, "single acquisition without a trigger")
 
     pad_schema = load_schema("board-pad.schema.json")
     pad = json.loads((ROOT / "web" / "boards" / "nucleo-h563zi-pins.json").read_text(encoding="utf-8"))

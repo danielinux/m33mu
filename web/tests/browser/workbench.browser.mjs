@@ -179,7 +179,7 @@ try {
     assert.equal(await page.getByTestId('scope-hold').getAttribute('aria-pressed'), 'false');
     const [liveCsv] = await Promise.all([page.waitForEvent('download'),
       page.getByRole('button', { name: 'Export CSV' }).click()]);
-    assert.ok(readFileSync(await liveCsv.path()).length > heldBytes.length, 'release shows later live samples');
+    assert.notDeepEqual(readFileSync(await liveCsv.path()), heldBytes, 'release shows later live samples');
     await page.getByTestId('real-time').check();
     results.push(`blink: 150 ms simulated in ${wall} ms wall (unpaced)`);
   });
@@ -228,11 +228,38 @@ try {
     await page.waitForFunction(() => /Imported 2 voltage trace/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
   });
 
-  await check('scope aligns to an RC rising crossing', async () => {
+  await check('normal scope waits for an RC crossing', async () => {
     await page.getByTestId('examples').selectOption('rc-switch');
+    await page.waitForFunction(() => /RC charge through a switch/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
     await page.waitForSelector('g[data-part="sw1"]');
     await page.getByTestId('scope-trigger').selectOption('0-rising');
     await page.getByLabel('Trigger level').fill('2.5');
+    await page.getByTestId('scope-acquisition').selectOption('normal');
+    assert.equal(await page.getByTestId('scope-acquisition').inputValue(), 'normal');
+    await page.getByTestId('run').click();
+    await page.getByRole('button', { name: 'Pause' }).waitFor();
+    await page.waitForFunction(() => /Waiting for edge/.test(document.querySelector('[data-testid=trigger-status]')?.textContent ?? ''));
+    const sw = await center(page.locator('g[data-part="sw1"]'));
+    await page.mouse.move(sw.x, sw.y);
+    await page.mouse.down();
+    await page.waitForFunction(() => /Triggered at/.test(document.querySelector('[data-testid=trigger-status]')?.textContent ?? ''),
+      null, { timeout: 60000 });
+    await page.mouse.up();
+    await page.getByRole('button', { name: 'Pause' }).click();
+  });
+
+  await check('single scope captures one RC rising crossing and rearms', async () => {
+    await page.getByTestId('examples').selectOption('divider');
+    await page.waitForFunction(() => /DC divider/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
+    await page.getByTestId('examples').selectOption('rc-switch');
+    await page.waitForFunction(() => /RC charge through a switch/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
+    await page.waitForSelector('g[data-part="sw1"]');
+    await page.getByTestId('scope-trigger').selectOption('0-rising');
+    await page.getByLabel('Trigger level').fill('2.5');
+    await page.getByTestId('scope-acquisition').selectOption('single');
+    const [modeProject] = await Promise.all([page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Save' }).click()]);
+    assert.equal(JSON.parse(readFileSync(await modeProject.path(), 'utf8')).instruments.scope.acquisition, 'single');
     await page.getByTestId('run').click();
     await page.getByRole('button', { name: 'Pause' }).waitFor();
     const sw = await center(page.locator('g[data-part="sw1"]'));
@@ -240,7 +267,12 @@ try {
     await page.mouse.down();
     await page.waitForFunction(() => /Triggered at/.test(document.querySelector('[data-testid=trigger-status]')?.textContent ?? ''),
       null, { timeout: 60000 });
+    await page.waitForFunction(() => /Single capture/.test(document.querySelector('[data-testid=scope-held-status]')?.textContent ?? ''),
+      null, { timeout: 60000 });
+    assert.equal(await page.getByTestId('scope-hold').textContent(), 'Rearm');
     await page.mouse.up();
+    await page.getByTestId('scope-hold').click();
+    assert.equal(await page.getByTestId('scope-hold').getAttribute('aria-pressed'), 'false');
     await page.getByRole('button', { name: 'Pause' }).click();
     await page.getByTestId('run').waitFor();
     await page.getByRole('button', { name: 'Export .sigc' }).click();

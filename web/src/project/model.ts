@@ -30,6 +30,7 @@ export type ProbeTarget =
   | { kind: 'current'; part: string };
 
 export type ScopeTrigger = { channel: 0 | 1; edge: 'rising' | 'falling'; level: number };
+export type ScopeAcquisition = 'auto' | 'normal' | 'single';
 
 export type Project = {
   schemaVersion: 2;
@@ -46,7 +47,7 @@ export type Project = {
   parts: Part[];
   wires: Wire[];
   instruments: { scope: { channels: (ProbeTarget | null)[]; windowNs: number;
-    trigger?: ScopeTrigger | null } };
+    trigger?: ScopeTrigger | null; acquisition?: ScopeAcquisition } };
   solver: { lookaheadNs: number; sampleNs: number };
   ui: { zoom: number; panX: number; panY: number };
 };
@@ -65,7 +66,7 @@ export function emptyProject(): Project {
     boards: [{ id: 'board1', cpu: 'stm32h563', layoutRevision: H563_LAYOUT_REVISION, x: 0, y: 0 }],
     parts: [],
     wires: [],
-    instruments: { scope: { channels: [null, null], windowNs: 200_000, trigger: null } },
+    instruments: { scope: { channels: [null, null], windowNs: 200_000, trigger: null, acquisition: 'auto' } },
     solver: { lookaheadNs: 50_000, sampleNs: 1000 },
     ui: { zoom: 0.5, panX: 40, panY: 20 }
   };
@@ -189,6 +190,12 @@ export function validateProject(value: unknown): Project {
       (!isObject(scope.trigger) || (scope.trigger.channel !== 0 && scope.trigger.channel !== 1) ||
        !['rising', 'falling'].includes(String(scope.trigger.edge)) || !finite(scope.trigger.level))) {
     fail('Scope trigger needs CH1 or CH2, a rising/falling edge and a finite level');
+  }
+  if (scope.acquisition !== undefined && !['auto', 'normal', 'single'].includes(String(scope.acquisition))) {
+    fail('Scope acquisition must be auto, normal or single');
+  }
+  if (scope.acquisition !== undefined && scope.acquisition !== 'auto' && !scope.trigger) {
+    fail('Normal and single scope acquisition need a trigger');
   }
   if (!isObject(p.solver) || !finite(p.solver.lookaheadNs) || p.solver.lookaheadNs <= 0 ||
       !finite(p.solver.sampleNs) || p.solver.sampleNs <= 0) {

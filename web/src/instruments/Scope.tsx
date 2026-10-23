@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { formatSi } from '../project/catalog.ts';
-import type { ScopeTrigger } from '../project/model.ts';
+import type { ScopeAcquisition, ScopeTrigger } from '../project/model.ts';
 import { type SigcCapture, SigcError, encodeSigc, roundMillivolts } from './sigc.ts';
 
 export const SCOPE_CAPACITY = 400_000;
@@ -60,6 +60,21 @@ export class ScopeBuffer {
     return copy;
   }
 
+  /** Copy only the displayed acquisition window, retaining absolute timestamps. */
+  snapshotRange(fromNs: number, throughNs: number): ScopeBuffer {
+    const copy = new ScopeBuffer();
+    for (let k = this.lowerBound(fromNs); k < this.length; k++) {
+      const from = this.at(k);
+      if (this.t[from] > throughNs) break;
+      const to = copy.length++;
+      copy.t[to] = this.t[from];
+      copy.v[0][to] = this.v[0][from];
+      copy.v[1][to] = this.v[1][from];
+    }
+    copy.version = this.version;
+    return copy;
+  }
+
   /** Index of the first row with time >= tNs. */
   lowerBound(tNs: number): number {
     let lo = 0;
@@ -94,6 +109,24 @@ export class ScopeBuffer {
       if (!crossed || a === b) continue;
       const time = this.t[j] + (this.t[i] - this.t[j]) * (trigger.level - a) / (b - a);
       if (time >= afterNs) return time;
+    }
+    return null;
+  }
+
+  /** First edge after arming, used by single-shot acquisition. */
+  firstTrigger(trigger: ScopeTrigger, afterNs: number, throughNs: number): number | null {
+    for (let k = Math.max(1, this.lowerBound(afterNs)); k < this.length; k++) {
+      const i = this.at(k);
+      if (this.t[i] > throughNs) break;
+      const j = this.at(k - 1);
+      const a = this.v[trigger.channel][j];
+      const b = this.v[trigger.channel][i];
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+      const crossed = trigger.edge === 'rising' ? a < trigger.level && b >= trigger.level
+        : a > trigger.level && b <= trigger.level;
+      if (!crossed || a === b) continue;
+      const time = this.t[j] + (this.t[i] - this.t[j]) * (trigger.level - a) / (b - a);
+      if (time > afterNs && time <= throughNs) return time;
     }
     return null;
   }
@@ -143,6 +176,46 @@ export class ScopeBuffer {
   }
 }
 
+/** Trigger acquisition runs on each worker sample batch, before the UI can skip frames. */
+export class ScopeAcquisitionEngine {
+  private mode: ScopeAcquisition = 'auto';
+  private trigger: ScopeTrigger | null = null;
+  private windowNs = 200_000;
+  private afterNs = 0;
+  private pendingTime: number | null = null;
+  private done = false;
+
+  arm(mode: ScopeAcquisition, trigger: ScopeTrigger | null, windowNs: number, afterNs: number): void {
+    this.mode = mode;
+    this.trigger = trigger;
+    this.windowNs = windowNs;
+    this.afterNs = afterNs;
+    this.pendingTime = null;
+    this.done = false;
+  }
+
+  observe(buffer: ScopeBuffer): { mode: 'normal' | 'single'; timeNs: number; fromNs: number; throughNs: number } | null {
+    if (this.mode === 'auto' || !this.trigger || this.done || !buffer.length) return null;
+    if (this.pendingTime === null) {
+      this.pendingTime = buffer.firstTrigger(this.trigger, this.afterNs, buffer.lastTime());
+      if (this.pendingTime === null) this.afterNs = buffer.lastTime();
+    }
+    if (this.pendingTime === null || buffer.lastTime() < this.pendingTime + 0.8 * this.windowNs) return null;
+    const timeNs = this.pendingTime;
+    const throughNs = timeNs + 0.8 * this.windowNs;
+    const fromNs = Math.max(0, timeNs - 0.2 * this.windowNs);
+    if (buffer.t[buffer.at(0)] > fromNs) {
+      this.pendingTime = null;
+      this.afterNs = buffer.lastTime();
+      return null;
+    }
+    this.pendingTime = null;
+    if (this.mode === 'single') this.done = true;
+    else this.afterNs = throughNs;
+    return { mode: this.mode, timeNs, fromNs, throughNs };
+  }
+}
+
 type Props = {
   buffer: ScopeBuffer;
   version: number;
@@ -155,20 +228,25 @@ type Props = {
   onExport(): void;
   onExportSigc(): void;
   onImportSigc(file: File): void;
-  held: boolean;
+  captureKind: 'manual' | 'normal' | 'single' | null;
   onHold(): void;
+  acquisition: ScopeAcquisition;
+  fixedTriggerTime?: number;
+  onAcquisition(mode: ScopeAcquisition): void;
 };
 
 const COLORS = ['#e8a33d', '#3dc1e8'];
 const WINDOWS = [10_000, 50_000, 200_000, 1_000_000, 5_000_000, 20_000_000, 50_000_000, 100_000_000, 1_000_000_000, 5_000_000_000];
 
 export function Scope({ buffer, version, labels, units, windowNs, trigger, onWindow, onTrigger,
-  onExport, onExportSigc, onImportSigc, held, onHold }: Props) {
+  onExport, onExportSigc, onImportSigc, captureKind, onHold, acquisition,
+  fixedTriggerTime, onAcquisition }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [cursors, setCursors] = useState<[number | null, number | null]>([null, null]);
   const end = buffer.lastTime();
-  const triggerTime = trigger && buffer.length && end >= windowNs * 0.8
-    ? buffer.latestTrigger(trigger, buffer.t[buffer.at(0)], end - 0.8 * windowNs) : null;
+  const triggerTime = fixedTriggerTime ?? ((acquisition === 'auto' || captureKind === 'manual') && trigger && buffer.length && end >= windowNs * 0.8
+    ? buffer.latestTrigger(trigger, buffer.t[buffer.at(0)], end - 0.8 * windowNs) : null);
+  const waiting = acquisition !== 'auto' && captureKind === null;
   const begin = triggerTime === null ? Math.max(0, end - windowNs)
     : Math.max(0, triggerTime - 0.2 * windowNs);
 
@@ -194,7 +272,7 @@ export function Scope({ buffer, version, labels, units, windowNs, trigger, onWin
     for (let i = 1; i < 8; i++) {
       g.beginPath(); g.moveTo(0, (h * i) / 8); g.lineTo(w, (h * i) / 8); g.stroke();
     }
-    const first = buffer.lowerBound(begin);
+    const first = waiting ? buffer.length : buffer.lowerBound(begin);
     for (let c = 0; c < 2; c++) {
       let lo = Infinity;
       let hi = -Infinity;
@@ -257,7 +335,7 @@ export function Scope({ buffer, version, labels, units, windowNs, trigger, onWin
       g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke();
       g.setLineDash([]);
     }
-  }, [version, windowNs, cursors, labels, units, begin, buffer, triggerTime]);
+  }, [version, windowNs, cursors, labels, units, begin, buffer, triggerTime, waiting]);
 
   function click(e: React.MouseEvent<HTMLCanvasElement>) {
     const r = e.currentTarget.getBoundingClientRect();
@@ -294,11 +372,22 @@ export function Scope({ buffer, version, labels, units, windowNs, trigger, onWin
             const level = Number(e.target.value);
             if (Number.isFinite(level)) onTrigger({ ...trigger, level });
           }} /></label>}
+        <label>Acquisition <select aria-label="Acquisition mode" data-testid="scope-acquisition"
+          value={acquisition} onChange={(e) => onAcquisition(e.target.value as ScopeAcquisition)}>
+          <option value="auto">Auto</option>
+          <option value="normal" disabled={!trigger}>Normal</option>
+          <option value="single" disabled={!trigger}>Single</option>
+        </select></label>
         {trigger && <span data-testid="trigger-status">{triggerTime === null ? 'Waiting for edge' :
           `Triggered at ${formatSi(triggerTime * 1e-9, 's')}`}</span>}
-        <button type="button" onClick={onHold} disabled={!held && buffer.length === 0}
-          aria-pressed={held} data-testid="scope-hold">{held ? 'Release' : 'Hold'}</button>
-        {held && <span data-testid="scope-held-status">Held capture</span>}
+        <button type="button" onClick={onHold} disabled={captureKind === null && (buffer.length === 0 || acquisition === 'single')}
+          aria-pressed={captureKind === 'manual' || captureKind === 'single'} data-testid="scope-hold">
+          {captureKind === 'single' ? 'Rearm' : captureKind === 'manual' ? 'Release' : 'Hold'}</button>
+        {captureKind && <span data-testid="scope-held-status">
+          {captureKind === 'single' ? 'Single capture' : captureKind === 'normal' ? 'Normal capture' : 'Held capture'}
+        </span>}
+        {waiting && buffer.dropped > 0 && end - buffer.t[buffer.at(0)] < windowNs &&
+          <span className="warning">Window exceeds retained samples</span>}
         <button type="button" onClick={onExport} disabled={buffer.length === 0}>Export CSV</button>
         <button type="button" onClick={onExportSigc} disabled={buffer.length === 0}>Export .sigc</button>
         <label className="scope-import">Import .sigc<input type="file" accept=".sigc,application/octet-stream"

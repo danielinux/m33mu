@@ -41,10 +41,14 @@
     }},
     "instruments": {"type": "object", "additionalProperties": false, "required": ["scope"], "properties": {
       "scope": {"type": "object", "additionalProperties": false, "required": ["channels", "windowNs"],
+        "allOf": [{"if": {"properties": {"acquisition": {"enum": ["normal", "single"]}},
+          "required": ["acquisition"]}, "then": {"required": ["trigger"],
+          "properties": {"trigger": {"type": "object"}}}}],
         "properties": {
           "channels": {"type": "array", "minItems": 2, "maxItems": 2,
             "items": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/probe"}]}},
           "windowNs": {"type": "number", "exclusiveMinimum": 0},
+          "acquisition": {"enum": ["auto", "normal", "single"]},
           "trigger": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false,
             "required": ["channel", "edge", "level"], "properties": {
               "channel": {"enum": [0, 1]}, "edge": {"enum": ["rising", "falling"]}, "level": {"type": "number"}}}]}

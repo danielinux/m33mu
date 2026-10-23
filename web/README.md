@@ -3,7 +3,7 @@
 A browser bench where real STM32H563 firmware, running in the m33mu emulator compiled to WebAssembly, drives an analog circuit on the same virtual clock. You place parts on a to-scale NUCLEO-H563ZI drawing and a breadboard, wire them to the board's two verified contacts — **CN7 pin 10 (PA5)** and **CN9 pin 1 (PA6)** — load an ELF and run. The worker solves the circuit (`sim/`), feeds solved pad voltages back to the firmware through Schmitt thresholds, and streams waveforms to a two-channel scope.
 
 - Parts: breadboard, resistor, capacitor, LED, diode, push button, NPN, N-MOSFET, DC supply, ground.
-- Instruments: inspector (terminal voltages, branch currents, pad mode/pull/drive, LED brightness from current), scope with cursors, sampled trigger, manual hold/release, CSV export and SIGC voltage capture preview/import/export, virtual time and real-time ratio. See `docs/scope-capture.md` for SIGC limits.
+- Instruments: inspector (terminal voltages, branch currents, pad mode/pull/drive, LED brightness from current), scope with cursors, sampled Auto/Normal/Single triggers, manual hold/release, CSV export and SIGC voltage capture preview/import/export, virtual time and real-time ratio. See `docs/scope-capture.md` for SIGC limits.
 - Projects: v2 JSON with the circuit, probes, solver settings, view and an embedded ELF checked by SHA-256; undo/redo; examples in `public/examples/`.
 - Not modelled: ADC, PWM/timer outputs and other alternate functions, UART/SPI/I²C, other board contacts and other boards. The UI says so rather than approximating. See `docs/current-capabilities.md`.
 
