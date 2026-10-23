@@ -20,7 +20,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 ## In progress / next
 
 - [x] Build an explicit Emscripten source target without Linux network, terminal, debugger socket and optional native plugins. Initial broad-build probe failed at `eth_backend.c` on `linux/if.h`; the dedicated static-core target now builds.
-- [ ] Extract the production firmware execution path into a one-session API; do not use `src/runloop.c` as a substitute. Shared in-memory ELF32/ARM loading is implemented by `mm_elf_load_memory()` and builds with Emscripten.
+- [ ] Extract the production firmware execution path into a one-session API; do not use `src/runloop.c` as a substitute. Shared in-memory ELF32/ARM loading and cycle/peripheral time advancement are implemented and build with Emscripten, but execution state, scheduling, interrupt handling and lifecycle remain in `main.c`.
 - [x] Run the new in-memory ELF loader tests as a Node-hosted WASM module using `scripts/test-web-elf-loader.sh`; all loader fixtures pass.
 - [x] Register the Node-hosted WASM loader smoke in CTest when both Emscripten and Node are found; focused CTest passes.
 - [x] Add a generated minimal H563 ELF CLI integration fixture that boots from its vector table and reaches the expected BKPT through the shared parser.
@@ -33,6 +33,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [x] Record the solver decision as open in `adr-001-solver.md`; pin reviewed candidate revisions and state the required evidence. No solver is selected yet.
 - [x] Map the production firmware execution and loader extraction requirements in `wasm-execution-extraction.md`; no approximate runloop was introduced.
 - [x] Separate host-independent target callback dispatch from POSIX UART/PTY HAL code; validate callback forwarding natively and compile the runtime into the Emscripten core. This does not yet create the production session or scheduler API.
+- [x] Extract production virtual-cycle accounting and cycle-driven SysTick, target timer and signal advancement into `mm_execution_advance_cycles()`; use it in production and secondary stepping paths and cover its counter/timer behavior with a native test.
 - [ ] Finish the third-party license audit when selecting/importing a solver and adding runtime dependencies or models.
 
 ## Not started

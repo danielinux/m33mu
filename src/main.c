@@ -68,6 +68,7 @@
 #include "m33mu/signal_record.h"
 #include "m33mu/gpio.h"
 #include "m33mu/target_hal.h"
+#include "m33mu/execution_clock.h"
 #include "m33mu/spiflash.h"
 #include "m33mu/usbdev.h"
 #include "m33mu/eth_backend.h"
@@ -3918,13 +3919,9 @@ static mm_bool step_core_simple(struct mm_cpu *cpu,
         mm_bool fault_skip = MM_FALSE;
         const mm_u32 insn_cycles = 1u;
 
-        if (cycle_total) *cycle_total += insn_cycles;
-        if (vcycles) *vcycles += insn_cycles;
-        if (cycles_since_poll) *cycles_since_poll += insn_cycles;
-        mm_scs_systick_advance(scs, insn_cycles);
-        mm_timer_tick(cfg, insn_cycles);
-        mm_signal_check_trigger(cpu->r[15] & ~1u);
-        mm_signal_advance((mm_u64)insn_cycles);
+        mm_execution_advance_cycles(scs, cfg, insn_cycles, MM_TRUE,
+                                    cpu->r[15] & ~1u, cycle_total, vcycles,
+                                    cycles_since_poll);
         if (cycle_total && fault_clock_hit(*cycle_total, fault_clocks, fault_clock_count)) {
             fault_skip = MM_TRUE;
         }
@@ -7333,12 +7330,9 @@ int main(int argc, char **argv)
                                 step = left;
                             }
                         }
-                        mm_scs_systick_advance(&scs, step);
-                        mm_timer_tick(&cfg, step);
-                        mm_signal_advance(step);
-                        vcycles += step;
-                        cycle_total += step;
-                        cycles_since_poll += step;
+                        mm_execution_advance_cycles(&scs, &cfg, step, MM_FALSE, 0u,
+                                                    &cycle_total, &vcycles,
+                                                    &cycles_since_poll);
                         mm_target_usart_poll(&cfg);
                         if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
                             reset_again = MM_TRUE;
@@ -7401,12 +7395,9 @@ int main(int argc, char **argv)
                             if (idle_cycles == 0) {
                                 idle_cycles = 1;
                             }
-                            mm_scs_systick_advance(&scs, idle_cycles);
-                            mm_timer_tick(&cfg, idle_cycles);
-                            mm_signal_advance(idle_cycles);
-                            vcycles += idle_cycles;
-                            cycle_total += idle_cycles;
-                            cycles_since_poll += idle_cycles;
+                            mm_execution_advance_cycles(&scs, &cfg, idle_cycles, MM_FALSE, 0u,
+                                                        &cycle_total, &vcycles,
+                                                        &cycles_since_poll);
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
                             mm_target_eth_poll(&cfg);
@@ -7433,12 +7424,9 @@ int main(int argc, char **argv)
                                 break;
                             }
                         } else {
-                            mm_scs_systick_advance(&scs, delta);
-                            mm_timer_tick(&cfg, delta);
-                            mm_signal_advance(delta);
-                            vcycles += delta;
-                            cycle_total += delta;
-                            cycles_since_poll += delta;
+                            mm_execution_advance_cycles(&scs, &cfg, delta, MM_FALSE, 0u,
+                                                        &cycle_total, &vcycles,
+                                                        &cycles_since_poll);
                             if (systick_pending_select(&cpu, &scs, &systick_sec) || scs.pend_sv) {
                                 cpu.sleeping = MM_FALSE;
                                 cpu.sleep_wfe = MM_FALSE;
@@ -7631,22 +7619,16 @@ check_irq_pending:
                             mm_signal_check_trigger(cpu.r[15] & ~1u);
                             (void)mm_tb_run(tb, &exec_ctx, &done, &tb_bkpt_hit, &tb_bkpt_imm, &ops_executed);
                             if (ops_executed != 0u) {
-                                cycles_since_poll += ops_executed;
-                                cycle_total += ops_executed;
-                                vcycles += ops_executed;
-                                mm_scs_systick_advance(&scs, ops_executed);
-                                mm_timer_tick(&cfg, ops_executed);
-                                mm_signal_advance((mm_u64)ops_executed);
+                                mm_execution_advance_cycles(&scs, &cfg, (mm_u64)ops_executed,
+                                                            MM_FALSE, 0u, &cycle_total,
+                                                            &vcycles, &cycles_since_poll);
                             }
                             {
                                 mm_u64 stall = flash_stall_cycles(cpu_hz);
                                 if (stall != 0u) {
-                                    cycles_since_poll += stall;
-                                    cycle_total += stall;
-                                    vcycles += stall;
-                                    mm_scs_systick_advance(&scs, stall);
-                                    mm_timer_tick(&cfg, stall);
-                                    mm_signal_advance(stall);
+                                    mm_execution_advance_cycles(&scs, &cfg, stall, MM_FALSE, 0u,
+                                                                &cycle_total, &vcycles,
+                                                                &cycles_since_poll);
                                 }
                             }
                             if (mm_flash_ops_cut_fired(0)) {
@@ -7789,21 +7771,14 @@ check_irq_pending:
                         /* the previous instruction's flash operation, if any */
                         mm_u64 stall = flash_stall_cycles(cpu_hz);
                         if (stall != 0u) {
-                            cycles_since_poll += stall;
-                            cycle_total += stall;
-                            vcycles += stall;
-                            mm_scs_systick_advance(&scs, stall);
-                            mm_timer_tick(&cfg, stall);
-                            mm_signal_advance(stall);
+                            mm_execution_advance_cycles(&scs, &cfg, stall, MM_FALSE, 0u,
+                                                        &cycle_total, &vcycles,
+                                                        &cycles_since_poll);
                         }
                     }
-                    cycles_since_poll += insn_cycles;
-                    cycle_total += insn_cycles;
-                    vcycles += insn_cycles;
-                    mm_scs_systick_advance(&scs, insn_cycles);
-                    mm_timer_tick(&cfg, insn_cycles);
-                    mm_signal_check_trigger(cpu.r[15] & ~1u);
-                    mm_signal_advance((mm_u64)insn_cycles);
+                    mm_execution_advance_cycles(&scs, &cfg, insn_cycles, MM_TRUE,
+                                                cpu.r[15] & ~1u, &cycle_total,
+                                                &vcycles, &cycles_since_poll);
                     if (opt_gdb || opt_tui) {
                         mm_u8 i;
                         fault_clock_count = gdb.fault_clock_count;
