@@ -127,6 +127,43 @@ static void gpio_refresh_pad_inputs(struct stm32_gpio_ctx *ctx)
     gpio_set_idr(ctx, gpio_pad_idr(ctx->gpio));
 }
 
+/* Reports mode, output type and pull changes. Analog mode disconnects the
+ * pull resistors, so it reports no pull whatever PUPDR holds. */
+static void gpio_notify_pad_config(struct stm32_gpio_state *g, int bank, mm_bool all)
+{
+    mm_u32 moder = g->regs[STM32_GPIO_MODER_OFFSET / 4];
+    mm_u32 otyper = g->regs[STM32_GPIO_OTYPER_OFFSET / 4] & 0xFFFFu;
+    mm_u32 pupdr = g->regs[STM32_GPIO_PUPDR_OFFSET / 4];
+    int pin;
+
+    if (!mm_gpio_pad_config_listener_present()) {
+        return;
+    }
+    if (!all && moder == g->pad_moder && otyper == g->pad_otyper && pupdr == g->pad_pupdr) {
+        return;
+    }
+    for (pin = 0; pin < 16; ++pin) {
+        mm_u32 shift = (mm_u32)pin * 2u;
+        mm_u32 bit = 1u << (mm_u32)pin;
+        struct mm_gpio_pad_config config;
+        mm_u32 pull;
+        if (!all && ((moder ^ g->pad_moder) >> shift & 3u) == 0u &&
+            ((otyper ^ g->pad_otyper) & bit) == 0u &&
+            ((pupdr ^ g->pad_pupdr) >> shift & 3u) == 0u) {
+            continue;
+        }
+        config.mode = (mm_u8)((moder >> shift) & 3u);
+        config.open_drain = (otyper & bit) != 0u ? 1u : 0u;
+        pull = (pupdr >> shift) & 3u;
+        config.pull = (config.mode == MM_GPIO_MODE_ANALOG || pull == 3u) ?
+                      (mm_u8)MM_GPIO_PULL_NONE : (mm_u8)pull;
+        mm_gpio_notify_pad_config(bank, pin, &config);
+    }
+    g->pad_moder = moder;
+    g->pad_otyper = otyper;
+    g->pad_pupdr = pupdr;
+}
+
 /* Output pins drive ODR onto the pad, except open-drain pins with ODR set. */
 static void gpio_notify_pad_outputs(struct stm32_gpio_state *g, int bank, mm_bool all)
 {
@@ -136,6 +173,7 @@ static void gpio_notify_pad_outputs(struct stm32_gpio_state *g, int bank, mm_boo
     mm_u32 changed;
     int pin;
 
+    gpio_notify_pad_config(g, bank, all);
     if (!mm_gpio_pad_listener_present()) {
         return;
     }

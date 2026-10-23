@@ -51,14 +51,29 @@ struct mm_web_step_result {
     mm_u32 instructions;
     mm_bool stopped;
     mm_bool system_reset;
+    mm_bool deadline_reached;   /* mm_web_run_until only */
+    mm_bool pad_changed;        /* a pad drive or configuration changed */
     enum mm_web_error error;
+};
+
+/* Pad mode/pull values follow MM_GPIO_MODE_* and MM_GPIO_PULL_* in gpio.h. */
+struct mm_web_pad_state {
+    mm_u8 level;                /* 0, 1 or 2 (Z: not driven by the MCU) */
+    mm_u8 mode;
+    mm_u8 open_drain;
+    mm_u8 pull;
 };
 
 struct mm_web_gpio_output_event {
     char soc_pad[16];
     mm_u8 level;
+    mm_u8 mode;
+    mm_u8 open_drain;
+    mm_u8 pull;
     mm_u64 virtual_time_ns;
 };
+
+#define MM_WEB_RUN_STOP_ON_PAD_CHANGE 1u
 
 typedef void (*mm_web_pad_listener_fn)(void *opaque,
                                        const char *soc_pad,
@@ -89,6 +104,19 @@ enum mm_web_error mm_web_run_slice(
     mm_u32 instruction_budget,
     mm_u32 work_budget,
     struct mm_web_step_result *result_out);
+/* Run like mm_web_run_slice, but stop at the first instruction boundary at or
+ * after deadline_ns (deadline_reached). Sleep-time advancement is capped at
+ * the deadline. With MM_WEB_RUN_STOP_ON_PAD_CHANGE the slice also returns
+ * after the instruction or sleep advance in which any pad drive level, mode,
+ * output type or pull changed (pad_changed), so a host circuit model can
+ * apply the new drive before time moves on. */
+enum mm_web_error mm_web_run_until(
+    struct mm_web_session *session,
+    mm_u64 deadline_ns,
+    mm_u32 instruction_budget,
+    mm_u32 work_budget,
+    mm_u32 flags,
+    struct mm_web_step_result *result_out);
 /* True while a sleeping core has a queued GPIO event or future SysTick/signal
  * deadline that requires virtual-time advancement. The event itself may not
  * wake the core unless firmware has configured the corresponding interrupt. */
@@ -107,6 +135,18 @@ enum mm_web_error mm_web_schedule_gpio_input(
     const char *soc_pad,
     mm_bool level,
     mm_u64 event_time_ns);
+/* Drop queued inputs at or after from_time_ns, for one pad or all pads
+ * (soc_pad == NULL). Used when a host model retracts a predicted crossing. */
+enum mm_web_error mm_web_cancel_gpio_inputs(
+    struct mm_web_session *session,
+    const char *soc_pad,
+    mm_u64 from_time_ns,
+    size_t *removed_out);
+/* Current pad drive and configuration as last reported by the target. */
+enum mm_web_error mm_web_get_pad_state(
+    const struct mm_web_session *session,
+    const char *soc_pad,
+    struct mm_web_pad_state *state_out);
 enum mm_web_error mm_web_set_pad_listener(
     struct mm_web_session *session,
     mm_web_pad_listener_fn listener,

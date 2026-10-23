@@ -236,6 +236,183 @@ static size_t make_h563_pendsv_elf(mm_u8 image[172])
     return 172u;
 }
 
+/* Enables GPIOA, makes PA5 a pulled-up push-pull output, drives it high and
+ * low, then stops at BKPT #0x7f. */
+static size_t make_h563_pad_elf(mm_u8 image[200])
+{
+    static const mm_u8 code[52] = {
+        0x08, 0x48, 0x01, 0x68, 0x01, 0x22, 0x11, 0x43, 0x01, 0x60, 0x07, 0x48,
+        0x07, 0x49, 0x01, 0x60, 0x07, 0x49, 0xc1, 0x60, 0x20, 0x21, 0x81, 0x61,
+        0x00, 0xbf, 0x00, 0xbf, 0x4f, 0xf4, 0x00, 0x11, 0x81, 0x61, 0x7f, 0xbe,
+        0x8c, 0x0c, 0x02, 0x54, 0x00, 0x00, 0x02, 0x52, 0xff, 0xf7, 0xff, 0xab,
+        0x00, 0x04, 0x00, 0x64
+    };
+    const mm_u32 flash_base = 0x0c000000u;
+    const mm_u32 ram_top = 0x30080000u;
+    memset(image, 0, 200u);
+    image[0] = 0x7fu; image[1] = 'E'; image[2] = 'L'; image[3] = 'F';
+    image[4] = 1u; image[5] = 1u; image[6] = 1u;
+    put_le16(image + 18u, 40u);
+    put_le32(image + 24u, flash_base + 65u);
+    put_le32(image + 28u, 52u);
+    put_le16(image + 40u, 52u);
+    put_le16(image + 42u, 32u);
+    put_le16(image + 44u, 1u);
+    put_le32(image + 52u, 1u);
+    put_le32(image + 56u, 84u);
+    put_le32(image + 60u, flash_base);
+    put_le32(image + 64u, flash_base);
+    put_le32(image + 68u, 116u);
+    put_le32(image + 72u, 116u);
+    put_le32(image + 76u, 4u);
+    put_le32(image + 84u, ram_top);
+    put_le32(image + 88u, flash_base + 65u);
+    memcpy(image + 84u + 64u, code, sizeof(code));
+    return 200u;
+}
+
+static int expect_pad(struct mm_web_session *session, const char *what,
+                      mm_u8 level, mm_u8 mode, mm_u8 pull)
+{
+    struct mm_web_pad_state pad;
+    if (mm_web_get_pad_state(session, "PA5", &pad) != MM_WEB_OK ||
+        pad.level != level || pad.mode != mode || pad.pull != pull ||
+        pad.open_drain != 0u) {
+        fprintf(stderr, "web_session_test: %s: PA5 level=%u mode=%u pull=%u od=%u\n",
+                what, (unsigned)pad.level, (unsigned)pad.mode,
+                (unsigned)pad.pull, (unsigned)pad.open_drain);
+        return 1;
+    }
+    return 0;
+}
+
+static int test_run_until_pad_changes(void)
+{
+    mm_u8 image[200];
+    struct mm_web_session *session;
+    struct mm_web_step_result step;
+    struct mm_web_cpu_state cpu;
+    struct mm_web_gpio_output_event out;
+    enum mm_web_error error;
+    size_t removed = 0u;
+    int failed = 1;
+    session = mm_web_create(0, &error);
+    if (session == 0 || mm_web_load_elf(session, image,
+                                        make_h563_pad_elf(image)) != MM_WEB_OK) {
+        fprintf(stderr, "web_session_test: pad firmware did not load\n");
+        goto done;
+    }
+    if (expect_pad(session, "reset", MM_GPIO_LEVEL_Z, MM_GPIO_MODE_ANALOG,
+                   MM_GPIO_PULL_NONE) != 0) goto done;
+    /* MODER write: PA5 becomes a push-pull output driving ODR=0. */
+    if (mm_web_run_until(session, (mm_u64)-1, 100u, 100u,
+                         MM_WEB_RUN_STOP_ON_PAD_CHANGE, &step) != MM_WEB_OK ||
+        !step.pad_changed || step.deadline_reached || step.stopped ||
+        step.instructions != 8u ||
+        expect_pad(session, "MODER", 0u, MM_GPIO_MODE_OUTPUT,
+                   MM_GPIO_PULL_NONE) != 0) {
+        fprintf(stderr, "web_session_test: MODER stop instructions=%u\n",
+                (unsigned)step.instructions);
+        goto done;
+    }
+    if (mm_web_pop_gpio_output(session, &out) != MM_WEB_OK ||
+        strcmp(out.soc_pad, "PA5") != 0 || out.mode != MM_GPIO_MODE_OUTPUT) {
+        fprintf(stderr, "web_session_test: MODER change was not queued\n");
+        goto done;
+    }
+    while (mm_web_pop_gpio_output(session, &out) == MM_WEB_OK) {
+    }
+    if (mm_web_run_until(session, (mm_u64)-1, 100u, 100u,
+                         MM_WEB_RUN_STOP_ON_PAD_CHANGE, &step) != MM_WEB_OK ||
+        !step.pad_changed || step.instructions != 2u ||
+        expect_pad(session, "PUPDR", 0u, MM_GPIO_MODE_OUTPUT,
+                   MM_GPIO_PULL_UP) != 0) {
+        goto done;
+    }
+    if (mm_web_run_until(session, (mm_u64)-1, 100u, 100u,
+                         MM_WEB_RUN_STOP_ON_PAD_CHANGE, &step) != MM_WEB_OK ||
+        !step.pad_changed || step.instructions != 2u ||
+        expect_pad(session, "BSRR set", 1u, MM_GPIO_MODE_OUTPUT,
+                   MM_GPIO_PULL_UP) != 0) {
+        goto done;
+    }
+    /* A deadline one nanosecond ahead stops at the next instruction boundary. */
+    if (mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+        mm_web_run_until(session, cpu.virtual_time_ns + 1u, 100u, 100u, 0u,
+                         &step) != MM_WEB_OK ||
+        !step.deadline_reached || step.pad_changed || step.instructions != 1u) {
+        fprintf(stderr, "web_session_test: deadline stop instructions=%u reached=%u\n",
+                (unsigned)step.instructions, (unsigned)step.deadline_reached);
+        goto done;
+    }
+    if (mm_web_run_until(session, 0u, 100u, 100u, 0u, &step) != MM_WEB_OK ||
+        !step.deadline_reached || step.instructions != 0u ||
+        mm_web_run_until(session, 0u, 1u, 1u, 0x80u, &step) !=
+            MM_WEB_INVALID_ARGUMENT) {
+        fprintf(stderr, "web_session_test: past deadline was not immediate\n");
+        goto done;
+    }
+    if (mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+        mm_web_schedule_gpio_input(session, "PA6", MM_TRUE,
+                                   cpu.virtual_time_ns + 1000u) != MM_WEB_OK ||
+        mm_web_schedule_gpio_input(session, "PA7", MM_TRUE,
+                                   cpu.virtual_time_ns + 2000u) != MM_WEB_OK ||
+        mm_web_cancel_gpio_inputs(session, 0, cpu.virtual_time_ns + 1500u,
+                                  &removed) != MM_WEB_OK || removed != 1u ||
+        mm_web_cancel_gpio_inputs(session, "PA7", 0u, &removed) != MM_WEB_OK ||
+        removed != 0u ||
+        mm_web_cancel_gpio_inputs(session, "PA6", 0u, &removed) != MM_WEB_OK ||
+        removed != 1u ||
+        mm_web_cancel_gpio_inputs(session, "PZ99", 0u, &removed) !=
+            MM_WEB_INVALID_ARGUMENT) {
+        fprintf(stderr, "web_session_test: input cancellation failed\n");
+        goto done;
+    }
+    if (mm_web_run_until(session, (mm_u64)-1, 100u, 100u,
+                         MM_WEB_RUN_STOP_ON_PAD_CHANGE, &step) != MM_WEB_OK ||
+        !step.pad_changed ||
+        expect_pad(session, "BSRR reset", 0u, MM_GPIO_MODE_OUTPUT,
+                   MM_GPIO_PULL_UP) != 0 ||
+        mm_web_run_until(session, (mm_u64)-1, 100u, 100u,
+                         MM_WEB_RUN_STOP_ON_PAD_CHANGE, &step) != MM_WEB_OK ||
+        !step.stopped || step.pad_changed) {
+        fprintf(stderr, "web_session_test: pad firmware did not finish\n");
+        goto done;
+    }
+    failed = 0;
+done:
+    mm_web_destroy(session);
+    return failed;
+}
+
+/* A core in WFI with no wake source still advances to a run deadline, since
+ * the host circuit may produce the wake event. */
+static int test_run_until_sleeping(void)
+{
+    mm_u8 image[96];
+    struct mm_web_session *session;
+    struct mm_web_step_result step;
+    struct mm_web_cpu_state cpu;
+    enum mm_web_error error;
+    int failed = 1;
+    (void)make_h563_elf(image);
+    put_le16(image + 92u, 0xbf30u); /* wfi */
+    session = mm_web_create(0, &error);
+    if (session == 0 || mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK ||
+        mm_web_run_until(session, 10000u, 100u, 100000u, 0u, &step) != MM_WEB_OK ||
+        !step.deadline_reached || step.stopped ||
+        mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK || !cpu.sleeping ||
+        cpu.virtual_time_ns < 10000u || cpu.virtual_time_ns > 10016u) {
+        fprintf(stderr, "web_session_test: sleeping run_until stopped at %llu ns\n",
+                (unsigned long long)cpu.virtual_time_ns);
+        goto done;
+    }
+    failed = 0;
+done:
+    mm_web_destroy(session);
+    return failed;
+}
+
 int main(void)
 {
     struct mm_web_config config = { "stm32h563", 96u };
@@ -629,6 +806,8 @@ int main(void)
         mm_gpio_set_external_input_writer(0, 0);
         mm_web_destroy(session);
     }
+    if (test_run_until_pad_changes() != 0) return 1;
+    if (test_run_until_sleeping() != 0) return 1;
     puts("web_session_test: ok");
     return 0;
 }

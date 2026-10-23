@@ -734,6 +734,27 @@ void mm_gpio_notify_pad(int bank, int pin, mm_u8 level)
     }
 }
 
+static mm_gpio_pad_config_listener_fn g_gpio_pad_config_listener = 0;
+static void *g_gpio_pad_config_listener_opaque = 0;
+
+void mm_gpio_set_pad_config_listener(mm_gpio_pad_config_listener_fn listener, void *opaque)
+{
+    g_gpio_pad_config_listener = listener;
+    g_gpio_pad_config_listener_opaque = opaque;
+}
+
+mm_bool mm_gpio_pad_config_listener_present(void)
+{
+    return (g_gpio_pad_config_listener != 0) ? MM_TRUE : MM_FALSE;
+}
+
+void mm_gpio_notify_pad_config(int bank, int pin, const struct mm_gpio_pad_config *config)
+{
+    if (g_gpio_pad_config_listener != 0 && config != 0) {
+        g_gpio_pad_config_listener(g_gpio_pad_config_listener_opaque, bank, pin, config);
+    }
+}
+
 mm_bool mm_rcc_clock_list_present(void)
 {
     return (g_rcc_clock_list_reader != 0) ? MM_TRUE : MM_FALSE;

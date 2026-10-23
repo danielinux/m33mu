@@ -77,4 +77,25 @@ void mm_gpio_set_pad_listener(mm_gpio_pad_listener_fn listener, void *opaque);
 mm_bool mm_gpio_pad_listener_present(void);
 void mm_gpio_notify_pad(int bank, int pin, mm_u8 level);
 
+/* Electrical pad configuration as firmware programmed it. A target reports
+ * changes through the config listener; the drive level still arrives through
+ * the pad listener above. */
+#define MM_GPIO_MODE_INPUT  0u
+#define MM_GPIO_MODE_OUTPUT 1u
+#define MM_GPIO_MODE_AF     2u
+#define MM_GPIO_MODE_ANALOG 3u
+#define MM_GPIO_PULL_NONE 0u
+#define MM_GPIO_PULL_UP   1u
+#define MM_GPIO_PULL_DOWN 2u
+struct mm_gpio_pad_config {
+    mm_u8 mode;
+    mm_u8 open_drain;
+    mm_u8 pull;
+};
+typedef void (*mm_gpio_pad_config_listener_fn)(void *opaque, int bank, int pin,
+                                               const struct mm_gpio_pad_config *config);
+void mm_gpio_set_pad_config_listener(mm_gpio_pad_config_listener_fn listener, void *opaque);
+mm_bool mm_gpio_pad_config_listener_present(void);
+void mm_gpio_notify_pad_config(int bank, int pin, const struct mm_gpio_pad_config *config);
+
 #endif /* M33MU_GPIO_H */

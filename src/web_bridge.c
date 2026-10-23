@@ -22,6 +22,8 @@
 #define MM_WEB_GPIO_OUTPUT_CAPACITY 4096u
 #define MM_WEB_NSEC_PER_SEC 1000000000u
 #define MM_WEB_TARGET_POLL_CYCLES 64u
+#define MM_WEB_PAD_BANKS 16
+#define MM_WEB_PAD_PINS 32
 
 struct mm_web_gpio_event {
     int bank;
@@ -35,7 +37,7 @@ struct mm_web_gpio_event {
 struct mm_web_gpio_output_entry {
     int bank;
     int pin;
-    mm_u8 level;
+    struct mm_web_pad_state pad;
     mm_u64 virtual_time_ns;
 };
 
@@ -58,9 +60,42 @@ struct mm_web_session {
     size_t gpio_output_head;
     size_t gpio_output_count;
     mm_bool gpio_output_overflow;
+    struct mm_web_pad_state pads[MM_WEB_PAD_BANKS][MM_WEB_PAD_PINS];
+    mm_bool pad_changed;
 };
 
 static struct mm_web_session *g_web_active_session;
+
+static void web_queue_pad_state(struct mm_web_session *session,
+                                int bank,
+                                int pin)
+{
+    session->pad_changed = MM_TRUE;
+    if (session->gpio_output_count < MM_WEB_GPIO_OUTPUT_CAPACITY) {
+        size_t tail = (session->gpio_output_head +
+                       session->gpio_output_count) %
+            MM_WEB_GPIO_OUTPUT_CAPACITY;
+        session->gpio_output_events[tail].bank = bank;
+        session->gpio_output_events[tail].pin = pin;
+        session->gpio_output_events[tail].pad = session->pads[bank][pin];
+        session->gpio_output_events[tail].virtual_time_ns =
+            mm_execution_state_signal_now_ns(&session->execution);
+        session->gpio_output_count++;
+    } else {
+        session->gpio_output_overflow = MM_TRUE;
+    }
+}
+
+static mm_bool web_pad_in_range(const struct mm_web_session *session,
+                                int bank,
+                                int pin)
+{
+    int pins;
+    return session != 0 && session == g_web_active_session &&
+           bank >= 0 && bank < MM_WEB_PAD_BANKS &&
+           pin >= 0 && pin < MM_WEB_PAD_PINS &&
+           mm_gpio_bank_info(bank, 0, 0u, &pins) && pin < pins;
+}
 
 static void web_gpio_pad_changed(void *opaque,
                                  int bank,
@@ -70,28 +105,47 @@ static void web_gpio_pad_changed(void *opaque,
     struct mm_web_session *session =
         (struct mm_web_session *)opaque;
     char pad_name[16];
-    int pins;
-    if (session == 0 || session != g_web_active_session ||
-        !mm_gpio_bank_info(bank, 0, 0u, &pins) ||
-        pin < 0 || pin >= pins) {
-        return;
-    }
-    if (session->gpio_output_count < MM_WEB_GPIO_OUTPUT_CAPACITY) {
-        size_t tail = (session->gpio_output_head +
-                       session->gpio_output_count) %
-            MM_WEB_GPIO_OUTPUT_CAPACITY;
-        session->gpio_output_events[tail].bank = bank;
-        session->gpio_output_events[tail].pin = pin;
-        session->gpio_output_events[tail].level = level;
-        session->gpio_output_events[tail].virtual_time_ns =
-            mm_execution_state_signal_now_ns(&session->execution);
-        session->gpio_output_count++;
-    } else {
-        session->gpio_output_overflow = MM_TRUE;
-    }
+    if (!web_pad_in_range(session, bank, pin)) return;
+    session->pads[bank][pin].level = level;
+    web_queue_pad_state(session, bank, pin);
     if (session->pad_listener == 0) return;
     (void)snprintf(pad_name, sizeof(pad_name), "P%c%d", 'A' + bank, pin);
     session->pad_listener(session->pad_listener_opaque, pad_name, level);
+}
+
+static void web_gpio_pad_config_changed(
+    void *opaque,
+    int bank,
+    int pin,
+    const struct mm_gpio_pad_config *config)
+{
+    struct mm_web_session *session =
+        (struct mm_web_session *)opaque;
+    struct mm_web_pad_state *pad;
+    if (!web_pad_in_range(session, bank, pin)) return;
+    pad = &session->pads[bank][pin];
+    if (pad->mode == config->mode && pad->open_drain == config->open_drain &&
+        pad->pull == config->pull) {
+        return;
+    }
+    pad->mode = config->mode;
+    pad->open_drain = config->open_drain;
+    pad->pull = config->pull;
+    web_queue_pad_state(session, bank, pin);
+}
+
+static void web_init_pad_states(struct mm_web_session *session)
+{
+    int bank;
+    int pin;
+    for (bank = 0; bank < MM_WEB_PAD_BANKS; ++bank) {
+        for (pin = 0; pin < MM_WEB_PAD_PINS; ++pin) {
+            session->pads[bank][pin].level = (mm_u8)MM_GPIO_LEVEL_Z;
+            session->pads[bank][pin].mode = (mm_u8)MM_GPIO_MODE_INPUT;
+            session->pads[bank][pin].open_drain = 0u;
+            session->pads[bank][pin].pull = (mm_u8)MM_GPIO_PULL_NONE;
+        }
+    }
 }
 
 static mm_bool web_parse_pad(const char *name, int *bank_out, int *pin_out)
@@ -501,7 +555,9 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
     }
     g_web_active_session = session;
     mm_system_clear_reset();
+    web_init_pad_states(session);
     mm_gpio_set_pad_listener(web_gpio_pad_changed, session);
+    mm_gpio_set_pad_config_listener(web_gpio_pad_config_changed, session);
     session->max_image_size = config != 0 && config->max_image_size != 0u ?
         config->max_image_size : MM_WEB_DEFAULT_IMAGE_LIMIT;
     if (!mm_execution_state_select_target(&session->execution, cpu_name) ||
@@ -510,6 +566,7 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
         mm_execution_state_destroy(&session->execution);
         g_web_active_session = 0;
         mm_gpio_set_pad_listener(0, 0);
+        mm_gpio_set_pad_config_listener(0, 0);
         free(session);
         if (error_out != 0) *error_out = MM_WEB_INITIALIZATION_FAILED;
         return 0;
@@ -612,15 +669,33 @@ enum mm_web_error mm_web_reset(struct mm_web_session *session)
     return web_reinitialize(session, MM_TRUE);
 }
 
+/* Cycle of the first instruction boundary at or after the run deadline. */
+static mm_bool web_deadline_cycle(const struct mm_web_session *session,
+                                  mm_bool has_deadline,
+                                  mm_u64 deadline_ns,
+                                  mm_u64 *cycle_out)
+{
+    if (!has_deadline) {
+        *cycle_out = (mm_u64)-1;
+        return MM_TRUE;
+    }
+    return web_event_time_to_cycle(session, deadline_ns, cycle_out);
+}
+
 static enum mm_web_error web_execute_budgeted(
     struct mm_web_session *session,
     mm_u32 instruction_budget,
     mm_u32 work_budget,
+    mm_bool has_deadline,
+    mm_u64 deadline_ns,
+    mm_u32 flags,
     struct mm_web_step_result *result_out)
 {
     struct mm_execution_state *state;
     mm_u32 i;
     mm_u32 work;
+    mm_u64 deadline_cycle;
+    mm_bool stop_on_pad = (flags & MM_WEB_RUN_STOP_ON_PAD_CHANGE) != 0u;
     if (result_out != 0) memset(result_out, 0, sizeof(*result_out));
     if (session == 0 || result_out == 0 || instruction_budget == 0u ||
         work_budget == 0u) {
@@ -634,6 +709,7 @@ static enum mm_web_error web_execute_budgeted(
     state = &session->execution;
     i = 0u;
     work = 0u;
+    session->pad_changed = MM_FALSE;
     while (i < instruction_budget && work < work_budget &&
            !session->stopped) {
         struct mm_execute_ctx context;
@@ -644,10 +720,17 @@ static enum mm_web_error web_execute_budgeted(
         mm_bool fpu_ok = MM_FALSE;
         mm_bool done = MM_FALSE;
         session->pending_error = MM_WEB_OK;
-        if (!web_sync_clock_rate(session)) {
+        if (!web_sync_clock_rate(session) ||
+            !web_deadline_cycle(session, has_deadline, deadline_ns,
+                                &deadline_cycle)) {
             result_out->error = MM_WEB_INITIALIZATION_FAILED;
             return result_out->error;
         }
+        if (state->clock.virtual_cycles >= deadline_cycle) {
+            result_out->deadline_reached = MM_TRUE;
+            break;
+        }
+        if (stop_on_pad && session->pad_changed) break;
         if (state->cores[0].cpu.sleeping) {
             mm_u64 external_deadline = 0u;
             mm_u64 poll_remaining;
@@ -664,6 +747,14 @@ static enum mm_web_error web_execute_budgeted(
                 mm_u64 event_cycle = session->gpio_events[0].cycle;
                 external_deadline = event_cycle > now ? event_cycle - now : 1u;
             }
+            /* A run deadline is a host event too: an external circuit may
+             * wake the core, so sleep advances to it rather than idling. */
+            if (has_deadline &&
+                (external_deadline == 0u ||
+                 deadline_cycle - state->clock.virtual_cycles <
+                     external_deadline)) {
+                external_deadline = deadline_cycle - state->clock.virtual_cycles;
+            }
             delta = mm_execution_state_cycles_until_wake(
                 state, 0u, external_deadline);
             if (delta == (mm_u64)-1) break;
@@ -671,6 +762,9 @@ static enum mm_web_error web_execute_budgeted(
                 MM_WEB_TARGET_POLL_CYCLES ? 1u :
                 MM_WEB_TARGET_POLL_CYCLES - state->clock.cycles_since_poll;
             if (delta > poll_remaining) delta = poll_remaining;
+            if (delta > deadline_cycle - state->clock.virtual_cycles) {
+                delta = deadline_cycle - state->clock.virtual_cycles;
+            }
             if (delta == 0u) delta = 1u;
             mm_execution_state_advance_cycles(
                 state, 0u, delta, MM_TRUE,
@@ -779,6 +873,12 @@ static enum mm_web_error web_execute_budgeted(
         session->stopped = done;
     }
     result_out->stopped = session->stopped;
+    result_out->pad_changed = session->pad_changed;
+    if (has_deadline && !result_out->deadline_reached &&
+        web_deadline_cycle(session, MM_TRUE, deadline_ns, &deadline_cycle) &&
+        state->clock.virtual_cycles >= deadline_cycle) {
+        result_out->deadline_reached = MM_TRUE;
+    }
     result_out->error = MM_WEB_OK;
     return MM_WEB_OK;
 }
@@ -789,7 +889,7 @@ enum mm_web_error mm_web_step_instructions(
     struct mm_web_step_result *result_out)
 {
     return web_execute_budgeted(session, instruction_budget, instruction_budget,
-                                result_out);
+                                MM_FALSE, 0u, 0u, result_out);
 }
 
 enum mm_web_error mm_web_run_slice(
@@ -799,7 +899,23 @@ enum mm_web_error mm_web_run_slice(
     struct mm_web_step_result *result_out)
 {
     return web_execute_budgeted(session, instruction_budget, work_budget,
-                                result_out);
+                                MM_FALSE, 0u, 0u, result_out);
+}
+
+enum mm_web_error mm_web_run_until(
+    struct mm_web_session *session,
+    mm_u64 deadline_ns,
+    mm_u32 instruction_budget,
+    mm_u32 work_budget,
+    mm_u32 flags,
+    struct mm_web_step_result *result_out)
+{
+    if ((flags & ~MM_WEB_RUN_STOP_ON_PAD_CHANGE) != 0u) {
+        if (result_out != 0) memset(result_out, 0, sizeof(*result_out));
+        return MM_WEB_INVALID_ARGUMENT;
+    }
+    return web_execute_budgeted(session, instruction_budget, work_budget,
+                                MM_TRUE, deadline_ns, flags, result_out);
 }
 
 mm_bool mm_web_has_pending_deadline(
@@ -889,6 +1005,52 @@ enum mm_web_error mm_web_schedule_gpio_input(
     return MM_WEB_OK;
 }
 
+enum mm_web_error mm_web_cancel_gpio_inputs(
+    struct mm_web_session *session,
+    const char *soc_pad,
+    mm_u64 from_time_ns,
+    size_t *removed_out)
+{
+    int bank = -1;
+    int pin = -1;
+    size_t i;
+    size_t kept = 0u;
+    if (removed_out != 0) *removed_out = 0u;
+    if (session == 0) return MM_WEB_INVALID_ARGUMENT;
+    if (session != g_web_active_session) return MM_WEB_INITIALIZATION_FAILED;
+    if (soc_pad != 0 && !web_parse_pad(soc_pad, &bank, &pin)) {
+        return MM_WEB_INVALID_ARGUMENT;
+    }
+    for (i = 0u; i < session->gpio_event_count; ++i) {
+        const struct mm_web_gpio_event *event = &session->gpio_events[i];
+        if (event->time_ns >= from_time_ns &&
+            (soc_pad == 0 || (event->bank == bank && event->pin == pin))) {
+            continue;
+        }
+        session->gpio_events[kept++] = *event;
+    }
+    if (removed_out != 0) *removed_out = session->gpio_event_count - kept;
+    session->gpio_event_count = kept;
+    return MM_WEB_OK;
+}
+
+enum mm_web_error mm_web_get_pad_state(
+    const struct mm_web_session *session,
+    const char *soc_pad,
+    struct mm_web_pad_state *state_out)
+{
+    int bank;
+    int pin;
+    if (session == 0 || state_out == 0) return MM_WEB_INVALID_ARGUMENT;
+    if (session != g_web_active_session) return MM_WEB_INITIALIZATION_FAILED;
+    if (!web_parse_pad(soc_pad, &bank, &pin) ||
+        bank >= MM_WEB_PAD_BANKS || pin >= MM_WEB_PAD_PINS) {
+        return MM_WEB_INVALID_ARGUMENT;
+    }
+    *state_out = session->pads[bank][pin];
+    return MM_WEB_OK;
+}
+
 enum mm_web_error mm_web_set_pad_listener(
     struct mm_web_session *session,
     mm_web_pad_listener_fn listener,
@@ -918,7 +1080,10 @@ enum mm_web_error mm_web_pop_gpio_output(
     session->gpio_output_count--;
     (void)snprintf(event_out->soc_pad, sizeof(event_out->soc_pad),
                    "P%c%d", 'A' + entry.bank, entry.pin);
-    event_out->level = entry.level;
+    event_out->level = entry.pad.level;
+    event_out->mode = entry.pad.mode;
+    event_out->open_drain = entry.pad.open_drain;
+    event_out->pull = entry.pad.pull;
     event_out->virtual_time_ns = entry.virtual_time_ns;
     return MM_WEB_OK;
 }
@@ -956,6 +1121,7 @@ void mm_web_destroy(struct mm_web_session *session)
     if (session == 0) return;
     if (session == g_web_active_session) {
         mm_gpio_set_pad_listener(0, 0);
+        mm_gpio_set_pad_config_listener(0, 0);
         g_web_active_session = 0;
     }
     mm_execution_state_destroy(&session->execution);

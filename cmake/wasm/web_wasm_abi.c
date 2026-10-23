@@ -39,6 +39,57 @@ int mm_web_abi_run_slice(void *session,
     return (int)g_last_error;
 }
 
+int mm_web_abi_run_until(void *session,
+                         unsigned int deadline_high,
+                         unsigned int deadline_low,
+                         unsigned int instruction_budget,
+                         unsigned int work_budget,
+                         unsigned int flags)
+{
+    mm_u64 deadline_ns = ((mm_u64)deadline_high << 32) | deadline_low;
+    g_last_error = mm_web_run_until(
+        (struct mm_web_session *)session, deadline_ns,
+        (mm_u32)instruction_budget, (mm_u32)work_budget, (mm_u32)flags,
+        &g_last_step);
+    return (int)g_last_error;
+}
+
+unsigned int mm_web_abi_last_deadline_reached(void)
+{
+    return g_last_step.deadline_reached ? 1u : 0u;
+}
+
+unsigned int mm_web_abi_last_pad_changed(void)
+{
+    return g_last_step.pad_changed ? 1u : 0u;
+}
+
+int mm_web_abi_cancel_gpio_inputs(void *session,
+                                  const char *pad,
+                                  unsigned int time_high,
+                                  unsigned int time_low)
+{
+    size_t removed = 0u;
+    mm_u64 from_ns = ((mm_u64)time_high << 32) | time_low;
+    g_last_error = mm_web_cancel_gpio_inputs(
+        (struct mm_web_session *)session,
+        (pad != 0 && pad[0] != '\0') ? pad : 0, from_ns, &removed);
+    return g_last_error == MM_WEB_OK ? (int)removed : -1;
+}
+
+/* Packed pad state: level | mode << 8 | open_drain << 16 | pull << 24,
+ * or -1 on error. */
+int mm_web_abi_pad_state(void *session, const char *pad)
+{
+    struct mm_web_pad_state state;
+    g_last_error = mm_web_get_pad_state(
+        (const struct mm_web_session *)session, pad, &state);
+    if (g_last_error != MM_WEB_OK) return -1;
+    return (int)((mm_u32)state.level | ((mm_u32)state.mode << 8) |
+                 ((mm_u32)state.open_drain << 16) |
+                 ((mm_u32)state.pull << 24));
+}
+
 unsigned int mm_web_abi_has_pending_deadline(void *session)
 {
     return mm_web_has_pending_deadline(
@@ -81,6 +132,13 @@ const char *mm_web_abi_gpio_output_pad(void)
 unsigned int mm_web_abi_gpio_output_level(void)
 {
     return g_last_gpio_output.level;
+}
+
+unsigned int mm_web_abi_gpio_output_config(void)
+{
+    return (unsigned int)g_last_gpio_output.mode |
+           ((unsigned int)g_last_gpio_output.open_drain << 8) |
+           ((unsigned int)g_last_gpio_output.pull << 16);
 }
 
 unsigned int mm_web_abi_gpio_output_time_low(void)
