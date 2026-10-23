@@ -11,6 +11,7 @@
 #include "m33mu/scs.h"
 #include "m33mu/memmap.h"
 #include "m33mu/code_cache.h"
+#include "m33mu/mem_prot.h"
 
 struct mm_execution_core_state {
     struct mm_cpu cpu;
@@ -27,6 +28,7 @@ struct mm_execution_state {
     struct mm_memmap map;
     struct mmio_region regions[256];
     struct mm_code_cache code_cache;
+    struct mm_prot_ctx protection[2];
     struct mm_execution_core_state cores[2];
     struct mm_scs_mux scs_mux;
     struct mm_execution_clock clock;

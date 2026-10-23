@@ -4726,8 +4726,6 @@ int main(int argc, char **argv)
     int i;
     struct mm_target_cfg cfg;
     struct mm_execution_state execution = { 0 };
-    struct mm_prot_ctx prot;
-    struct mm_prot_ctx prot1;
     mm_u8 *flash;
     mm_u8 *ram;
     struct mm_gdb_stub gdb;
@@ -6286,157 +6284,157 @@ int main(int argc, char **argv)
                 }
             }
             mm_core_sys_register(&execution.map.mmio, &core_sys);
-            mm_prot_init(&prot, &execution.cores[0].scs, &cfg, &execution.cores[0].cpu);
+            mm_prot_init(&execution.protection[0], &execution.cores[0].scs, &cfg, &execution.cores[0].cpu);
             if (cfg.core_count > 1u) {
-                mm_prot_init(&prot1, &execution.cores[1].scs, &cfg, &execution.cores[1].cpu);
+                mm_prot_init(&execution.protection[1], &execution.cores[1].scs, &cfg, &execution.cores[1].cpu);
             }
-            g_active_prot_ctx = &prot;
+            g_active_prot_ctx = &execution.protection[0];
             mm_memmap_set_interceptor(&execution.map, prot_mux_interceptor, 0);
             mm_memmap_set_bus_attr(&execution.map, prot_mux_bus_attr, 0);
-            mm_prot_add_region(&prot, cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-            mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+            mm_prot_add_region(&execution.protection[0], cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+            mm_prot_add_region(&execution.protection[0], cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
             /* Secure code may address the non-secure flash alias: on ARMv8-M a
              * secure master reaching an address the SAU/IDAU attributes NS just
              * issues a non-secure transaction, it is not denied.  Whether the
              * read returns data is then up to the flash TZ filter, which
              * mm_memmap_read applies.  Without this region the access never got
              * that far and read back as zero even for NS-attributed sectors. */
-            mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns,
+            mm_prot_add_region(&execution.protection[0], cfg.flash_base_ns, cfg.flash_size_ns,
                                MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
             if (cpu_name != 0 && strcmp(cpu_name, "mcxn947") == 0) {
-                mm_prot_add_region(&prot, 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_SECURE);
-                mm_prot_add_region(&prot, 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_NONSECURE);
             }
             if (cpu_name != 0 && strcmp(cpu_name, "lpc55s69") == 0) {
                 /* LPC55S69 ROM is at 0x03000000 (NS alias) / 0x13000000 (S alias).
                  * The hardware IDAU hardwires this range as NS-accessible.
                  * Register both S and NS attributions so S and NS code can access
                  * the ROM API bootloader tree and stubs. */
-                mm_prot_add_region(&prot, 0x03000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&prot, 0x03000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
-                mm_prot_add_region(&prot, 0x13000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&prot, 0x13000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x03000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x03000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x13000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x13000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
             }
             if (cpu_name != 0 && strcmp(cpu_name, "rw612") == 0) {
                 /* RW612 ROM stub region (S + NS aliases) and ROM API tree. */
-                mm_prot_add_region(&prot, 0x03001000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&prot, 0x03001000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
-                mm_prot_add_region(&prot, 0x13001000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&prot, 0x13001000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
-                mm_prot_add_region(&prot, 0x0301F000u, 0x00000100u, MM_PROT_PERM_READ, MM_SECURE);
-                mm_prot_add_region(&prot, 0x0301F000u, 0x00000100u, MM_PROT_PERM_READ, MM_NONSECURE);
-                mm_prot_add_region(&prot, 0x1301F000u, 0x00000100u, MM_PROT_PERM_READ, MM_SECURE);
-                mm_prot_add_region(&prot, 0x1301F000u, 0x00000100u, MM_PROT_PERM_READ, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x03001000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x03001000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x13001000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x13001000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x0301F000u, 0x00000100u, MM_PROT_PERM_READ, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x0301F000u, 0x00000100u, MM_PROT_PERM_READ, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x1301F000u, 0x00000100u, MM_PROT_PERM_READ, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x1301F000u, 0x00000100u, MM_PROT_PERM_READ, MM_NONSECURE);
                 /* PKA scratch RAM at 0x22040000 (also 0x32040000 secure alias). */
-                mm_prot_add_region(&prot, 0x22040000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                mm_prot_add_region(&prot, 0x22040000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
-                mm_prot_add_region(&prot, 0x32040000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                mm_prot_add_region(&prot, 0x32040000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x22040000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x22040000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x32040000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x32040000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
             }
             if (cpu_name != 0 && strcmp(cpu_name, "pic32ck") == 0) {
                 /* PIC32CK Boot ROM: 0x08000000, 128 KB */
-                mm_prot_add_region(&prot, 0x08000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&prot, 0x08000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x08000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x08000000u, 0x00020000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 /* PIC32CK CFM (Configuration Flash Memory): 0x0A000000, 64 KB */
-                mm_prot_add_region(&prot, 0x0A000000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                mm_prot_add_region(&prot, 0x0A000000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x0A000000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x0A000000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
             }
             if (cpu_name != 0 &&
                 (strcmp(cpu_name, "stm32h563") == 0 || strcmp(cpu_name, "stm32h533") == 0 ||
                  strcmp(cpu_name, "stm32h5f4") == 0)) {
-                mm_prot_add_region(&prot, 0x0CFFF000u, 0x800u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                mm_prot_add_region(&prot, 0x08FFF000u, 0x800u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
-                mm_prot_add_region(&prot, 0x0CFFF800u, 0x10u, MM_PROT_PERM_READ, MM_SECURE);
-                mm_prot_add_region(&prot, 0x08FFF800u, 0x10u, MM_PROT_PERM_READ, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x0CFFF000u, 0x800u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x08FFF000u, 0x800u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x0CFFF800u, 0x10u, MM_PROT_PERM_READ, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x08FFF800u, 0x10u, MM_PROT_PERM_READ, MM_NONSECURE);
             }
             if (cpu_name != 0 &&
                 (strcmp(cpu_name, "stm32u585") == 0 || strcmp(cpu_name, "stm32l552") == 0)) {
                 /* STM32U5/L5 expose vendor PPB blocks such as DBGMCU at 0xE004xxxx. */
-                mm_prot_add_region(&prot, 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                mm_prot_add_region(&prot, 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
             }
             if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                mm_prot_add_region(&prot, 0x00000000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&prot, 0x00000000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x00000000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x00000000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
             }
             if (cpu_name != 0 && strcmp(cpu_name, "nrf5340") == 0) {
-                mm_prot_add_region(&prot, 0x00000000u, cfg.flash_size_ns,
+                mm_prot_add_region(&execution.protection[0], 0x00000000u, cfg.flash_size_ns,
                                    MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&prot, 0x00000000u, cfg.flash_size_ns,
+                mm_prot_add_region(&execution.protection[0], 0x00000000u, cfg.flash_size_ns,
                                    MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
             }
             if (cpu_name != 0 && strcmp(cpu_name, "imxrt700") == 0) {
-                add_imxrt700_prot_regions(&prot, &cfg);
+                add_imxrt700_prot_regions(&execution.protection[0], &cfg);
             }
             if (cfg.ram_regions != 0 && cfg.ram_region_count > 0u) {
                 mm_u32 ri;
                 for (ri = 0; ri < cfg.ram_region_count; ++ri) {
                     const struct mm_ram_region *r = &cfg.ram_regions[ri];
-                    mm_prot_add_region(&prot, r->base_s, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                    mm_prot_add_region(&prot, r->base_ns, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                    mm_prot_add_region(&execution.protection[0], r->base_s, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                    mm_prot_add_region(&execution.protection[0], r->base_ns, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 }
             } else {
-                mm_prot_add_region(&prot, cfg.ram_base_s, cfg.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&prot, cfg.ram_base_ns, cfg.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], cfg.ram_base_s, cfg.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], cfg.ram_base_ns, cfg.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
             }
             /* Permit peripheral space (AHB/APB) for now; SAU still controls Secure vs Non-secure visibility. */
-            mm_prot_add_region(&prot, 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-            mm_prot_add_region(&prot, 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+            mm_prot_add_region(&execution.protection[0], 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+            mm_prot_add_region(&execution.protection[0], 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
             /* Permit SIO/system bus window (e.g. RP2350 SIO at 0xD0000000). */
-            mm_prot_add_region(&prot, 0xD0000000u, 0x10000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-            mm_prot_add_region(&prot, 0xD0000000u, 0x10000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+            mm_prot_add_region(&execution.protection[0], 0xD0000000u, 0x10000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+            mm_prot_add_region(&execution.protection[0], 0xD0000000u, 0x10000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
             if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                mm_prot_add_region(&prot, 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                mm_prot_add_region(&prot, 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[0], 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                mm_prot_add_region(&execution.protection[0], 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
             }
             if (cfg.core_count > 1u) {
-                mm_prot_add_region(&prot1, cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                mm_prot_add_region(&prot1, cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[1], cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                mm_prot_add_region(&execution.protection[1], cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 if (cpu_name != 0 && strcmp(cpu_name, "mcxn947") == 0) {
-                    mm_prot_add_region(&prot1, cfg.flash_base_ns, cfg.flash_size_ns,
+                    mm_prot_add_region(&execution.protection[1], cfg.flash_base_ns, cfg.flash_size_ns,
                                        MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                    mm_prot_add_region(&prot1, 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_SECURE);
-                    mm_prot_add_region(&prot1, 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_NONSECURE);
+                    mm_prot_add_region(&execution.protection[1], 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_SECURE);
+                    mm_prot_add_region(&execution.protection[1], 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_NONSECURE);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                    mm_prot_add_region(&prot1, 0x00000000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
-                    mm_prot_add_region(&prot1, 0x00000000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                    mm_prot_add_region(&execution.protection[1], 0x00000000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+                    mm_prot_add_region(&execution.protection[1], 0x00000000u, 0x00001000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 }
                 if (cpu_name != 0 &&
                     (strcmp(cpu_name, "stm32u585") == 0 || strcmp(cpu_name, "stm32l552") == 0)) {
-                    mm_prot_add_region(&prot1, 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                    mm_prot_add_region(&prot1, 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                    mm_prot_add_region(&execution.protection[1], 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                    mm_prot_add_region(&execution.protection[1], 0xE0040000u, 0x00010000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "imxrt700") == 0) {
-                    add_imxrt700_prot_regions(&prot1, &cfg);
+                    add_imxrt700_prot_regions(&execution.protection[1], &cfg);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "nrf5340") == 0) {
-                    mm_prot_add_region(&prot1, 0x00000000u, cfg.flash_size_ns,
+                    mm_prot_add_region(&execution.protection[1], 0x00000000u, cfg.flash_size_ns,
                                        MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                    mm_prot_add_region(&prot1, 0x00000000u, cfg.flash_size_ns,
+                    mm_prot_add_region(&execution.protection[1], 0x00000000u, cfg.flash_size_ns,
                                        MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 }
                 if (cfg.ram_regions != 0 && cfg.ram_region_count > 0u) {
                     mm_u32 ri;
                     for (ri = 0; ri < cfg.ram_region_count; ++ri) {
                         const struct mm_ram_region *r = &cfg.ram_regions[ri];
-                        mm_prot_add_region(&prot1, r->base_s, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                        mm_prot_add_region(&prot1, r->base_ns, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                        mm_prot_add_region(&execution.protection[1], r->base_s, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                        mm_prot_add_region(&execution.protection[1], r->base_ns, r->size, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                     }
                 } else {
-                    mm_prot_add_region(&prot1, cfg.ram_base_s, cfg.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
-                    mm_prot_add_region(&prot1, cfg.ram_base_ns, cfg.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
+                    mm_prot_add_region(&execution.protection[1], cfg.ram_base_s, cfg.ram_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+                    mm_prot_add_region(&execution.protection[1], cfg.ram_base_ns, cfg.ram_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
                 }
-                mm_prot_add_region(&prot1, 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                mm_prot_add_region(&prot1, 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
-                mm_prot_add_region(&prot1, 0xD0000000u, 0x10000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                mm_prot_add_region(&prot1, 0xD0000000u, 0x10000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[1], 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                mm_prot_add_region(&execution.protection[1], 0x40000000u, 0x20000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                mm_prot_add_region(&execution.protection[1], 0xD0000000u, 0x10000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                mm_prot_add_region(&execution.protection[1], 0xD0000000u, 0x10000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
                 if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                    mm_prot_add_region(&prot1, 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
-                    mm_prot_add_region(&prot1, 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
+                    mm_prot_add_region(&execution.protection[1], 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_SECURE);
+                    mm_prot_add_region(&execution.protection[1], 0x18000000u, 0x04000000u, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE, MM_NONSECURE);
                 }
             }
-            mm_spiflash_register_prot_regions(&prot);
+            mm_spiflash_register_prot_regions(&execution.protection[0]);
 
             mm_nvic_init(&execution.cores[0].nvic);
             if (cfg.core_count > 1u) {
@@ -6490,7 +6488,7 @@ int main(int argc, char **argv)
         {
             enum mm_sec_state boot_sec = force_ns_boot ? MM_NONSECURE : MM_SECURE;
             execution.active_core = 0;
-                g_active_prot_ctx = &prot;
+                g_active_prot_ctx = &execution.protection[0];
                 if (cfg.mc_ops != 0 && cfg.mc_ops->set_active_core != 0) {
                     cfg.mc_ops->set_active_core(0u);
                 }
@@ -6762,7 +6760,7 @@ int main(int argc, char **argv)
                     const mm_u32 core1_epoch_steps = 64u;
                     mm_u32 core1_step;
                     execution.active_core = 1u;
-                    g_active_prot_ctx = &prot1;
+                    g_active_prot_ctx = &execution.protection[1];
                     if (cfg.mc_ops->set_active_core != 0) {
                         cfg.mc_ops->set_active_core(1u);
                     }
@@ -6790,7 +6788,7 @@ int main(int argc, char **argv)
                         }
                     }
                     execution.active_core = 0u;
-                    g_active_prot_ctx = &prot;
+                    g_active_prot_ctx = &execution.protection[0];
                     if (cfg.mc_ops->set_active_core != 0) {
                         cfg.mc_ops->set_active_core(0u);
                     }
