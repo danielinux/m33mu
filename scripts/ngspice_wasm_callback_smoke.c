@@ -102,6 +102,17 @@ int main(void)
         ".end",
         NULL
     };
+    char *mosfet_circuit[] = {
+        "ngspice wasm default-NMOS on-state operating point",
+        "VDD vdd 0 dc 10",
+        "VG gate 0 dc 5",
+        "RD vdd drain 1k",
+        "M1 drain gate 0 0 MDEFAULT",
+        ".model MDEFAULT NMOS (LEVEL=1 VTO=1.5 KP=0.02 L=1u W=1u LAMBDA=0)",
+        ".op",
+        ".end",
+        NULL
+    };
     char out_name[] = "tran1.out";
     char time_name[] = "tran1.time";
     char divider_out_name[] = "v(out)";
@@ -109,6 +120,8 @@ int main(void)
     char diode_current_name[] = "i(v1)";
     char bjt_collector_name[] = "v(collector)";
     char bjt_base_name[] = "v(base)";
+    char mosfet_drain_name[] = "v(drain)";
+    char mosfet_current_name[] = "i(vdd)";
     pvector_info out_vector;
     pvector_info time_vector;
     double *out;
@@ -126,6 +139,10 @@ int main(void)
     double bjt_base_voltage;
     double bjt_collector_error;
     double bjt_base_error;
+    double mosfet_drain_voltage;
+    double mosfet_current;
+    double mosfet_drain_error;
+    double mosfet_current_error;
     int i;
 
     ngSpice_nospinit();
@@ -289,5 +306,34 @@ int main(void)
            bjt_collector_error, bjt_base_error);
     if (ngSpice_Reset() != 0 || ngGet_Vec_Info(bjt_collector_name) != NULL)
         return 28;
+
+    ngSpice_nospinit();
+    ngSpice_nospiceinit();
+    if (ngSpice_Init(no_output, no_output, controlled_exit,
+                     NULL, NULL, NULL, NULL) != 0)
+        return 29;
+    ngSpice_Command("set no_mem_check");
+    if (ngSpice_Circ(mosfet_circuit) != 0 || ngSpice_Command("op") != 0)
+        return 30;
+    out_vector = ngGet_Vec_Info(mosfet_drain_name);
+    if (!out_vector || !out_vector->v_realdata || out_vector->v_length < 1)
+        return 31;
+    mosfet_drain_voltage = out_vector->v_realdata[out_vector->v_length - 1];
+    time_vector = ngGet_Vec_Info(mosfet_current_name);
+    if (!time_vector || !time_vector->v_realdata || time_vector->v_length < 1)
+        return 32;
+    mosfet_current = -time_vector->v_realdata[time_vector->v_length - 1];
+    mosfet_drain_error = fabs(mosfet_drain_voltage - 0.1437557339497803) /
+                         0.1437557339497803;
+    mosfet_current_error = fabs(mosfet_current - 0.00985624426605022) /
+                           0.00985624426605022;
+    if (mosfet_drain_error > 1e-5 || mosfet_current_error > 1e-5)
+        return 33;
+    printf("PASS: default-NMOS on-state drain=%.12g V, Id=%.12g A "
+           "(Perun relative errors %.5g / %.5g)\n",
+           mosfet_drain_voltage, mosfet_current,
+           mosfet_drain_error, mosfet_current_error);
+    if (ngSpice_Reset() != 0 || ngGet_Vec_Info(mosfet_drain_name) != NULL)
+        return 34;
     return 0;
 }

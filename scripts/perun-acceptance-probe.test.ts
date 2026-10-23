@@ -2,7 +2,7 @@
 // run-web-perun-acceptance-probe.sh; Perun source is not imported into m33mu.
 import { writeFileSync } from 'node:fs';
 import { readCircuit } from '@perun/format';
-import { CapacitorElm, DiodeElm, ResistorElm, TransistorElm, VoltageElm } from '../../../packages/elements/src/index.ts';
+import { CapacitorElm, DiodeElm, MosfetElm, ResistorElm, TransistorElm, VoltageElm } from '../../../packages/elements/src/index.ts';
 import { describe, expect, it } from 'vitest';
 
 const resultPath = process.env.M33MU_PERUN_ACCEPTANCE_RESULT!;
@@ -11,6 +11,7 @@ const dividerText = `$ 1 5.0E-6 10 50 5.0 50\nv 96 320 96 96 0 0 40.0 5.0 0.0\nw
 const rcText = `$ 1 1.0E-6 10 50 5.0 50\nv 96 320 96 96 0 0 40.0 1.0 0.0\nr 96 96 256 96 0 1000.0\nc 256 96 256 320 0 1.0E-5 0.0\nw 96 320 256 320 0\ng 96 320 96 352 0\n`;
 const diodeText = `$ 1 5.0E-6 10 50 5.0 50\nv 96 320 96 96 0 0 40.0 5.0 0.0\nd 96 96 256 96 2 default\nr 256 96 256 320 0 1000.0\nw 96 320 256 320 0\ng 96 320 96 352 0\n`;
 const bjtText = `$ 1 5.0E-6 10 50 5.0 50\nR 352 96 352 64 0 0 40.0 12.0 0.0 0.0 0.5\nr 352 96 352 224 0 1000.0\nw 352 96 208 96 0\nr 208 96 208 240 0 220000.0\nw 208 240 304 240 0\nt 304 240 352 240 0 1 0 0 100 default\ng 352 256 352 288 0\n`;
+const mosfetText = `$ 1 5.0E-6 10 50 5.0 50\nR 400 96 400 64 0 0 40.0 10.0 0.0 0.0 0.5\nr 400 96 400 288 0 1000.0\nf 288 304 400 304 0 1.5\ng 400 320 400 352 0\nv 288 400 288 304 0 2 100.0 2.5 2.5 0.0 0.5\ng 288 400 288 432 0\n`;
 
 describe('pinned Perun linear acceptance', () => {
   it('meets the DC divider and 1 us RC analytic criteria', () => {
@@ -95,6 +96,25 @@ describe('pinned Perun linear acceptance', () => {
     expect(bjtCollectorRelativeError).toBeLessThanOrEqual(1e-5);
     expect(bjtBaseRelativeError).toBeLessThanOrEqual(1e-5);
 
+    const mosfetCircuit = readCircuit(mosfetText);
+    expect(mosfetCircuit.warnings).toEqual([]);
+    const mosfet = mosfetCircuit.elements.find((e): e is MosfetElm =>
+      e instanceof MosfetElm)!;
+    const drainLoad = mosfetCircuit.elements.find((e): e is ResistorElm =>
+      e instanceof ResistorElm && e.resistance === 1000)!;
+    expect(mosfet.modelName).toBe('default-nodiode');
+    expect(mosfetCircuit.sim.step(40)).toBe(40);
+    const mosfetDrainV = drainLoad.volts[1]!;
+    const mosfetCurrentA = drainLoad.current;
+    const ngspiceMosfetDrainV = 0.1437557339497803;
+    const ngspiceMosfetCurrentA = 0.00985624426605022;
+    const mosfetDrainRelativeError =
+      Math.abs(mosfetDrainV - ngspiceMosfetDrainV) / ngspiceMosfetDrainV;
+    const mosfetCurrentRelativeError =
+      Math.abs(mosfetCurrentA - ngspiceMosfetCurrentA) / ngspiceMosfetCurrentA;
+    expect(mosfetDrainRelativeError).toBeLessThanOrEqual(1e-5);
+    expect(mosfetCurrentRelativeError).toBeLessThanOrEqual(1e-5);
+
     writeFileSync(resultPath, JSON.stringify({
       perunRevision: '067d1c9c59e27f72f6498ec224f3735d0da6364a',
       divider: { sourceV: 5, upperOhm: 2000, lowerOhm: 3000,
@@ -114,6 +134,13 @@ describe('pinned Perun linear acceptance', () => {
         collectorRelativeError: bjtCollectorRelativeError, perunBaseV: bjtBaseV,
         ngspiceBaseV: ngspiceBjtBaseV, baseRelativeError: bjtBaseRelativeError,
         tolerance: 1e-5 },
+      defaultNmosOn: { supplyV: 10, gateV: 5, loadOhm: 1000,
+        perunModel: mosfet.modelName, thresholdV: mosfet.vt, betaAperV2: mosfet.beta,
+        timestepS: mosfetCircuit.sim.timeStep, sampleTimeS: mosfetCircuit.sim.t,
+        perunDrainV: mosfetDrainV, ngspiceDrainV: ngspiceMosfetDrainV,
+        drainRelativeError: mosfetDrainRelativeError, perunCurrentA: mosfetCurrentA,
+        ngspiceCurrentA: ngspiceMosfetCurrentA,
+        currentRelativeError: mosfetCurrentRelativeError, tolerance: 1e-5 },
     }, null, 2));
   });
 });
