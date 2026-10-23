@@ -631,6 +631,16 @@ if(M33MU_BUILD_TESTS)
     set_tests_properties(wasm_elf_loader_test PROPERTIES
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
+    if(M33MU_EMCMAKE)
+      add_test(NAME wasm_execution_state_test
+        COMMAND "${CMAKE_COMMAND}" -E env
+          "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
+          "M33MU_NODE=${M33MU_NODE}"
+          "${CMAKE_SOURCE_DIR}/scripts/test-web-execution-state.sh")
+      set_tests_properties(wasm_execution_state_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      )
+    endif()
   endif()
 endif()
 

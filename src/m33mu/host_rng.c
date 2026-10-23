@@ -23,7 +23,9 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(__linux__)
 #include <sys/random.h>
+#endif
 
 #include "m33mu/host_rng.h"
 
@@ -37,10 +39,17 @@ static int rng_seeded;
 static mm_u32 draw_host_seed(void)
 {
     mm_u32 v = 0;
+#if defined(__linux__)
     ssize_t n;
+#endif
 
+#if defined(__linux__)
     n = getrandom(&v, sizeof(v), GRND_NONBLOCK);
-    if (n != (ssize_t)sizeof(v) || v == 0u) {
+    if (n != (ssize_t)sizeof(v)) {
+        v = 0u;
+    }
+#endif
+    if (v == 0u) {
         v = (mm_u32)time(0) ^ ((mm_u32)getpid() << 16);
         if (v == 0u) {
             v = 1u;
