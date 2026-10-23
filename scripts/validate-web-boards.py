@@ -98,7 +98,44 @@ def main():
     if not override_contacts:
         return fail("H563 pin mapping must declare at least one contact")
 
-    print("board validation: 15 layouts and " + str(len(override_contacts)) + " H563 mappings valid")
+    enabled_override = {
+        f"{c['connectorId']}-{c['physicalPadNumber']}": c.get("socPad")
+        for c in override_contacts if c.get("electricalEnabled")
+    }
+    public_dir = os.path.join(os.path.dirname(__file__), "..", "web", "public", "boards", "layout")
+    for name in sorted(os.listdir(public_dir)):
+        layout = json.load(open(os.path.join(public_dir, name), encoding="utf-8"))
+        cpu = layout.get("cpu")
+        ids = set()
+        points = []
+        enabled = {}
+        for connector in layout.get("connectors", []):
+            for contact in connector.get("contacts", []):
+                cid = contact.get("contactId", f"{connector.get('id')}-{contact.get('number')}")
+                if cid in ids:
+                    return fail(f"{cpu} public layout repeats contact ID {cid}")
+                ids.add(cid)
+                points.append((contact["x"], contact["y"], cid))
+                if contact.get("electricalEnabled"):
+                    enabled[cid] = contact.get("signal")
+        if cpu == "stm32h563":
+            if enabled != enabled_override:
+                return fail(f"H563 layout enables {enabled} but the reviewed mapping enables {enabled_override}")
+            # Contacts must be at least 0.9 pitch apart so a 0.4-pitch hit
+            # radius in board coordinates is unambiguous at every zoom level.
+            min_gap = 0.9 * 2.54 * layout.get("pixelsPerMm", 0)
+            points.sort()
+            for i, (x, y, cid) in enumerate(points):
+                for x2, y2, cid2 in points[i + 1:]:
+                    if x2 - x >= min_gap:
+                        break
+                    if math.hypot(x2 - x, y2 - y) < min_gap:
+                        return fail(f"H563 contacts {cid} and {cid2} are closer than the hit-test radius allows")
+        elif enabled:
+            return fail(f"{cpu} enables contacts without a reviewed mapping")
+
+    print("board validation: 15 layouts and " + str(len(override_contacts)) + " H563 mappings valid; "
+          "public layouts checked (H563 enabled: " + ", ".join(sorted(enabled_override)) + ")")
     return 0
 
 

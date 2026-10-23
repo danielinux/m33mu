@@ -41,7 +41,7 @@ def main():
     pad = json.loads((ROOT / "web" / "boards" / "nucleo-h563zi-pins.json").read_text(encoding="utf-8"))
     check(pad_schema, pad, True, "H563 pin evidence")
     pad_bad = json.loads(json.dumps(pad))
-    pad_bad["contacts"][0]["electricalEnabled"] = True
+    pad_bad["contacts"][0]["artworkAnchorVerified"] = False
     check(pad_schema, pad_bad, False, "enabled contact without verified artwork anchor")
 
     capability_schema = load_schema("capabilities.schema.json")

@@ -2,1336 +2,2485 @@
   "schemaVersion": 1,
   "cpu": "stm32h563",
   "boardName": "NUCLEO-H563ZI",
+  "boardRevision": "MB1404 H563ZI-C01",
   "boardFamily": "nucleo144",
   "manufacturer": "STMicroelectronics",
   "manufacturerBoardVerified": true,
   "manufacturerSource": "https://www.st.com/en/evaluation-tools/nucleo-h563zi.html",
   "artwork": "../svg/stm32h563.svg",
-  "preview": "../png/stm32h563.png",
   "pixelViewbox": [
     0,
     0,
-    690,
-    950
+    700.0,
+    1333.4
   ],
+  "pixelsPerMm": 10.0,
   "pinLabelArtwork": false,
-  "geometryStatus": "stylized_provisional_not_manufacturing_scale",
-  "electricalMapStatus": "UNVERIFIED_VENDOR_SCHEMATIC_REQUIRED",
+  "geometryStatus": "outline-to-scale; CN7/CN9/CN11/CN12 measured from UM3115 Rev 3 Fig. 6 (+/-0.5 mm); other features illustrative",
+  "electricalMapStatus": "verified for CN7-10 (PA5) and CN9-1 (PA6) only",
+  "warning": "Only CN7 pin 10 (PA5) and CN9 pin 1 (PA6) are electrically enabled. Other contacts are visual locators.",
+  "electricalEnabledByDefault": false,
+  "generator": "scripts/gen-h563-board.py",
   "connectors": [
     {
-      "id": "CN11",
-      "kind": "socket",
-      "rows": 35,
+      "id": "CN7",
+      "kind": "zio-female",
+      "rows": 10,
       "columns": 2,
-      "numbering": "row-major",
+      "description": "ST Zio, 2x10 female",
+      "geometryMeasured": true,
       "contacts": [
         {
           "number": 1,
-          "x": 65,
-          "y": 288,
+          "contactId": "CN7-1",
+          "x": 566.0,
+          "y": 325.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 2,
-          "x": 82,
-          "y": 288,
+          "contactId": "CN7-2",
+          "x": 591.4,
+          "y": 325.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 3,
-          "x": 65,
-          "y": 305,
+          "contactId": "CN7-3",
+          "x": 566.0,
+          "y": 350.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 4,
-          "x": 82,
-          "y": 305,
+          "contactId": "CN7-4",
+          "x": 591.4,
+          "y": 350.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 5,
-          "x": 65,
-          "y": 322,
+          "contactId": "CN7-5",
+          "x": 566.0,
+          "y": 375.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 6,
-          "x": 82,
-          "y": 322,
+          "contactId": "CN7-6",
+          "x": 591.4,
+          "y": 375.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 7,
-          "x": 65,
-          "y": 339,
+          "contactId": "CN7-7",
+          "x": 566.0,
+          "y": 401.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 8,
-          "x": 82,
-          "y": 339,
+          "contactId": "CN7-8",
+          "x": 591.4,
+          "y": 401.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 9,
-          "x": 65,
-          "y": 356,
+          "contactId": "CN7-9",
+          "x": 566.0,
+          "y": 426.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 10,
-          "x": 82,
-          "y": 356,
-          "signal": null,
-          "mapping_verified": false
+          "contactId": "CN7-10",
+          "x": 591.4,
+          "y": 426.7,
+          "signal": "PA5",
+          "mapping_verified": true,
+          "artworkAnchorVerified": true,
+          "electricalEnabled": true
         },
         {
           "number": 11,
-          "x": 65,
-          "y": 373,
+          "contactId": "CN7-11",
+          "x": 566.0,
+          "y": 452.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 12,
-          "x": 82,
-          "y": 373,
+          "contactId": "CN7-12",
+          "x": 591.4,
+          "y": 452.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 13,
-          "x": 65,
-          "y": 390,
+          "contactId": "CN7-13",
+          "x": 566.0,
+          "y": 477.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 14,
-          "x": 82,
-          "y": 390,
+          "contactId": "CN7-14",
+          "x": 591.4,
+          "y": 477.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 15,
-          "x": 65,
-          "y": 407,
+          "contactId": "CN7-15",
+          "x": 566.0,
+          "y": 502.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 16,
-          "x": 82,
-          "y": 407,
+          "contactId": "CN7-16",
+          "x": 591.4,
+          "y": 502.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 17,
-          "x": 65,
-          "y": 424,
+          "contactId": "CN7-17",
+          "x": 566.0,
+          "y": 528.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 18,
-          "x": 82,
-          "y": 424,
+          "contactId": "CN7-18",
+          "x": 591.4,
+          "y": 528.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 19,
-          "x": 65,
-          "y": 441,
+          "contactId": "CN7-19",
+          "x": 566.0,
+          "y": 553.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 20,
-          "x": 82,
-          "y": 441,
+          "contactId": "CN7-20",
+          "x": 591.4,
+          "y": 553.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        }
+      ]
+    },
+    {
+      "id": "CN9",
+      "kind": "zio-female",
+      "rows": 15,
+      "columns": 2,
+      "description": "ST Zio, 2x15 female",
+      "geometryMeasured": true,
+      "contacts": [
+        {
+          "number": 1,
+          "contactId": "CN9-1",
+          "x": 105.7,
+          "y": 646.1,
+          "signal": "PA6",
+          "mapping_verified": true,
+          "artworkAnchorVerified": true,
+          "electricalEnabled": true
+        },
+        {
+          "number": 2,
+          "contactId": "CN9-2",
+          "x": 131.1,
+          "y": 646.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 3,
+          "contactId": "CN9-3",
+          "x": 105.7,
+          "y": 671.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 4,
+          "contactId": "CN9-4",
+          "x": 131.1,
+          "y": 671.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 5,
+          "contactId": "CN9-5",
+          "x": 105.7,
+          "y": 696.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 6,
+          "contactId": "CN9-6",
+          "x": 131.1,
+          "y": 696.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 7,
+          "contactId": "CN9-7",
+          "x": 105.7,
+          "y": 722.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 8,
+          "contactId": "CN9-8",
+          "x": 131.1,
+          "y": 722.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 9,
+          "contactId": "CN9-9",
+          "x": 105.7,
+          "y": 747.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 10,
+          "contactId": "CN9-10",
+          "x": 131.1,
+          "y": 747.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 11,
+          "contactId": "CN9-11",
+          "x": 105.7,
+          "y": 773.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 12,
+          "contactId": "CN9-12",
+          "x": 131.1,
+          "y": 773.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 13,
+          "contactId": "CN9-13",
+          "x": 105.7,
+          "y": 798.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 14,
+          "contactId": "CN9-14",
+          "x": 131.1,
+          "y": 798.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 15,
+          "contactId": "CN9-15",
+          "x": 105.7,
+          "y": 823.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 16,
+          "contactId": "CN9-16",
+          "x": 131.1,
+          "y": 823.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 17,
+          "contactId": "CN9-17",
+          "x": 105.7,
+          "y": 849.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 18,
+          "contactId": "CN9-18",
+          "x": 131.1,
+          "y": 849.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 19,
+          "contactId": "CN9-19",
+          "x": 105.7,
+          "y": 874.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 20,
+          "contactId": "CN9-20",
+          "x": 131.1,
+          "y": 874.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 21,
-          "x": 65,
-          "y": 458,
+          "contactId": "CN9-21",
+          "x": 105.7,
+          "y": 900.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 22,
-          "x": 82,
-          "y": 458,
+          "contactId": "CN9-22",
+          "x": 131.1,
+          "y": 900.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 23,
-          "x": 65,
-          "y": 475,
+          "contactId": "CN9-23",
+          "x": 105.7,
+          "y": 925.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 24,
-          "x": 82,
-          "y": 475,
+          "contactId": "CN9-24",
+          "x": 131.1,
+          "y": 925.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 25,
-          "x": 65,
-          "y": 492,
+          "contactId": "CN9-25",
+          "x": 105.7,
+          "y": 950.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 26,
-          "x": 82,
-          "y": 492,
+          "contactId": "CN9-26",
+          "x": 131.1,
+          "y": 950.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 27,
-          "x": 65,
-          "y": 509,
+          "contactId": "CN9-27",
+          "x": 105.7,
+          "y": 976.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 28,
-          "x": 82,
-          "y": 509,
+          "contactId": "CN9-28",
+          "x": 131.1,
+          "y": 976.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 29,
-          "x": 65,
-          "y": 526,
+          "contactId": "CN9-29",
+          "x": 105.7,
+          "y": 1001.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 30,
-          "x": 82,
-          "y": 526,
+          "contactId": "CN9-30",
+          "x": 131.1,
+          "y": 1001.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        }
+      ]
+    },
+    {
+      "id": "CN8",
+      "kind": "zio-female",
+      "rows": 8,
+      "columns": 2,
+      "description": "ST Zio, 2x8 female (position illustrative)",
+      "geometryMeasured": false,
+      "contacts": [
+        {
+          "number": 1,
+          "contactId": "CN8-1",
+          "x": 105.7,
+          "y": 413.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 2,
+          "contactId": "CN8-2",
+          "x": 131.1,
+          "y": 413.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 3,
+          "contactId": "CN8-3",
+          "x": 105.7,
+          "y": 438.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 4,
+          "contactId": "CN8-4",
+          "x": 131.1,
+          "y": 438.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 5,
+          "contactId": "CN8-5",
+          "x": 105.7,
+          "y": 463.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 6,
+          "contactId": "CN8-6",
+          "x": 131.1,
+          "y": 463.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 7,
+          "contactId": "CN8-7",
+          "x": 105.7,
+          "y": 489.2,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 8,
+          "contactId": "CN8-8",
+          "x": 131.1,
+          "y": 489.2,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 9,
+          "contactId": "CN8-9",
+          "x": 105.7,
+          "y": 514.6,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 10,
+          "contactId": "CN8-10",
+          "x": 131.1,
+          "y": 514.6,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 11,
+          "contactId": "CN8-11",
+          "x": 105.7,
+          "y": 540.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 12,
+          "contactId": "CN8-12",
+          "x": 131.1,
+          "y": 540.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 13,
+          "contactId": "CN8-13",
+          "x": 105.7,
+          "y": 565.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 14,
+          "contactId": "CN8-14",
+          "x": 131.1,
+          "y": 565.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 15,
+          "contactId": "CN8-15",
+          "x": 105.7,
+          "y": 590.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 16,
+          "contactId": "CN8-16",
+          "x": 131.1,
+          "y": 590.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        }
+      ]
+    },
+    {
+      "id": "CN10",
+      "kind": "zio-female",
+      "rows": 17,
+      "columns": 2,
+      "description": "ST Zio, 2x17 female (position illustrative)",
+      "geometryMeasured": false,
+      "contacts": [
+        {
+          "number": 1,
+          "contactId": "CN10-1",
+          "x": 566.0,
+          "y": 610.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 2,
+          "contactId": "CN10-2",
+          "x": 591.4,
+          "y": 610.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 3,
+          "contactId": "CN10-3",
+          "x": 566.0,
+          "y": 635.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 4,
+          "contactId": "CN10-4",
+          "x": 591.4,
+          "y": 635.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 5,
+          "contactId": "CN10-5",
+          "x": 566.0,
+          "y": 660.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 6,
+          "contactId": "CN10-6",
+          "x": 591.4,
+          "y": 660.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 7,
+          "contactId": "CN10-7",
+          "x": 566.0,
+          "y": 686.2,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 8,
+          "contactId": "CN10-8",
+          "x": 591.4,
+          "y": 686.2,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 9,
+          "contactId": "CN10-9",
+          "x": 566.0,
+          "y": 711.6,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 10,
+          "contactId": "CN10-10",
+          "x": 591.4,
+          "y": 711.6,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 11,
+          "contactId": "CN10-11",
+          "x": 566.0,
+          "y": 737.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 12,
+          "contactId": "CN10-12",
+          "x": 591.4,
+          "y": 737.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 13,
+          "contactId": "CN10-13",
+          "x": 566.0,
+          "y": 762.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 14,
+          "contactId": "CN10-14",
+          "x": 591.4,
+          "y": 762.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 15,
+          "contactId": "CN10-15",
+          "x": 566.0,
+          "y": 787.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 16,
+          "contactId": "CN10-16",
+          "x": 591.4,
+          "y": 787.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 17,
+          "contactId": "CN10-17",
+          "x": 566.0,
+          "y": 813.2,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 18,
+          "contactId": "CN10-18",
+          "x": 591.4,
+          "y": 813.2,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 19,
+          "contactId": "CN10-19",
+          "x": 566.0,
+          "y": 838.6,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 20,
+          "contactId": "CN10-20",
+          "x": 591.4,
+          "y": 838.6,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 21,
+          "contactId": "CN10-21",
+          "x": 566.0,
+          "y": 864.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 22,
+          "contactId": "CN10-22",
+          "x": 591.4,
+          "y": 864.0,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 23,
+          "contactId": "CN10-23",
+          "x": 566.0,
+          "y": 889.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 24,
+          "contactId": "CN10-24",
+          "x": 591.4,
+          "y": 889.4,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 25,
+          "contactId": "CN10-25",
+          "x": 566.0,
+          "y": 914.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 26,
+          "contactId": "CN10-26",
+          "x": 591.4,
+          "y": 914.8,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 27,
+          "contactId": "CN10-27",
+          "x": 566.0,
+          "y": 940.2,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 28,
+          "contactId": "CN10-28",
+          "x": 591.4,
+          "y": 940.2,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 29,
+          "contactId": "CN10-29",
+          "x": 566.0,
+          "y": 965.6,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 30,
+          "contactId": "CN10-30",
+          "x": 591.4,
+          "y": 965.6,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 31,
-          "x": 65,
-          "y": 543,
+          "contactId": "CN10-31",
+          "x": 566.0,
+          "y": 991.0,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 32,
-          "x": 82,
-          "y": 543,
+          "contactId": "CN10-32",
+          "x": 591.4,
+          "y": 991.0,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 33,
-          "x": 65,
-          "y": 560,
+          "contactId": "CN10-33",
+          "x": 566.0,
+          "y": 1016.4,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 34,
-          "x": 82,
-          "y": 560,
+          "contactId": "CN10-34",
+          "x": 591.4,
+          "y": 1016.4,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        }
+      ]
+    },
+    {
+      "id": "CN11",
+      "kind": "morpho-male-unpopulated",
+      "rows": 35,
+      "columns": 2,
+      "description": "ST morpho, 2x35, not fitted by default",
+      "geometryMeasured": true,
+      "contacts": [
+        {
+          "number": 1,
+          "contactId": "CN11-1",
+          "x": 31.6,
+          "y": 316.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 2,
+          "contactId": "CN11-2",
+          "x": 57.0,
+          "y": 316.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 3,
+          "contactId": "CN11-3",
+          "x": 31.6,
+          "y": 342.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 4,
+          "contactId": "CN11-4",
+          "x": 57.0,
+          "y": 342.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 5,
+          "contactId": "CN11-5",
+          "x": 31.6,
+          "y": 367.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 6,
+          "contactId": "CN11-6",
+          "x": 57.0,
+          "y": 367.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 7,
+          "contactId": "CN11-7",
+          "x": 31.6,
+          "y": 392.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 8,
+          "contactId": "CN11-8",
+          "x": 57.0,
+          "y": 392.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 9,
+          "contactId": "CN11-9",
+          "x": 31.6,
+          "y": 418.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 10,
+          "contactId": "CN11-10",
+          "x": 57.0,
+          "y": 418.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 11,
+          "contactId": "CN11-11",
+          "x": 31.6,
+          "y": 443.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 12,
+          "contactId": "CN11-12",
+          "x": 57.0,
+          "y": 443.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 13,
+          "contactId": "CN11-13",
+          "x": 31.6,
+          "y": 469.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 14,
+          "contactId": "CN11-14",
+          "x": 57.0,
+          "y": 469.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 15,
+          "contactId": "CN11-15",
+          "x": 31.6,
+          "y": 494.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 16,
+          "contactId": "CN11-16",
+          "x": 57.0,
+          "y": 494.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 17,
+          "contactId": "CN11-17",
+          "x": 31.6,
+          "y": 519.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 18,
+          "contactId": "CN11-18",
+          "x": 57.0,
+          "y": 519.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 19,
+          "contactId": "CN11-19",
+          "x": 31.6,
+          "y": 545.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 20,
+          "contactId": "CN11-20",
+          "x": 57.0,
+          "y": 545.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 21,
+          "contactId": "CN11-21",
+          "x": 31.6,
+          "y": 570.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 22,
+          "contactId": "CN11-22",
+          "x": 57.0,
+          "y": 570.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 23,
+          "contactId": "CN11-23",
+          "x": 31.6,
+          "y": 596.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 24,
+          "contactId": "CN11-24",
+          "x": 57.0,
+          "y": 596.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 25,
+          "contactId": "CN11-25",
+          "x": 31.6,
+          "y": 621.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 26,
+          "contactId": "CN11-26",
+          "x": 57.0,
+          "y": 621.5,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 27,
+          "contactId": "CN11-27",
+          "x": 31.6,
+          "y": 646.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 28,
+          "contactId": "CN11-28",
+          "x": 57.0,
+          "y": 646.9,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 29,
+          "contactId": "CN11-29",
+          "x": 31.6,
+          "y": 672.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 30,
+          "contactId": "CN11-30",
+          "x": 57.0,
+          "y": 672.3,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 31,
+          "contactId": "CN11-31",
+          "x": 31.6,
+          "y": 697.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 32,
+          "contactId": "CN11-32",
+          "x": 57.0,
+          "y": 697.7,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 33,
+          "contactId": "CN11-33",
+          "x": 31.6,
+          "y": 723.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
+        },
+        {
+          "number": 34,
+          "contactId": "CN11-34",
+          "x": 57.0,
+          "y": 723.1,
+          "signal": null,
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 35,
-          "x": 65,
-          "y": 577,
+          "contactId": "CN11-35",
+          "x": 31.6,
+          "y": 748.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 36,
-          "x": 82,
-          "y": 577,
+          "contactId": "CN11-36",
+          "x": 57.0,
+          "y": 748.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 37,
-          "x": 65,
-          "y": 594,
+          "contactId": "CN11-37",
+          "x": 31.6,
+          "y": 773.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 38,
-          "x": 82,
-          "y": 594,
+          "contactId": "CN11-38",
+          "x": 57.0,
+          "y": 773.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 39,
-          "x": 65,
-          "y": 611,
+          "contactId": "CN11-39",
+          "x": 31.6,
+          "y": 799.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 40,
-          "x": 82,
-          "y": 611,
+          "contactId": "CN11-40",
+          "x": 57.0,
+          "y": 799.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 41,
-          "x": 65,
-          "y": 628,
+          "contactId": "CN11-41",
+          "x": 31.6,
+          "y": 824.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 42,
-          "x": 82,
-          "y": 628,
+          "contactId": "CN11-42",
+          "x": 57.0,
+          "y": 824.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 43,
-          "x": 65,
-          "y": 645,
+          "contactId": "CN11-43",
+          "x": 31.6,
+          "y": 850.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 44,
-          "x": 82,
-          "y": 645,
+          "contactId": "CN11-44",
+          "x": 57.0,
+          "y": 850.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 45,
-          "x": 65,
-          "y": 662,
+          "contactId": "CN11-45",
+          "x": 31.6,
+          "y": 875.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 46,
-          "x": 82,
-          "y": 662,
+          "contactId": "CN11-46",
+          "x": 57.0,
+          "y": 875.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 47,
-          "x": 65,
-          "y": 679,
+          "contactId": "CN11-47",
+          "x": 31.6,
+          "y": 900.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 48,
-          "x": 82,
-          "y": 679,
+          "contactId": "CN11-48",
+          "x": 57.0,
+          "y": 900.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 49,
-          "x": 65,
-          "y": 696,
+          "contactId": "CN11-49",
+          "x": 31.6,
+          "y": 926.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 50,
-          "x": 82,
-          "y": 696,
+          "contactId": "CN11-50",
+          "x": 57.0,
+          "y": 926.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 51,
-          "x": 65,
-          "y": 713,
+          "contactId": "CN11-51",
+          "x": 31.6,
+          "y": 951.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 52,
-          "x": 82,
-          "y": 713,
+          "contactId": "CN11-52",
+          "x": 57.0,
+          "y": 951.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 53,
-          "x": 65,
-          "y": 730,
+          "contactId": "CN11-53",
+          "x": 31.6,
+          "y": 977.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 54,
-          "x": 82,
-          "y": 730,
+          "contactId": "CN11-54",
+          "x": 57.0,
+          "y": 977.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 55,
-          "x": 65,
-          "y": 747,
+          "contactId": "CN11-55",
+          "x": 31.6,
+          "y": 1002.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 56,
-          "x": 82,
-          "y": 747,
+          "contactId": "CN11-56",
+          "x": 57.0,
+          "y": 1002.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 57,
-          "x": 65,
-          "y": 764,
+          "contactId": "CN11-57",
+          "x": 31.6,
+          "y": 1027.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 58,
-          "x": 82,
-          "y": 764,
+          "contactId": "CN11-58",
+          "x": 57.0,
+          "y": 1027.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 59,
-          "x": 65,
-          "y": 781,
+          "contactId": "CN11-59",
+          "x": 31.6,
+          "y": 1053.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 60,
-          "x": 82,
-          "y": 781,
+          "contactId": "CN11-60",
+          "x": 57.0,
+          "y": 1053.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 61,
-          "x": 65,
-          "y": 798,
+          "contactId": "CN11-61",
+          "x": 31.6,
+          "y": 1078.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 62,
-          "x": 82,
-          "y": 798,
+          "contactId": "CN11-62",
+          "x": 57.0,
+          "y": 1078.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 63,
-          "x": 65,
-          "y": 815,
+          "contactId": "CN11-63",
+          "x": 31.6,
+          "y": 1104.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 64,
-          "x": 82,
-          "y": 815,
+          "contactId": "CN11-64",
+          "x": 57.0,
+          "y": 1104.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 65,
-          "x": 65,
-          "y": 832,
+          "contactId": "CN11-65",
+          "x": 31.6,
+          "y": 1129.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 66,
-          "x": 82,
-          "y": 832,
+          "contactId": "CN11-66",
+          "x": 57.0,
+          "y": 1129.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 67,
-          "x": 65,
-          "y": 849,
+          "contactId": "CN11-67",
+          "x": 31.6,
+          "y": 1154.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 68,
-          "x": 82,
-          "y": 849,
+          "contactId": "CN11-68",
+          "x": 57.0,
+          "y": 1154.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 69,
-          "x": 65,
-          "y": 866,
+          "contactId": "CN11-69",
+          "x": 31.6,
+          "y": 1180.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 70,
-          "x": 82,
-          "y": 866,
+          "contactId": "CN11-70",
+          "x": 57.0,
+          "y": 1180.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         }
       ]
     },
     {
       "id": "CN12",
-      "kind": "socket",
+      "kind": "morpho-male-unpopulated",
       "rows": 35,
       "columns": 2,
-      "numbering": "row-major",
+      "description": "ST morpho, 2x35, not fitted by default",
+      "geometryMeasured": true,
       "contacts": [
         {
           "number": 1,
-          "x": 586,
-          "y": 288,
+          "contactId": "CN12-1",
+          "x": 642.8,
+          "y": 316.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 2,
-          "x": 603,
-          "y": 288,
+          "contactId": "CN12-2",
+          "x": 668.2,
+          "y": 316.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 3,
-          "x": 586,
-          "y": 305,
+          "contactId": "CN12-3",
+          "x": 642.8,
+          "y": 342.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 4,
-          "x": 603,
-          "y": 305,
+          "contactId": "CN12-4",
+          "x": 668.2,
+          "y": 342.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 5,
-          "x": 586,
-          "y": 322,
+          "contactId": "CN12-5",
+          "x": 642.8,
+          "y": 367.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 6,
-          "x": 603,
-          "y": 322,
+          "contactId": "CN12-6",
+          "x": 668.2,
+          "y": 367.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 7,
-          "x": 586,
-          "y": 339,
+          "contactId": "CN12-7",
+          "x": 642.8,
+          "y": 392.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 8,
-          "x": 603,
-          "y": 339,
+          "contactId": "CN12-8",
+          "x": 668.2,
+          "y": 392.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 9,
-          "x": 586,
-          "y": 356,
+          "contactId": "CN12-9",
+          "x": 642.8,
+          "y": 418.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 10,
-          "x": 603,
-          "y": 356,
+          "contactId": "CN12-10",
+          "x": 668.2,
+          "y": 418.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 11,
-          "x": 586,
-          "y": 373,
-          "signal": null,
-          "mapping_verified": false
+          "contactId": "CN12-11",
+          "x": 642.8,
+          "y": 443.7,
+          "signal": "PA5",
+          "mapping_verified": true,
+          "artworkAnchorVerified": true,
+          "electricalEnabled": false
         },
         {
           "number": 12,
-          "x": 603,
-          "y": 373,
+          "contactId": "CN12-12",
+          "x": 668.2,
+          "y": 443.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 13,
-          "x": 586,
-          "y": 390,
-          "signal": null,
-          "mapping_verified": false
+          "contactId": "CN12-13",
+          "x": 642.8,
+          "y": 469.1,
+          "signal": "PA6",
+          "mapping_verified": true,
+          "artworkAnchorVerified": true,
+          "electricalEnabled": false
         },
         {
           "number": 14,
-          "x": 603,
-          "y": 390,
+          "contactId": "CN12-14",
+          "x": 668.2,
+          "y": 469.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 15,
-          "x": 586,
-          "y": 407,
+          "contactId": "CN12-15",
+          "x": 642.8,
+          "y": 494.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 16,
-          "x": 603,
-          "y": 407,
+          "contactId": "CN12-16",
+          "x": 668.2,
+          "y": 494.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 17,
-          "x": 586,
-          "y": 424,
+          "contactId": "CN12-17",
+          "x": 642.8,
+          "y": 519.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 18,
-          "x": 603,
-          "y": 424,
+          "contactId": "CN12-18",
+          "x": 668.2,
+          "y": 519.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 19,
-          "x": 586,
-          "y": 441,
+          "contactId": "CN12-19",
+          "x": 642.8,
+          "y": 545.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 20,
-          "x": 603,
-          "y": 441,
+          "contactId": "CN12-20",
+          "x": 668.2,
+          "y": 545.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 21,
-          "x": 586,
-          "y": 458,
+          "contactId": "CN12-21",
+          "x": 642.8,
+          "y": 570.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 22,
-          "x": 603,
-          "y": 458,
+          "contactId": "CN12-22",
+          "x": 668.2,
+          "y": 570.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 23,
-          "x": 586,
-          "y": 475,
+          "contactId": "CN12-23",
+          "x": 642.8,
+          "y": 596.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 24,
-          "x": 603,
-          "y": 475,
+          "contactId": "CN12-24",
+          "x": 668.2,
+          "y": 596.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 25,
-          "x": 586,
-          "y": 492,
+          "contactId": "CN12-25",
+          "x": 642.8,
+          "y": 621.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 26,
-          "x": 603,
-          "y": 492,
+          "contactId": "CN12-26",
+          "x": 668.2,
+          "y": 621.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 27,
-          "x": 586,
-          "y": 509,
+          "contactId": "CN12-27",
+          "x": 642.8,
+          "y": 646.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 28,
-          "x": 603,
-          "y": 509,
+          "contactId": "CN12-28",
+          "x": 668.2,
+          "y": 646.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 29,
-          "x": 586,
-          "y": 526,
+          "contactId": "CN12-29",
+          "x": 642.8,
+          "y": 672.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 30,
-          "x": 603,
-          "y": 526,
+          "contactId": "CN12-30",
+          "x": 668.2,
+          "y": 672.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 31,
-          "x": 586,
-          "y": 543,
+          "contactId": "CN12-31",
+          "x": 642.8,
+          "y": 697.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 32,
-          "x": 603,
-          "y": 543,
+          "contactId": "CN12-32",
+          "x": 668.2,
+          "y": 697.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 33,
-          "x": 586,
-          "y": 560,
+          "contactId": "CN12-33",
+          "x": 642.8,
+          "y": 723.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 34,
-          "x": 603,
-          "y": 560,
+          "contactId": "CN12-34",
+          "x": 668.2,
+          "y": 723.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 35,
-          "x": 586,
-          "y": 577,
+          "contactId": "CN12-35",
+          "x": 642.8,
+          "y": 748.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 36,
-          "x": 603,
-          "y": 577,
+          "contactId": "CN12-36",
+          "x": 668.2,
+          "y": 748.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 37,
-          "x": 586,
-          "y": 594,
+          "contactId": "CN12-37",
+          "x": 642.8,
+          "y": 773.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 38,
-          "x": 603,
-          "y": 594,
+          "contactId": "CN12-38",
+          "x": 668.2,
+          "y": 773.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 39,
-          "x": 586,
-          "y": 611,
+          "contactId": "CN12-39",
+          "x": 642.8,
+          "y": 799.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 40,
-          "x": 603,
-          "y": 611,
+          "contactId": "CN12-40",
+          "x": 668.2,
+          "y": 799.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 41,
-          "x": 586,
-          "y": 628,
+          "contactId": "CN12-41",
+          "x": 642.8,
+          "y": 824.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 42,
-          "x": 603,
-          "y": 628,
+          "contactId": "CN12-42",
+          "x": 668.2,
+          "y": 824.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 43,
-          "x": 586,
-          "y": 645,
+          "contactId": "CN12-43",
+          "x": 642.8,
+          "y": 850.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 44,
-          "x": 603,
-          "y": 645,
+          "contactId": "CN12-44",
+          "x": 668.2,
+          "y": 850.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 45,
-          "x": 586,
-          "y": 662,
+          "contactId": "CN12-45",
+          "x": 642.8,
+          "y": 875.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 46,
-          "x": 603,
-          "y": 662,
+          "contactId": "CN12-46",
+          "x": 668.2,
+          "y": 875.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 47,
-          "x": 586,
-          "y": 679,
+          "contactId": "CN12-47",
+          "x": 642.8,
+          "y": 900.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 48,
-          "x": 603,
-          "y": 679,
+          "contactId": "CN12-48",
+          "x": 668.2,
+          "y": 900.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 49,
-          "x": 586,
-          "y": 696,
+          "contactId": "CN12-49",
+          "x": 642.8,
+          "y": 926.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 50,
-          "x": 603,
-          "y": 696,
+          "contactId": "CN12-50",
+          "x": 668.2,
+          "y": 926.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 51,
-          "x": 586,
-          "y": 713,
+          "contactId": "CN12-51",
+          "x": 642.8,
+          "y": 951.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 52,
-          "x": 603,
-          "y": 713,
+          "contactId": "CN12-52",
+          "x": 668.2,
+          "y": 951.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 53,
-          "x": 586,
-          "y": 730,
+          "contactId": "CN12-53",
+          "x": 642.8,
+          "y": 977.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 54,
-          "x": 603,
-          "y": 730,
+          "contactId": "CN12-54",
+          "x": 668.2,
+          "y": 977.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 55,
-          "x": 586,
-          "y": 747,
+          "contactId": "CN12-55",
+          "x": 642.8,
+          "y": 1002.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 56,
-          "x": 603,
-          "y": 747,
+          "contactId": "CN12-56",
+          "x": 668.2,
+          "y": 1002.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 57,
-          "x": 586,
-          "y": 764,
+          "contactId": "CN12-57",
+          "x": 642.8,
+          "y": 1027.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 58,
-          "x": 603,
-          "y": 764,
+          "contactId": "CN12-58",
+          "x": 668.2,
+          "y": 1027.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 59,
-          "x": 586,
-          "y": 781,
+          "contactId": "CN12-59",
+          "x": 642.8,
+          "y": 1053.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 60,
-          "x": 603,
-          "y": 781,
+          "contactId": "CN12-60",
+          "x": 668.2,
+          "y": 1053.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 61,
-          "x": 586,
-          "y": 798,
+          "contactId": "CN12-61",
+          "x": 642.8,
+          "y": 1078.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 62,
-          "x": 603,
-          "y": 798,
+          "contactId": "CN12-62",
+          "x": 668.2,
+          "y": 1078.7,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 63,
-          "x": 586,
-          "y": 815,
+          "contactId": "CN12-63",
+          "x": 642.8,
+          "y": 1104.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 64,
-          "x": 603,
-          "y": 815,
+          "contactId": "CN12-64",
+          "x": 668.2,
+          "y": 1104.1,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 65,
-          "x": 586,
-          "y": 832,
+          "contactId": "CN12-65",
+          "x": 642.8,
+          "y": 1129.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 66,
-          "x": 603,
-          "y": 832,
+          "contactId": "CN12-66",
+          "x": 668.2,
+          "y": 1129.5,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 67,
-          "x": 586,
-          "y": 849,
+          "contactId": "CN12-67",
+          "x": 642.8,
+          "y": 1154.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 68,
-          "x": 603,
-          "y": 849,
+          "contactId": "CN12-68",
+          "x": 668.2,
+          "y": 1154.9,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 69,
-          "x": 586,
-          "y": 866,
+          "contactId": "CN12-69",
+          "x": 642.8,
+          "y": 1180.3,
           "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         },
         {
           "number": 70,
-          "x": 603,
-          "y": 866,
+          "contactId": "CN12-70",
+          "x": 668.2,
+          "y": 1180.3,
           "signal": null,
-          "mapping_verified": false
-        }
-      ]
-    },
-    {
-      "id": "ZIO_D",
-      "kind": "socket",
-      "rows": 12,
-      "columns": 1,
-      "numbering": "row-major",
-      "contacts": [
-        {
-          "number": 1,
-          "x": 189,
-          "y": 330,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 2,
-          "x": 189,
-          "y": 353,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 3,
-          "x": 189,
-          "y": 376,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 4,
-          "x": 189,
-          "y": 399,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 5,
-          "x": 189,
-          "y": 422,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 6,
-          "x": 189,
-          "y": 445,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 7,
-          "x": 189,
-          "y": 468,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 8,
-          "x": 189,
-          "y": 491,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 9,
-          "x": 189,
-          "y": 514,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 10,
-          "x": 189,
-          "y": 537,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 11,
-          "x": 189,
-          "y": 560,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 12,
-          "x": 189,
-          "y": 583,
-          "signal": null,
-          "mapping_verified": false
-        }
-      ]
-    },
-    {
-      "id": "ZIO_A",
-      "kind": "socket",
-      "rows": 11,
-      "columns": 1,
-      "numbering": "row-major",
-      "contacts": [
-        {
-          "number": 1,
-          "x": 496,
-          "y": 340,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 2,
-          "x": 496,
-          "y": 363,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 3,
-          "x": 496,
-          "y": 386,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 4,
-          "x": 496,
-          "y": 409,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 5,
-          "x": 496,
-          "y": 432,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 6,
-          "x": 496,
-          "y": 455,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 7,
-          "x": 496,
-          "y": 478,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 8,
-          "x": 496,
-          "y": 501,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 9,
-          "x": 496,
-          "y": 524,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 10,
-          "x": 496,
-          "y": 547,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 11,
-          "x": 496,
-          "y": 570,
-          "signal": null,
-          "mapping_verified": false
-        }
-      ]
-    },
-    {
-      "id": "ZIO_MISC",
-      "kind": "socket",
-      "rows": 2,
-      "columns": 9,
-      "numbering": "row-major",
-      "contacts": [
-        {
-          "number": 1,
-          "x": 310,
-          "y": 730,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 2,
-          "x": 332,
-          "y": 730,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 3,
-          "x": 354,
-          "y": 730,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 4,
-          "x": 376,
-          "y": 730,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 5,
-          "x": 398,
-          "y": 730,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 6,
-          "x": 420,
-          "y": 730,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 7,
-          "x": 442,
-          "y": 730,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 8,
-          "x": 464,
-          "y": 730,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 9,
-          "x": 486,
-          "y": 730,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 10,
-          "x": 310,
-          "y": 750,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 11,
-          "x": 332,
-          "y": 750,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 12,
-          "x": 354,
-          "y": 750,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 13,
-          "x": 376,
-          "y": 750,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 14,
-          "x": 398,
-          "y": 750,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 15,
-          "x": 420,
-          "y": 750,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 16,
-          "x": 442,
-          "y": 750,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 17,
-          "x": 464,
-          "y": 750,
-          "signal": null,
-          "mapping_verified": false
-        },
-        {
-          "number": 18,
-          "x": 486,
-          "y": 750,
-          "signal": null,
-          "mapping_verified": false
+          "mapping_verified": false,
+          "artworkAnchorVerified": false,
+          "electricalEnabled": false
         }
       ]
     }
-  ],
-  "warning": "Contact coordinates and physical ordering are for visual hit testing. Except Pico 2 do not assume board header numbers match manufacturer numbering. Electrical use must remain disabled until verified from schematics.",
-  "electricalEnabledByDefault": false,
-  "notes": "Graphic silhouettes are original illustrations, not manufacturer CAD or exact top-side facsimiles. Pin labels appear only through UI metadata."
+  ]
 }
