@@ -29,6 +29,9 @@
 #include "stm32h563/stm32h563_spi.h"
 #include "stm32h5_eth.h"
 #include "stm32h563/cpu_config.h"
+#include "stm32n657/stm32n657_mmio.h"
+#include "stm32n657/stm32n657_usart.h"
+#include "stm32n657/cpu_config.h"
 #include "stm32h533/stm32h533_mmio.h"
 #include "stm32h533/stm32h533_timers.h"
 #include "stm32h533/stm32h533_usart.h"
@@ -625,6 +628,47 @@ static const struct mm_cpu_entry cpu_table[] = {
             M2354_TIMER_RESET,
             M2354_TIMER_TICK,
             M2354_TZ_ATTR,
+            0,
+            0,
+            0
+        }
+    },
+    {
+        "stm32n657",
+        {
+            STM32N657_FLASH_BASE_S,
+            STM32N657_FLASH_SIZE,
+            STM32N657_FLASH_BASE_NS,
+            STM32N657_FLASH_SIZE,
+            0,
+            0,
+            STM32N657_RAM_BASE_S,
+            STM32N657_RAM_SIZE,
+            STM32N657_RAM_BASE_NS,
+            STM32N657_RAM_SIZE,
+            1,
+            STM32N657_RAM_REGIONS,
+            STM32N657_RAM_REGION_COUNT,
+            STM32N657_MPCBB_BLOCK_SIZE,
+            mm_stm32n657_mpcbb_block_secure,
+            STM32N657_FLAGS,
+            STM32N657_SOC_RESET,
+            STM32N657_SOC_REGISTER,
+            0,
+            STM32N657_CLOCK_GET_HZ,
+            STM32N657_USART_INIT,
+            STM32N657_USART_RESET,
+            STM32N657_USART_POLL,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            mm_stm32n657_tz_attr_for_addr,
             0,
             0,
             0
