@@ -120,6 +120,7 @@ void mm_execution_exception_record_bus_fault(
 #define UFSR_STKOF (1u << 20)
 #define BFSR_PRECISERR (1u << 9)
 #define BFSR_STKERR (1u << 12)
+#define BFSR_UNSTKERR (1u << 11)
 #define BFSR_BFARVALID (1u << 15)
 #define FP_STACK_BYTES (18u * 4u)
 #define EXC_ADDITIONAL_STATE_BYTES (9u * 4u)
@@ -180,6 +181,15 @@ static void execution_exception_calltrace_interrupt(
 {
     if (ops != 0 && ops->calltrace_interrupt != 0) {
         ops->calltrace_interrupt(ops->opaque, return_pc, irq_number);
+    }
+}
+
+static void execution_exception_calltrace_resume(
+    const struct mm_execution_exception_ops *ops,
+    mm_u32 return_pc)
+{
+    if (ops != 0 && ops->calltrace_resume != 0) {
+        ops->calltrace_resume(ops->opaque, return_pc);
     }
 }
 
@@ -505,5 +515,373 @@ mm_bool mm_execution_exception_enter(struct mm_cpu *cpu,
     cpu->r[15] = handler | 1u;
     cpu->sleeping = MM_FALSE;
     cpu->event_reg = MM_FALSE;
+    return MM_TRUE;
+}
+mm_bool mm_execution_exception_unstack(struct mm_cpu *cpu,
+                                         struct mm_memmap *map,
+                                         struct mm_scs *scs,
+                                         mm_u32 exc_ret,
+                                         const struct mm_execution_exception_ops *ops)
+{
+    struct mm_exc_return_info info;
+    mm_bool frame_psp = MM_FALSE;
+    mm_u32 sp;
+    mm_u32 frame[8];
+    mm_u32 msp_s_val;
+    mm_u32 msp_ns_val;
+    mm_u32 psp_s_val;
+    mm_u32 psp_ns_val;
+    mm_u32 control_s_val;
+    mm_u32 control_ns_val;
+    mm_u16 exc_num = 0u;
+    mm_u32 basic_sp;
+    mm_u32 fp_sp;
+    mm_u32 callee_sp;
+    mm_u32 fp_reserved;
+    int i;
+    enum mm_sec_state handler_sec;
+
+    if (cpu == 0 || map == 0 || scs == 0) return MM_FALSE;
+    info = mm_exc_return_decode(exc_ret);
+    if (!info.valid) {
+        if (execution_exception_stack_trace_enabled(ops)) {
+            execution_exception_trace_printf(ops, "[EXC_UNSTACK] invalid exc_return=0x%08lx\n", (unsigned long)exc_ret);
+        }
+        return MM_FALSE;
+    }
+    if (svc_execution_exception_stack_trace_enabled(ops) && (cpu->xpsr & 0x1ffu) == MM_VECT_SVCALL) {
+        execution_exception_dump_cpu(ops, cpu, "SVC_RETURN_PRE");
+        execution_exception_dump_stack(ops, cpu, "SVC_RETURN_PRE");
+    }
+    if (execution_exception_stack_trace_enabled(ops)) {
+        execution_exception_dump_cpu(ops, cpu, "EXC_UNSTACK_PRE");
+        execution_exception_dump_stack(ops, cpu, "EXC_UNSTACK_PRE");
+    }
+
+    if (execution_exception_stack_trace_enabled(ops)) {
+        execution_exception_trace_printf(ops, "[EXC_UNSTACK] exc_ret=0x%08lx target_sec=%d to_thread=%d use_psp=%d mode=%d cur_sec=%d msp_s=0x%08lx msp_ns=0x%08lx psp_s=0x%08lx psp_ns=0x%08lx ctrl_s=0x%08lx ctrl_ns=0x%08lx\n",
+               (unsigned long)exc_ret,
+               (int)info.target_sec,
+               (int)info.to_thread,
+               (int)info.use_psp,
+               (int)cpu->mode,
+               (int)cpu->sec_state,
+               (unsigned long)cpu->msp_s,
+               (unsigned long)cpu->msp_ns,
+               (unsigned long)cpu->psp_s,
+               (unsigned long)cpu->psp_ns,
+               (unsigned long)cpu->control_s,
+               (unsigned long)cpu->control_ns);
+    }
+
+
+    /* Unstack from live PSP on Thread+PSP returns (OS may switch PSP).
+     * For Thread+MSP returns, prefer recorded MSP for this exception level. */
+    if (execution_exception_stack_trace_enabled(ops) ||
+        (svc_execution_exception_stack_trace_enabled(ops) && (cpu->xpsr & 0x1ffu) == MM_VECT_SVCALL)) {
+        execution_exception_trace_printf(ops, "[EXC_STACK_POP] exc_ret=0x%08lx depth_before=%u\n",
+               (unsigned long)exc_ret,
+               (unsigned)cpu->exc_depth);
+        execution_exception_dump_stack(ops, cpu, "EXC_STACK_POP_PRE");
+    }
+    if (cpu->exc_depth > 0) {
+        cpu->exc_depth--;
+    }
+    if (cpu->exc_depth < MM_EXC_STACK_MAX) {
+        exc_num = cpu->exc_num[cpu->exc_depth];
+    }
+    if (exc_num >= 16u) {
+        struct mm_nvic *nvic = ops != 0 ? ops->nvic : 0;
+        if (nvic != 0) {
+            mm_nvic_set_active(nvic, (mm_u32)(exc_num - 16u), MM_FALSE);
+        }
+    }
+    mm_scs_exception_clear_active(scs, cpu->sec_state, exc_num);
+    if (execution_exception_stack_trace_enabled(ops) ||
+        (svc_execution_exception_stack_trace_enabled(ops) && (cpu->xpsr & 0x1ffu) == MM_VECT_SVCALL)) {
+        execution_exception_trace_printf(ops, "[EXC_STACK_POP] exc_ret=0x%08lx depth_after=%u\n",
+               (unsigned long)exc_ret,
+               (unsigned)cpu->exc_depth);
+        execution_exception_dump_stack(ops, cpu, "EXC_STACK_POP_POST");
+    }
+    /* EXC_RETURN.SPSEL captures the PREEMPTED domain's CONTROL.SPSEL at
+     * entry, so bit2 always names the stack holding the frame — for
+     * same-domain and cross-domain returns alike. Never consult the live
+     * CONTROL here: a nested same-domain exception entry (e.g. a Secure
+     * SysTick taken while Non-secure code runs above a parked Secure
+     * thread) legitimately rewrites it between stacking and unstacking. */
+    frame_psp = info.to_thread && info.use_psp;
+    if (frame_psp) {
+        sp = (info.target_sec == MM_NONSECURE) ? cpu->psp_ns : cpu->psp_s;
+    } else {
+        sp = (info.target_sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s;
+    }
+    if (execution_exception_stack_trace_enabled(ops) || svc_execution_exception_stack_trace_enabled(ops)) {
+        execution_exception_trace_printf(ops, "[EXC_UNSTACK_PRE] exc_ret=0x%08lx use_psp=%d sp_start=0x%08lx msp_ns=0x%08lx psp_ns=0x%08lx\n",
+               (unsigned long)exc_ret,
+               (int)info.use_psp,
+               (unsigned long)sp,
+               (unsigned long)cpu->msp_ns,
+               (unsigned long)cpu->psp_ns);
+    }
+    if (execution_exception_stack_trace_enabled(ops)) {
+        mm_u32 rec_sp = 0;
+        mm_u8 rec_use_psp = 0;
+        mm_u8 rec_sec = 0;
+        if (cpu->exc_depth < MM_EXC_STACK_MAX) {
+            rec_sp = cpu->exc_sp[cpu->exc_depth];
+            rec_use_psp = cpu->exc_use_psp[cpu->exc_depth];
+            rec_sec = cpu->exc_sec[cpu->exc_depth];
+        }
+        execution_exception_trace_printf(ops, "[EXC_UNSTACK] chosen sp=0x%08lx exc_depth=%u rec_sp=0x%08lx rec_use_psp=%u rec_sec=%u\n",
+               (unsigned long)sp,
+               (unsigned)cpu->exc_depth,
+               (unsigned long)rec_sp,
+               (unsigned)rec_use_psp,
+               (unsigned)rec_sec);
+    }
+
+    msp_s_val = cpu->msp_s;
+    msp_ns_val = cpu->msp_ns;
+    psp_s_val = cpu->psp_s;
+    psp_ns_val = cpu->psp_ns;
+    control_s_val = cpu->control_s;
+    control_ns_val = cpu->control_ns;
+    (void)msp_s_val; (void)msp_ns_val; (void)psp_s_val; (void)psp_ns_val;
+    (void)control_s_val; (void)control_ns_val;
+
+    basic_sp = sp;
+    fp_sp = sp + 32u;
+    callee_sp = fp_sp + (info.basic_frame ? 0u : FP_STACK_BYTES);
+    if (!info.basic_frame) {
+        mm_bool fp_saved = MM_TRUE;
+        if (cpu->exc_depth < MM_EXC_STACK_MAX &&
+            cpu->exc_fp_reserved[cpu->exc_depth] &&
+            !cpu->exc_fp_saved[cpu->exc_depth]) {
+            fp_saved = MM_FALSE;
+        }
+        if (fp_saved) {
+            for (i = 0; i < 16; ++i) {
+                if (!mm_memmap_read(map, info.target_sec, fp_sp + (mm_u32)(i * 4u), 4u, &cpu->s[i])) {
+                    mm_execution_exception_record_bus_fault(scs, info.target_sec, fp_sp + (mm_u32)(i * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                    return execution_exception_raise_hard_fault(ops, cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
+                }
+            }
+            if (!mm_memmap_read(map, info.target_sec, fp_sp + (16u * 4u), 4u, &cpu->fpscr)) {
+                mm_execution_exception_record_bus_fault(scs, info.target_sec, fp_sp + (16u * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                return execution_exception_raise_hard_fault(ops, cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
+            }
+            if (!mm_memmap_read(map, info.target_sec, fp_sp + (17u * 4u), 4u, &fp_reserved)) {
+                mm_execution_exception_record_bus_fault(scs, info.target_sec, fp_sp + (17u * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                return execution_exception_raise_hard_fault(ops, cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
+            }
+            (void)fp_reserved;
+            cpu->fp_active = MM_TRUE;
+            if (info.target_sec == MM_NONSECURE) {
+                cpu->control_ns |= (1u << 2);
+            } else {
+                cpu->control_s |= (1u << 2);
+            }
+        }
+        scs->fpcar = fp_sp;
+        scs->fpccr &= ~FPCCR_LSPACT;
+    }
+    if (!info.default_callee_stacking &&
+        cpu->exc_depth < MM_EXC_STACK_MAX &&
+        cpu->exc_cross_domain[cpu->exc_depth]) {
+        for (i = 0; i < 8; ++i) {
+            if (!mm_memmap_read(map, info.target_sec, callee_sp + (mm_u32)(i * 4u), 4u, &cpu->r[4 + i])) {
+                mm_execution_exception_record_bus_fault(scs, info.target_sec, callee_sp + (mm_u32)(i * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                return execution_exception_raise_hard_fault(ops, cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
+            }
+            cpu->exc_callee_saved[cpu->exc_depth][i] = 0u;
+        }
+        cpu->exc_cross_domain[cpu->exc_depth] = MM_FALSE;
+    }
+    for (i = 0; i < 8; ++i) {
+        if (!mm_memmap_read(map, info.target_sec, basic_sp + (mm_u32)(i * 4), 4u, &frame[i])) {
+            mm_execution_exception_record_bus_fault(scs, info.target_sec, basic_sp + (mm_u32)(i * 4), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+            return execution_exception_raise_hard_fault(ops, cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
+        }
+    }
+    if (execution_exception_stack_trace_enabled(ops) || svc_execution_exception_stack_trace_enabled(ops)) {
+        execution_exception_trace_printf(ops, "[EXC_UNSTACK_FRAME] r0=%08lx r1=%08lx r2=%08lx r3=%08lx r12=%08lx lr=%08lx pc=%08lx xpsr=%08lx\n",
+               (unsigned long)frame[0],
+               (unsigned long)frame[1],
+               (unsigned long)frame[2],
+               (unsigned long)frame[3],
+               (unsigned long)frame[4],
+               (unsigned long)frame[5],
+               (unsigned long)frame[6],
+               (unsigned long)frame[7]);
+    }
+    if (svc_execution_exception_stack_trace_enabled(ops) &&
+        info.use_psp &&
+        info.to_thread &&
+        (cpu->xpsr & 0x1ffu) == MM_VECT_SVCALL) {
+        mm_u32 sp_after = sp + 32u;
+        if ((frame[7] & (1u << 9)) != 0u) {
+            sp_after += 4u;
+        }
+        execution_exception_trace_printf(ops, "[SVC_STACK_RETURN] sp=0x%08lx sp_after=0x%08lx r0=0x%08lx r1=0x%08lx r2=0x%08lx r3=0x%08lx r12=0x%08lx lr=0x%08lx pc=0x%08lx xpsr=0x%08lx psp_ns=0x%08lx ctrl_ns=0x%08lx handler_lr=0x%08lx ipsr=%lu msp_ns=0x%08lx\n",
+               (unsigned long)sp,
+               (unsigned long)sp_after,
+               (unsigned long)frame[0],
+               (unsigned long)frame[1],
+               (unsigned long)frame[2],
+               (unsigned long)frame[3],
+               (unsigned long)frame[4],
+               (unsigned long)frame[5],
+               (unsigned long)frame[6],
+               (unsigned long)frame[7],
+               (unsigned long)cpu->psp_ns,
+               (unsigned long)cpu->control_ns,
+               (unsigned long)exc_ret,
+               (unsigned long)(cpu->xpsr & 0x1ffu),
+               (unsigned long)cpu->msp_ns);
+    }
+    {
+        mm_u32 pc_raw = frame[6];
+        mm_bool pc_suspect = MM_FALSE;
+        if (pc_raw == 0u || pc_raw == 0xffffffffu || pc_raw >= 0xF0000000u) {
+            pc_suspect = MM_TRUE;
+        } else if (map->flash.buffer != 0) {
+            if (pc_raw < map->flash.base || pc_raw >= (map->flash.base + map->flash.length)) {
+                pc_suspect = MM_TRUE;
+            }
+        }
+        if (pc_suspect && execution_exception_stack_trace_enabled(ops)) {
+            execution_exception_trace_printf(ops, "[EXC_UNSTACK] sec=%d sp=0x%08lx r0=%08lx r1=%08lx r2=%08lx r3=%08lx r12=%08lx lr=%08lx pc=%08lx xpsr=%08lx\n",
+                   (int)info.target_sec,
+                   (unsigned long)sp,
+                   (unsigned long)frame[0],
+                   (unsigned long)frame[1],
+                   (unsigned long)frame[2],
+                   (unsigned long)frame[3],
+                   (unsigned long)frame[4],
+                   (unsigned long)frame[5],
+                   (unsigned long)frame[6],
+                   (unsigned long)frame[7]);
+        }
+    }
+
+    /* Armv8-M EXC_RETURN unstack, basic frame (DDI0553, Exception return behavior). */
+    cpu->r[0] = frame[0];
+    cpu->r[1] = frame[1];
+    cpu->r[2] = frame[2];
+    cpu->r[3] = frame[3];
+    cpu->r[12] = frame[4];
+    cpu->r[14] = frame[5];
+    cpu->r[15] = frame[6] | 1u;
+    if (info.to_thread) {
+        /* Thread mode must resume with IPSR=0. */
+        cpu->xpsr = frame[7] & ~0x1FFu;
+    } else {
+        /* Handler return keeps stacked IPSR. */
+        cpu->xpsr = frame[7];
+    }
+
+    sp = basic_sp + 32u;
+    if (!info.basic_frame) {
+        sp += FP_STACK_BYTES;
+    }
+    if (!info.default_callee_stacking) {
+        sp += EXC_ADDITIONAL_STATE_BYTES;
+    }
+    if ((frame[7] & (1u << 9)) != 0u) {
+        sp += 4u;
+    }
+    if (frame_psp) {
+        if (info.target_sec == MM_NONSECURE) cpu->psp_ns = sp;
+        else cpu->psp_s = sp;
+    } else {
+        if (info.target_sec == MM_NONSECURE) cpu->msp_ns = sp;
+        else cpu->msp_s = sp;
+    }
+    if (execution_exception_stack_trace_enabled(ops) || svc_execution_exception_stack_trace_enabled(ops)) {
+        execution_exception_trace_printf(ops, "[EXC_UNSTACK_SP] exc_ret=0x%08lx use_psp=%d sp_final=0x%08lx\n",
+               (unsigned long)exc_ret,
+               (int)info.use_psp,
+               (unsigned long)sp);
+    }
+    /*
+     * EXC_RETURN.SPSEL restores CONTROL.SPSEL of the domain being RETURNED
+     * to (Armv8-M exception model: the value captured from the preempted
+     * domain at entry). Same- and cross-domain thread returns behave alike;
+     * handler-mode returns leave CONTROL untouched. Pairs with the
+     * same-domain-only SPSEL clear at entry: together they keep a parked
+     * thread's SPSEL alive across unrelated cross-domain preemptions (the
+     * original defect left CONTROL_NS.SPSEL stuck at 0 after an NS-targeting
+     * exception preempted Secure code, so an NS thread later resumed via
+     * BXNS ran on the wrong stack).
+     */
+    if (info.to_thread) {
+        if (info.return_sec == MM_NONSECURE) {
+            if (info.use_psp) {
+                cpu->control_ns |= 0x2u;
+            } else {
+                cpu->control_ns &= ~0x2u;
+            }
+        } else {
+            if (info.use_psp) {
+                cpu->control_s |= 0x2u;
+            } else {
+                cpu->control_s &= ~0x2u;
+            }
+        }
+    }
+    /* Mirror active SP into R13: handler always MSP; thread uses CONTROL.SPSEL. */
+    if (!info.to_thread) {
+        cpu->r[13] = (info.return_sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s;
+    } else {
+        mm_u32 ctrl = (info.return_sec == MM_NONSECURE) ? cpu->control_ns : cpu->control_s;
+        if ((ctrl & 0x2u) != 0u) {
+            cpu->r[13] = (info.return_sec == MM_NONSECURE) ? cpu->psp_ns : cpu->psp_s;
+        } else {
+            cpu->r[13] = (info.return_sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s;
+        }
+    }
+
+    if (execution_exception_stack_trace_enabled(ops) && cpu->sec_state != info.return_sec) {
+        execution_exception_trace_printf(ops, "[SEC_STATE] exc_return sec=%d->%d to_thread=%d use_psp=%d\n",
+               (int)cpu->sec_state,
+               (int)info.return_sec,
+               (int)info.to_thread,
+               (int)info.use_psp);
+    }
+    handler_sec = cpu->sec_state;
+    cpu->sec_state = info.return_sec;
+    cpu->mode = info.to_thread ? MM_THREAD : MM_HANDLER;
+    mm_scs_set_vectactive(scs, info.return_sec, info.to_thread ? 0u : (cpu->xpsr & 0x1FFu));
+    if (exc_num != MM_VECT_NMI) {
+        if (handler_sec == MM_NONSECURE) cpu->faultmask_ns = 0u;
+        else cpu->faultmask_s = 0u;
+    }
+    if (cpu->exc_depth < MM_EXC_STACK_MAX) {
+        cpu->exc_fp_reserved[cpu->exc_depth] = MM_FALSE;
+        cpu->exc_fp_saved[cpu->exc_depth] = MM_FALSE;
+        cpu->exc_cross_domain[cpu->exc_depth] = MM_FALSE;
+    }
+    if (info.to_thread && exc_num >= 16u) {
+        execution_exception_calltrace_resume(ops, cpu->r[15]);
+    }
+    if (execution_exception_stack_trace_enabled(ops)) {
+        execution_exception_trace_printf(ops, "[EXC_UNSTACK] new pc=0x%08lx sp=0x%08lx r13=0x%08lx mode=%d sec=%d\n",
+               (unsigned long)cpu->r[15],
+               (unsigned long)((info.use_psp)
+                   ? ((info.target_sec == MM_NONSECURE) ? cpu->psp_ns : cpu->psp_s)
+                   : ((info.target_sec == MM_NONSECURE) ? cpu->msp_ns : cpu->msp_s)),
+               (unsigned long)cpu->r[13],
+               (int)cpu->mode,
+               (int)cpu->sec_state);
+    }
+    if (svc_execution_exception_stack_trace_enabled(ops) && (cpu->xpsr & 0x1ffu) == 0u) {
+        execution_exception_dump_cpu(ops, cpu, "SVC_RETURN_POST");
+        execution_exception_dump_stack(ops, cpu, "SVC_RETURN_POST");
+    }
+    if (execution_exception_stack_trace_enabled(ops)) {
+        execution_exception_dump_cpu(ops, cpu, "EXC_UNSTACK_POST");
+        execution_exception_dump_stack(ops, cpu, "EXC_UNSTACK_POST");
+    }
     return MM_TRUE;
 }

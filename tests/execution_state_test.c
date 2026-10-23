@@ -4,6 +4,7 @@
 
 #include "m33mu/execution_state.h"
 #include "m33mu/execution_exception.h"
+#include "m33mu/exc_return.h"
 #include "m33mu/gpio.h"
 #include "m33mu/signal.h"
 #include "m33mu/vector.h"
@@ -40,6 +41,24 @@ static mm_bool test_session_irq_enter(void *opaque,
     }
     cpu->mode = MM_HANDLER;
     return cpu->r[15] != 0u;
+}
+
+static mm_bool test_shared_irq_enter(void *opaque,
+                                     struct mm_cpu *cpu,
+                                     struct mm_memmap *map,
+                                     struct mm_scs *scs,
+                                     mm_u32 exception_number,
+                                     mm_u32 return_pc,
+                                     mm_u32 xpsr,
+                                     enum mm_sec_state handler_sec)
+{
+    struct mm_execution_state *state = (struct mm_execution_state *)opaque;
+    return mm_execution_exception_enter(
+        cpu, map, scs, exception_number, return_pc, xpsr, handler_sec,
+        &(const struct mm_execution_exception_ops){
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            &state->cores[0].nvic
+        });
 }
 
 static mm_bool test_fetch_fault_handler(struct mm_cpu *cpu,
@@ -1013,6 +1032,122 @@ static int test_shared_exception_entry(void)
     return 0;
 }
 
+static int test_shared_exception_unstack(void)
+{
+    struct mm_execution_state state;
+    struct mm_cpu *cpu;
+    struct mm_scs *scs;
+    mm_u32 frame[8] = { 1u, 2u, 3u, 4u, 12u, 0xeeeeeee9u,
+                        0x08001234u, 0x21000000u };
+    mm_u32 sp;
+    mm_execution_state_init(&state);
+    if (!mm_execution_state_select_target(&state, "stm32h563") ||
+        !mm_execution_state_allocate_storage(&state)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_init_memory_map(&state);
+    if (!mm_execution_state_configure_memory(&state)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    cpu = &state.cores[0].cpu;
+    scs = &state.cores[0].scs;
+    mm_scs_init(scs, 0x410fc241u);
+    cpu->sec_state = MM_SECURE;
+    cpu->mode = MM_HANDLER;
+    cpu->msp_s = state.target.ram_base_s + 0x800u;
+    cpu->r[13] = cpu->msp_s;
+    cpu->r[15] = state.target.flash_base_s + 0x501u;
+    cpu->xpsr = 0x0100000bu;
+    cpu->exc_depth = 1u;
+    cpu->exc_num[0] = MM_VECT_SVCALL;
+    sp = state.target.ram_base_s + 0x1000u;
+    for (size_t i = 0; i < 8u; ++i) {
+        if (!mm_memmap_write_ram_raw(&state.map, sp + (mm_u32)(i * 4u),
+                                     4u, frame[i])) {
+            mm_execution_state_destroy(&state);
+            return 1;
+        }
+    }
+    cpu->msp_s = sp;
+    cpu->r[14] = mm_exc_return_encode_ex(MM_SECURE, MM_SECURE,
+                                          MM_FALSE, MM_TRUE,
+                                          MM_TRUE, MM_TRUE);
+    if (!mm_execution_exception_unstack(cpu, &state.map, scs, cpu->r[14], 0) ||
+        cpu->mode != MM_THREAD || cpu->sec_state != MM_SECURE ||
+        cpu->r[0] != 1u || cpu->r[1] != 2u || cpu->r[2] != 3u ||
+        cpu->r[3] != 4u || cpu->r[12] != 12u ||
+        cpu->r[15] != 0x08001235u || cpu->xpsr != 0x21000000u ||
+        cpu->msp_s != sp + 32u || cpu->exc_depth != 0u ||
+        cpu->r[13] != sp + 32u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
+static int test_h563_pending_pendsv_roundtrip(void)
+{
+    struct mm_execution_state state;
+    struct mm_cpu *cpu;
+    struct mm_scs *scs;
+    mm_u32 handler;
+    mm_bool done = MM_FALSE;
+    enum mm_execution_irq_dispatch_result dispatch;
+    mm_execution_state_init(&state);
+    if (!mm_execution_state_select_target(&state, "stm32h563") ||
+        !mm_execution_state_allocate_storage(&state)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_init_memory_map(&state);
+    if (!mm_execution_state_configure_memory(&state)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    cpu = &state.cores[0].cpu;
+    scs = &state.cores[0].scs;
+    mm_scs_init(scs, 0x410fc241u);
+    cpu->sec_state = MM_SECURE;
+    cpu->mode = MM_THREAD;
+    cpu->msp_s = state.target.ram_base_s + 0x1000u;
+    cpu->r[13] = cpu->msp_s;
+    cpu->r[15] = state.target.flash_base_s + 0x101u;
+    cpu->xpsr = 0x21000000u;
+    scs->vtor_s = state.target.ram_base_s;
+    handler = state.target.ram_base_s + 0x301u;
+    if (!mm_memmap_write_ram_raw(&state.map,
+                                 scs->vtor_s + MM_VECT_PENDSV * 4u,
+                                 4u, handler)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    scs->pend_sv = MM_TRUE;
+    dispatch = mm_execution_state_dispatch_pending(
+        &state, 0u, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+        test_shared_irq_enter, &state, &done);
+    if (dispatch != MM_EXECUTION_IRQ_DELIVERED || scs->pend_sv || done ||
+        cpu->mode != MM_HANDLER || cpu->r[15] != handler ||
+        cpu->exc_depth != 1u || cpu->msp_s != state.target.ram_base_s + 0xfe0u ||
+        !mm_execution_exception_unstack(
+            cpu, &state.map, scs, cpu->r[14],
+            &(const struct mm_execution_exception_ops){
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                &state.cores[0].nvic
+            }) ||
+        cpu->mode != MM_THREAD || cpu->sec_state != MM_SECURE ||
+        cpu->r[15] != state.target.flash_base_s + 0x101u ||
+        cpu->xpsr != 0x21000000u || cpu->exc_depth != 0u ||
+        cpu->msp_s != state.target.ram_base_s + 0x1000u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
 int main(void)
 {
     struct mm_execution_state state;
@@ -1023,6 +1158,14 @@ int main(void)
     }
     if (test_shared_exception_entry() != 0) {
         fprintf(stderr, "execution_state_test: shared exception entry failed\n");
+        return 1;
+    }
+    if (test_shared_exception_unstack() != 0) {
+        fprintf(stderr, "execution_state_test: shared exception unstack failed\n");
+        return 1;
+    }
+    if (test_h563_pending_pendsv_roundtrip() != 0) {
+        fprintf(stderr, "execution_state_test: H563 pending PendSV roundtrip failed\n");
         return 1;
     }
     if (test_single_live_session_and_signal_clock() != 0) {

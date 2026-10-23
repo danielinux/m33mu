@@ -249,38 +249,99 @@ static mm_bool web_handle_pc_write(struct mm_cpu *cpu,
     return MM_TRUE;
 }
 
-static mm_bool web_unhandled_exception(struct mm_cpu *cpu,
+static mm_bool web_exception_fault(void *opaque,
+                                   struct mm_cpu *cpu,
+                                   struct mm_memmap *map,
+                                   struct mm_scs *scs,
+                                   mm_u32 fault_pc,
+                                   mm_u32 fault_xpsr)
+{
+    (void)cpu;
+    (void)map;
+    (void)scs;
+    (void)fault_pc;
+    (void)fault_xpsr;
+    ((struct mm_web_session *)opaque)->pending_error = MM_WEB_EXECUTION_FAULT;
+    return MM_FALSE;
+}
+
+static mm_bool web_exception_usage_fault(void *opaque,
+                                         struct mm_cpu *cpu,
+                                         struct mm_memmap *map,
+                                         struct mm_scs *scs,
+                                         mm_u32 fault_pc,
+                                         mm_u32 fault_xpsr,
+                                         mm_u32 ufsr_bits)
+{
+    (void)ufsr_bits;
+    return web_exception_fault(opaque, cpu, map, scs, fault_pc, fault_xpsr);
+}
+
+static mm_bool web_exception_enter(void *opaque,
+                                   struct mm_cpu *cpu,
+                                   struct mm_memmap *map,
+                                   struct mm_scs *scs,
+                                   mm_u32 exc_num,
+                                   mm_u32 return_pc,
+                                   mm_u32 xpsr,
+                                   enum mm_sec_state handler_sec)
+{
+    struct mm_web_session *session = (struct mm_web_session *)opaque;
+    const struct mm_execution_exception_ops ops = {
+        session, web_exception_fault, web_exception_usage_fault,
+        0, 0, 0, 0, 0, 0, 0, &session->execution.cores[0].nvic
+    };
+    return mm_execution_exception_enter(cpu, map, scs, exc_num,
+                                        return_pc, xpsr, handler_sec, &ops);
+}
+
+static mm_bool web_exception_unstack(struct mm_web_session *session,
+                                     struct mm_cpu *cpu,
+                                     struct mm_memmap *map,
+                                     struct mm_scs *scs,
+                                     mm_u32 exc_return)
+{
+    const struct mm_execution_exception_ops ops = {
+        session, web_exception_fault, web_exception_usage_fault,
+        0, 0, 0, 0, 0, 0, 0, &session->execution.cores[0].nvic
+    };
+    return mm_execution_exception_unstack(cpu, map, scs, exc_return, &ops);
+}
+
+static mm_bool web_execution_irq_enter(void *opaque,
+                                       struct mm_cpu *cpu,
                                        struct mm_memmap *map,
                                        struct mm_scs *scs,
                                        mm_u32 exc_num,
                                        mm_u32 return_pc,
-                                       mm_u32 xpsr)
+                                       mm_u32 xpsr,
+                                       enum mm_sec_state handler_sec)
 {
-    (void)cpu;
-    (void)map;
-    (void)scs;
-    (void)exc_num;
-    (void)return_pc;
-    (void)xpsr;
-    if (g_web_active_session != 0) {
-        g_web_active_session->pending_error = MM_WEB_EXECUTION_FAULT;
-    }
-    return MM_FALSE;
+    return web_exception_enter(opaque, cpu, map, scs, exc_num,
+                               return_pc, xpsr, handler_sec);
 }
 
-static mm_bool web_unhandled_exc_return(struct mm_cpu *cpu,
+static mm_bool web_execution_exc_return(struct mm_cpu *cpu,
                                         struct mm_memmap *map,
                                         struct mm_scs *scs,
                                         mm_u32 exc_return)
 {
-    (void)cpu;
-    (void)map;
-    (void)scs;
-    (void)exc_return;
-    if (g_web_active_session != 0) {
-        g_web_active_session->pending_error = MM_WEB_EXECUTION_FAULT;
-    }
-    return MM_FALSE;
+    if (g_web_active_session == 0) return MM_FALSE;
+    return web_exception_unstack(g_web_active_session, cpu, map, scs,
+                                 exc_return);
+}
+
+static mm_bool web_execution_instruction_exception(
+    struct mm_cpu *cpu,
+    struct mm_memmap *map,
+    struct mm_scs *scs,
+    mm_u32 exc_num,
+    mm_u32 return_pc,
+    mm_u32 xpsr)
+{
+    if (g_web_active_session == 0) return MM_FALSE;
+    return web_exception_enter(g_web_active_session, cpu, map, scs,
+                               exc_num, return_pc, xpsr, cpu->sec_state);
 }
 
 static mm_bool web_initialize_target_hardware(
@@ -435,7 +496,8 @@ enum mm_web_error mm_web_step_instructions(
         return MM_WEB_OK;
     }
     state = &session->execution;
-    for (i = 0u; i < instruction_budget && !session->stopped; ++i) {
+    i = 0u;
+    while (i < instruction_budget && !session->stopped) {
         struct mm_execute_ctx context;
         struct mm_fetch_result fetch;
         struct mm_decoded decoded;
@@ -452,6 +514,18 @@ enum mm_web_error mm_web_step_instructions(
             result_out->error = MM_WEB_EXECUTION_FAULT;
             return result_out->error;
         }
+        {
+            enum mm_execution_irq_dispatch_result irq_result =
+                mm_execution_state_dispatch_pending(
+                    state, 0u, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+                    web_execution_irq_enter, session, &done);
+            if (session->pending_error != MM_WEB_OK) {
+                result_out->error = session->pending_error;
+                return result_out->error;
+            }
+            if (irq_result == MM_EXECUTION_IRQ_DELIVERED) continue;
+        }
+        i++;
         memset(&context, 0, sizeof(context));
         context.done = &done;
         /* Stop on BKPT for a deterministic, host-budgeted headless API. */
@@ -459,8 +533,8 @@ enum mm_web_error mm_web_step_instructions(
         context.handle_pc_write = web_handle_pc_write;
         context.raise_mem_fault = web_unhandled_mem_fault;
         context.raise_usage_fault = web_unhandled_usage_fault;
-        context.exc_return_unstack = web_unhandled_exc_return;
-        context.enter_exception = web_unhandled_exception;
+        context.exc_return_unstack = web_execution_exc_return;
+        context.enter_exception = web_execution_instruction_exception;
         outcome = mm_execution_state_step_instruction(
             state, 0u, &context, mm_execution_exception_fpu_access_allowed, web_decode,
             web_unhandled_mem_fault, &fetch, &decoded, &fpu_ok,

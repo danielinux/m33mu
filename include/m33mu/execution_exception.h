@@ -36,6 +36,9 @@ typedef void (*mm_execution_exception_calltrace_fn)(
     void *opaque,
     mm_u32 return_pc,
     mm_u32 irq_number);
+typedef void (*mm_execution_exception_resume_fn)(
+    void *opaque,
+    mm_u32 return_pc);
 
 struct mm_execution_exception_ops {
     void *opaque;
@@ -47,6 +50,8 @@ struct mm_execution_exception_ops {
     mm_execution_exception_dump_fn dump_cpu_regs;
     mm_execution_exception_dump_fn dump_exc_stack_state;
     mm_execution_exception_calltrace_fn calltrace_interrupt;
+    mm_execution_exception_resume_fn calltrace_resume;
+    struct mm_nvic *nvic;
 };
 
 mm_bool mm_execution_exception_fpu_access_allowed(
@@ -80,6 +85,12 @@ mm_bool mm_execution_exception_enter(
     mm_u32 return_pc,
     mm_u32 xpsr_in,
     enum mm_sec_state handler_sec,
+    const struct mm_execution_exception_ops *ops);
+mm_bool mm_execution_exception_unstack(
+    struct mm_cpu *cpu,
+    struct mm_memmap *map,
+    struct mm_scs *scs,
+    mm_u32 exc_return,
     const struct mm_execution_exception_ops *ops);
 
 #endif /* M33MU_EXECUTION_EXCEPTION_H */
