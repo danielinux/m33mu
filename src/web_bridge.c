@@ -40,6 +40,7 @@ struct mm_web_gpio_output_entry {
 struct mm_web_session {
     struct mm_execution_state execution;
     size_t max_image_size;
+    mm_u64 cycle_origin;
     mm_bool loaded;
     mm_bool stopped;
     enum mm_web_error pending_error;
@@ -147,7 +148,9 @@ static mm_bool web_event_time_to_cycle(const struct mm_web_session *session,
     if (whole_cycles > (mm_u64)-1 - fractional_cycles) {
         return MM_FALSE;
     }
-    *cycle_out = whole_cycles + fractional_cycles;
+    whole_cycles += fractional_cycles;
+    if (whole_cycles < session->cycle_origin) return MM_FALSE;
+    *cycle_out = whole_cycles - session->cycle_origin;
     return MM_TRUE;
 }
 
@@ -450,6 +453,7 @@ enum mm_web_error mm_web_load_elf(struct mm_web_session *session,
     }
     session->gpio_event_count = 0u;
     session->gpio_event_sequence = 0u;
+    session->cycle_origin = 0u;
     session->gpio_output_head = 0u;
     session->gpio_output_count = 0u;
     session->gpio_output_overflow = MM_FALSE;
@@ -463,11 +467,33 @@ enum mm_web_error mm_web_load_elf(struct mm_web_session *session,
     return MM_WEB_OK;
 }
 
-enum mm_web_error mm_web_reset(struct mm_web_session *session)
+static enum mm_web_error web_reinitialize(
+    struct mm_web_session *session,
+    mm_bool reset_external_timeline)
 {
+    mm_u64 elapsed_cycles;
+    size_t i;
     if (session == 0) return MM_WEB_INVALID_ARGUMENT;
     if (!session->loaded) return MM_WEB_NOT_BOOTED;
     mm_system_clear_reset();
+    elapsed_cycles = session->execution.clock.virtual_cycles;
+    if (reset_external_timeline) {
+        session->cycle_origin = 0u;
+        session->gpio_event_count = 0u;
+        session->gpio_event_sequence = 0u;
+        (void)mm_execution_state_signal_reset(&session->execution);
+    } else {
+        if (session->cycle_origin > (mm_u64)-1 - elapsed_cycles) {
+            return MM_WEB_INITIALIZATION_FAILED;
+        }
+        session->cycle_origin += elapsed_cycles;
+        for (i = 0u; i < session->gpio_event_count; ++i) {
+            if (session->gpio_events[i].cycle < elapsed_cycles) {
+                return MM_WEB_INITIALIZATION_FAILED;
+            }
+            session->gpio_events[i].cycle -= elapsed_cycles;
+        }
+    }
     mm_execution_state_end_run(&session->execution);
     if (!web_initialize_target_hardware(session)) {
         return MM_WEB_INITIALIZATION_FAILED;
@@ -481,18 +507,22 @@ enum mm_web_error mm_web_reset(struct mm_web_session *session)
                                                MM_SECURE)) {
         return MM_WEB_INITIALIZATION_FAILED;
     }
-    session->gpio_event_count = 0u;
-    session->gpio_event_sequence = 0u;
-    session->gpio_output_head = 0u;
-    session->gpio_output_count = 0u;
-    session->gpio_output_overflow = MM_FALSE;
-    (void)mm_execution_state_signal_reset(&session->execution);
+    if (reset_external_timeline) {
+        session->gpio_output_head = 0u;
+        session->gpio_output_count = 0u;
+        session->gpio_output_overflow = MM_FALSE;
+    }
     (void)mm_execution_state_signal_set_cpu_hz(
         &session->execution,
         mm_target_cpu_hz(&session->execution.target));
     (void)mm_execution_state_signal_prepare_for_run(&session->execution);
     session->stopped = MM_FALSE;
     return MM_WEB_OK;
+}
+
+enum mm_web_error mm_web_reset(struct mm_web_session *session)
+{
+    return web_reinitialize(session, MM_TRUE);
 }
 
 static enum mm_web_error web_execute_budgeted(
@@ -628,7 +658,7 @@ static enum mm_web_error web_execute_budgeted(
         result_out->instructions++;
         if (mm_system_reset_pending()) {
             mm_system_clear_reset();
-            if (mm_web_reset(session) != MM_WEB_OK) {
+            if (web_reinitialize(session, MM_FALSE) != MM_WEB_OK) {
                 result_out->error = MM_WEB_INITIALIZATION_FAILED;
                 return result_out->error;
             }

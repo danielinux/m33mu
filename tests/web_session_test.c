@@ -407,27 +407,45 @@ int main(void)
     mm_web_destroy(session);
     {
         mm_u8 reset_image[116];
+        struct input_capture reset_capture;
+        memset(&reset_capture, 0, sizeof(reset_capture));
         (void)make_h563_sysreset_elf(reset_image);
         config.max_image_size = sizeof(reset_image);
         session = mm_web_create(&config, &error);
+        reset_capture.session = session;
+        mm_gpio_set_external_input_writer(capture_gpio_input, &reset_capture);
         if (session == 0 || error != MM_WEB_OK ||
             mm_web_load_elf(session, reset_image, sizeof(reset_image)) != MM_WEB_OK ||
+            mm_web_schedule_gpio_input(session, "PA5", MM_TRUE, 63u) != MM_WEB_OK ||
             mm_web_step_instructions(session, 8u, &step) != MM_WEB_OK ||
             step.instructions != 3u || !step.system_reset || step.stopped ||
             mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
-            cpu.r[15] != 0x0c000009u || cpu.virtual_cycles != 0u) {
+            cpu.r[15] != 0x0c000009u || cpu.virtual_cycles != 0u ||
+            cpu.virtual_time_ns == 0u) {
+            mm_gpio_set_external_input_writer(0, 0);
             mm_web_destroy(session);
-            fprintf(stderr, "web_session_test: SYSRESETREQ did not restart the session\n");
+            fprintf(stderr, "web_session_test: SYSRESETREQ did not restart the session (pc=%08x cycles=%llu time=%llu queue=%u)\n",
+                    cpu.r[15], (unsigned long long)cpu.virtual_cycles,
+                    (unsigned long long)cpu.virtual_time_ns,
+                    (unsigned)reset_capture.count);
             return 1;
         }
-        if (mm_web_step_instructions(session, 1u, &step) != MM_WEB_OK ||
+        mm_gpio_set_external_input_writer(capture_gpio_input, &reset_capture);
+        if (mm_web_step_instructions(session, 2u, &step) != MM_WEB_OK ||
             step.system_reset ||
             mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
-            cpu.r[0] != 0xe000ed0cu) {
+            cpu.r[0] != 0xe000ed0cu || reset_capture.count != 1u ||
+            reset_capture.levels[0] != 1u || reset_capture.cycles[0] != 2u) {
+            mm_gpio_set_external_input_writer(0, 0);
             mm_web_destroy(session);
-            fprintf(stderr, "web_session_test: execution did not resume at reset vector\n");
+            fprintf(stderr, "web_session_test: reset lost timeline, GPIO event, or reset-vector execution (r0=%08x count=%u level=%u cycle=%llu time=%llu)\n",
+                    cpu.r[0], (unsigned)reset_capture.count,
+                    (unsigned)reset_capture.levels[0],
+                    (unsigned long long)reset_capture.cycles[0],
+                    (unsigned long long)cpu.virtual_time_ns);
             return 1;
         }
+        mm_gpio_set_external_input_writer(0, 0);
         mm_web_destroy(session);
     }
     puts("web_session_test: ok");
