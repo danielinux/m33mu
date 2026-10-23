@@ -27,6 +27,7 @@ struct mm_web_gpio_event {
     int bank;
     int pin;
     mm_bool level;
+    mm_u64 time_ns;
     mm_u64 cycle;
     mm_u64 sequence;
 };
@@ -41,7 +42,9 @@ struct mm_web_gpio_output_entry {
 struct mm_web_session {
     struct mm_execution_state execution;
     size_t max_image_size;
-    mm_u64 cycle_origin;
+    mm_u64 clock_epoch_cycle;
+    mm_u64 clock_epoch_ns;
+    mm_u64 clock_hz;
     mm_bool loaded;
     mm_bool stopped;
     enum mm_web_error pending_error;
@@ -125,23 +128,27 @@ static mm_bool web_event_time_to_cycle(const struct mm_web_session *session,
                                        mm_u64 event_time_ns,
                                        mm_u64 *cycle_out)
 {
-    mm_u64 hz;
+    mm_u64 delta_ns;
     mm_u64 seconds;
     mm_u64 remainder;
     mm_u64 fractional_numerator;
     mm_u64 whole_cycles;
     mm_u64 fractional_cycles;
     if (session == 0 || cycle_out == 0) return MM_FALSE;
-    hz = mm_target_cpu_hz(&session->execution.target);
-    if (hz == 0u) return MM_FALSE;
-    seconds = event_time_ns / MM_WEB_NSEC_PER_SEC;
-    remainder = event_time_ns % MM_WEB_NSEC_PER_SEC;
-    if (seconds > (mm_u64)-1 / hz ||
-        remainder > (mm_u64)-1 / hz) {
+    if (session->clock_hz == 0u) return MM_FALSE;
+    if (event_time_ns <= session->clock_epoch_ns) {
+        *cycle_out = session->clock_epoch_cycle;
+        return MM_TRUE;
+    }
+    delta_ns = event_time_ns - session->clock_epoch_ns;
+    seconds = delta_ns / MM_WEB_NSEC_PER_SEC;
+    remainder = delta_ns % MM_WEB_NSEC_PER_SEC;
+    if (seconds > (mm_u64)-1 / session->clock_hz ||
+        remainder > (mm_u64)-1 / session->clock_hz) {
         return MM_FALSE;
     }
-    whole_cycles = seconds * hz;
-    fractional_numerator = remainder * hz;
+    whole_cycles = seconds * session->clock_hz;
+    fractional_numerator = remainder * session->clock_hz;
     fractional_cycles = fractional_numerator / MM_WEB_NSEC_PER_SEC;
     if ((fractional_numerator % MM_WEB_NSEC_PER_SEC) != 0u) {
         fractional_cycles++;
@@ -150,9 +157,38 @@ static mm_bool web_event_time_to_cycle(const struct mm_web_session *session,
         return MM_FALSE;
     }
     whole_cycles += fractional_cycles;
-    if (whole_cycles < session->cycle_origin) return MM_FALSE;
-    *cycle_out = whole_cycles - session->cycle_origin;
+    if (whole_cycles > (mm_u64)-1 - session->clock_epoch_cycle)
+        return MM_FALSE;
+    *cycle_out = session->clock_epoch_cycle + whole_cycles;
     return MM_TRUE;
+}
+
+static mm_bool web_set_clock_rate(struct mm_web_session *session,
+                                  mm_u64 hz)
+{
+    size_t i;
+    if (hz == 0u) return MM_FALSE;
+    session->clock_epoch_ns =
+        mm_execution_state_signal_now_ns(&session->execution);
+    session->clock_epoch_cycle = session->execution.clock.virtual_cycles;
+    session->clock_hz = hz;
+    if (!mm_execution_state_signal_set_cpu_hz(&session->execution, hz))
+        return MM_FALSE;
+    for (i = 0u; i < session->gpio_event_count; ++i) {
+        if (!web_event_time_to_cycle(session,
+                                     session->gpio_events[i].time_ns,
+                                     &session->gpio_events[i].cycle)) {
+            return MM_FALSE;
+        }
+    }
+    return MM_TRUE;
+}
+
+static mm_bool web_sync_clock_rate(struct mm_web_session *session)
+{
+    mm_u64 hz = mm_target_cpu_hz(&session->execution.target);
+    return hz != 0u && (hz == session->clock_hz ||
+                        web_set_clock_rate(session, hz));
 }
 
 static mm_bool web_apply_due_gpio_events(struct mm_web_session *session)
@@ -518,14 +554,14 @@ enum mm_web_error mm_web_load_elf(struct mm_web_session *session,
     }
     session->gpio_event_count = 0u;
     session->gpio_event_sequence = 0u;
-    session->cycle_origin = 0u;
     session->gpio_output_head = 0u;
     session->gpio_output_count = 0u;
     session->gpio_output_overflow = MM_FALSE;
     (void)mm_execution_state_signal_reset(&session->execution);
-    (void)mm_execution_state_signal_set_cpu_hz(
-        &session->execution,
-        mm_target_cpu_hz(&session->execution.target));
+    if (!web_set_clock_rate(session,
+                            mm_target_cpu_hz(&session->execution.target))) {
+        return MM_WEB_INITIALIZATION_FAILED;
+    }
     (void)mm_execution_state_signal_prepare_for_run(&session->execution);
     session->loaded = MM_TRUE;
     session->stopped = MM_FALSE;
@@ -536,28 +572,13 @@ static enum mm_web_error web_reinitialize(
     struct mm_web_session *session,
     mm_bool reset_external_timeline)
 {
-    mm_u64 elapsed_cycles;
-    size_t i;
     if (session == 0) return MM_WEB_INVALID_ARGUMENT;
     if (!session->loaded) return MM_WEB_NOT_BOOTED;
     mm_system_clear_reset();
-    elapsed_cycles = session->execution.clock.virtual_cycles;
     if (reset_external_timeline) {
-        session->cycle_origin = 0u;
         session->gpio_event_count = 0u;
         session->gpio_event_sequence = 0u;
         (void)mm_execution_state_signal_reset(&session->execution);
-    } else {
-        if (session->cycle_origin > (mm_u64)-1 - elapsed_cycles) {
-            return MM_WEB_INITIALIZATION_FAILED;
-        }
-        session->cycle_origin += elapsed_cycles;
-        for (i = 0u; i < session->gpio_event_count; ++i) {
-            if (session->gpio_events[i].cycle < elapsed_cycles) {
-                return MM_WEB_INITIALIZATION_FAILED;
-            }
-            session->gpio_events[i].cycle -= elapsed_cycles;
-        }
     }
     mm_execution_state_end_run(&session->execution);
     if (!web_initialize_target_hardware(session)) {
@@ -577,9 +598,10 @@ static enum mm_web_error web_reinitialize(
         session->gpio_output_count = 0u;
         session->gpio_output_overflow = MM_FALSE;
     }
-    (void)mm_execution_state_signal_set_cpu_hz(
-        &session->execution,
-        mm_target_cpu_hz(&session->execution.target));
+    if (!web_set_clock_rate(session,
+                            mm_target_cpu_hz(&session->execution.target))) {
+        return MM_WEB_INITIALIZATION_FAILED;
+    }
     (void)mm_execution_state_signal_prepare_for_run(&session->execution);
     session->stopped = MM_FALSE;
     return MM_WEB_OK;
@@ -622,6 +644,10 @@ static enum mm_web_error web_execute_budgeted(
         mm_bool fpu_ok = MM_FALSE;
         mm_bool done = MM_FALSE;
         session->pending_error = MM_WEB_OK;
+        if (!web_sync_clock_rate(session)) {
+            result_out->error = MM_WEB_INITIALIZATION_FAILED;
+            return result_out->error;
+        }
         if (state->cores[0].cpu.sleeping) {
             mm_u64 external_deadline = 0u;
             mm_u64 poll_remaining;
@@ -652,6 +678,10 @@ static enum mm_web_error web_execute_budgeted(
             work++;
             (void)mm_execution_state_poll_target_devices_if_due(
                 state, MM_WEB_TARGET_POLL_CYCLES);
+            if (!web_sync_clock_rate(session)) {
+                result_out->error = MM_WEB_INITIALIZATION_FAILED;
+                return result_out->error;
+            }
             if (!web_apply_due_gpio_events(session)) {
                 result_out->error = MM_WEB_EXECUTION_FAULT;
                 return result_out->error;
@@ -696,8 +726,16 @@ static enum mm_web_error web_execute_budgeted(
             state, 0u, &context, mm_execution_exception_fpu_access_allowed, web_decode,
             web_raise_mem_fault, &fetch, &decoded, &fpu_ok,
             &exec_status);
+        if (!web_sync_clock_rate(session)) {
+            result_out->error = MM_WEB_INITIALIZATION_FAILED;
+            return result_out->error;
+        }
         (void)mm_execution_state_poll_target_devices_if_due(
             state, MM_WEB_TARGET_POLL_CYCLES);
+        if (!web_apply_due_gpio_events(session)) {
+            result_out->error = MM_WEB_EXECUTION_FAULT;
+            return result_out->error;
+        }
         if (session->pending_error != MM_WEB_OK) {
             result_out->error = session->pending_error;
             return result_out->error;
@@ -789,6 +827,7 @@ enum mm_web_error mm_web_set_gpio_input(
     mm_bool level)
 {
     if (session == 0) return MM_WEB_INVALID_ARGUMENT;
+    if (!web_sync_clock_rate(session)) return MM_WEB_INITIALIZATION_FAILED;
     return mm_web_schedule_gpio_input(
         session, soc_pad, level,
         mm_execution_state_signal_now_ns(&session->execution));
@@ -814,6 +853,7 @@ enum mm_web_error mm_web_schedule_gpio_input(
     if (!web_parse_pad(soc_pad, &bank, &pin)) {
         return MM_WEB_INVALID_ARGUMENT;
     }
+    if (!web_sync_clock_rate(session)) return MM_WEB_INITIALIZATION_FAILED;
     current_time_ns = mm_execution_state_signal_now_ns(&session->execution);
     if (event_time_ns < current_time_ns) return MM_WEB_EVENT_IN_PAST;
     if (!web_event_time_to_cycle(session, event_time_ns, &event_cycle)) {
@@ -831,8 +871,8 @@ enum mm_web_error mm_web_schedule_gpio_input(
     }
     insert_at = session->gpio_event_count;
     while (insert_at > 0u &&
-           (session->gpio_events[insert_at - 1u].cycle > event_cycle ||
-            (session->gpio_events[insert_at - 1u].cycle == event_cycle &&
+           (session->gpio_events[insert_at - 1u].time_ns > event_time_ns ||
+            (session->gpio_events[insert_at - 1u].time_ns == event_time_ns &&
              session->gpio_events[insert_at - 1u].sequence >
                 session->gpio_event_sequence))) {
         session->gpio_events[insert_at] =
@@ -842,6 +882,7 @@ enum mm_web_error mm_web_schedule_gpio_input(
     session->gpio_events[insert_at].bank = bank;
     session->gpio_events[insert_at].pin = pin;
     session->gpio_events[insert_at].level = level;
+    session->gpio_events[insert_at].time_ns = event_time_ns;
     session->gpio_events[insert_at].cycle = event_cycle;
     session->gpio_events[insert_at].sequence = session->gpio_event_sequence++;
     session->gpio_event_count++;

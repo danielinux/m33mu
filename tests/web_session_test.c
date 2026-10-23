@@ -187,6 +187,16 @@ static size_t make_h563_sysreset_elf(mm_u8 image[116])
     return 116u;
 }
 
+static size_t make_h563_clock_change_elf(mm_u8 image[116])
+{
+    (void)make_h563_sysreset_elf(image);
+    put_le16(image + 98u, 0xe7feu); /* b . after RCC write */
+    put_le16(image + 100u, 0xe7feu);
+    put_le32(image + 104u, 0x54020c20u); /* RCC_CFGR2, Secure alias */
+    put_le32(image + 108u, 8u); /* HPRE /2: 64 MHz -> 32 MHz */
+    return 116u;
+}
+
 static size_t make_h563_pendsv_elf(mm_u8 image[172])
 {
     const mm_u32 flash_base = 0x0c000000u;
@@ -579,6 +589,41 @@ int main(void)
                     (unsigned)reset_capture.levels[0],
                     (unsigned long long)reset_capture.cycles[0],
                     (unsigned long long)cpu.virtual_time_ns);
+            return 1;
+        }
+        mm_gpio_set_external_input_writer(0, 0);
+        mm_web_destroy(session);
+    }
+    {
+        mm_u8 clock_image[116];
+        struct input_capture clock_capture;
+        memset(&clock_capture, 0, sizeof(clock_capture));
+        (void)make_h563_clock_change_elf(clock_image);
+        config.max_image_size = sizeof(clock_image);
+        session = mm_web_create(&config, &error);
+        clock_capture.session = session;
+        if (session == 0 || error != MM_WEB_OK ||
+            mm_web_load_elf(session, clock_image, sizeof(clock_image)) != MM_WEB_OK) {
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: clock-change firmware did not load\n");
+            return 1;
+        }
+        mm_gpio_set_external_input_writer(capture_gpio_input, &clock_capture);
+        if (mm_web_schedule_gpio_input(session, "PA5", MM_TRUE, 125u) != MM_WEB_OK ||
+            mm_web_step_instructions(session, 8u, &step) != MM_WEB_OK ||
+            mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+            cpu.cpu_hz != 32000000u || clock_capture.count != 1u ||
+            clock_capture.cycles[0] != 6u ||
+            cpu.virtual_time_ns < 200u || cpu.virtual_time_ns > 203u) {
+            mm_gpio_set_external_input_writer(0, 0);
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: clock change lost GPIO virtual-time deadline (hz=%llu count=%u event_cycle=%llu cpu_cycle=%llu time=%llu step_error=%u)\n",
+                    (unsigned long long)cpu.cpu_hz,
+                    (unsigned)clock_capture.count,
+                    (unsigned long long)clock_capture.cycles[0],
+                    (unsigned long long)cpu.virtual_cycles,
+                    (unsigned long long)cpu.virtual_time_ns,
+                    (unsigned)step.error);
             return 1;
         }
         mm_gpio_set_external_input_writer(0, 0);

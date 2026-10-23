@@ -100,7 +100,8 @@ enum mm_web_error mm_web_set_gpio_input(
     const char *soc_pad,
     mm_bool level);
 /* Schedule a digital input transition in virtual nanoseconds. Due transitions
- * are applied before instruction fetch. The queue holds 64 pending events. */
+ * apply at the first CPU cycle at or after the timestamp, including across
+ * firmware CPU-clock changes and system reset. The queue holds 64 events. */
 enum mm_web_error mm_web_schedule_gpio_input(
     struct mm_web_session *session,
     const char *soc_pad,
