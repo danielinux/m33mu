@@ -20,7 +20,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 ## In progress / next
 
 - [x] Build an explicit Emscripten source target without Linux network, terminal, debugger socket and optional native plugins. Initial broad-build probe failed at `eth_backend.c` on `linux/if.h`; the dedicated static-core target now builds.
-- [ ] Extract the production firmware execution path into a one-session API; do not use `src/runloop.c` as a substitute. Shared in-memory ELF32/ARM loading and cycle/peripheral time advancement are implemented and build with Emscripten, but execution state, scheduling, interrupt handling and lifecycle remain in `main.c`.
+- [ ] Extract the production firmware execution path into a one-session API; do not use `src/runloop.c` as a substitute. Shared in-memory ELF32/ARM loading, owned flash/RAM backing storage, cycle/peripheral time advancement and interrupt decision/dispatch helpers are implemented and build with Emscripten; full session state, scheduler, exception entry/unstack and lifecycle remain in `main.c` or process-global modules.
 - [x] Run the new in-memory ELF loader tests as a Node-hosted WASM module using `scripts/test-web-elf-loader.sh`; all loader fixtures pass.
 - [x] Register the Node-hosted WASM loader smoke in CTest when both Emscripten and Node are found; focused CTest passes.
 - [x] Add a generated minimal H563 ELF CLI integration fixture that boots from its vector table and reaches the expected BKPT through the shared parser.
