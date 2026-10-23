@@ -137,6 +137,57 @@ static int test_session_it_state(void)
     return 0;
 }
 
+static int test_session_sleep_wake(void)
+{
+    struct mm_execution_state state;
+    struct mm_cpu *cpu;
+    struct mm_nvic *nvic;
+    mm_execution_state_init(&state);
+    mm_scs_init(&state.cores[0].scs, 0x410fc241u);
+    mm_nvic_init(&state.cores[0].nvic);
+    cpu = &state.cores[0].cpu;
+    nvic = &state.cores[0].nvic;
+
+    cpu->sleeping = MM_TRUE;
+    cpu->sleep_wfe = MM_TRUE;
+    cpu->event_reg = MM_TRUE;
+    if (!mm_execution_state_wake_sleeping_core(&state, 0u) || cpu->sleeping ||
+        cpu->sleep_wfe || cpu->event_reg) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+
+    cpu->sleeping = MM_TRUE;
+    cpu->sleep_wfe = MM_TRUE;
+    mm_nvic_set_pending(nvic, 4u, MM_TRUE);
+    if (!mm_execution_state_wake_sleeping_core(&state, 0u) || cpu->sleeping) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+
+    cpu->sleeping = MM_TRUE;
+    cpu->sleep_wfe = MM_FALSE;
+    nvic->enable_mask[0] = 0u;
+    if (mm_execution_state_wake_sleeping_core(&state, 0u) || !cpu->sleeping) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    nvic->enable_mask[0] = 1u << 4;
+    if (!mm_execution_state_wake_sleeping_core(&state, 0u) || cpu->sleeping) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+
+    cpu->sleeping = MM_TRUE;
+    state.cores[0].scs.pend_sv = MM_TRUE;
+    if (!mm_execution_state_wake_sleeping_core(&state, 0u) || cpu->sleeping) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
 static int test_session_execute_decoded(void)
 {
     struct mm_execution_state state;
@@ -369,6 +420,10 @@ int main(void)
     }
     if (test_session_it_state() != 0) {
         fprintf(stderr, "execution_state_test: IT state handling failed\n");
+        return 1;
+    }
+    if (test_session_sleep_wake() != 0) {
+        fprintf(stderr, "execution_state_test: sleep/wake decision failed\n");
         return 1;
     }
     if (test_session_execute_decoded() != 0) {

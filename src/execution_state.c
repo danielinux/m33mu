@@ -3,6 +3,7 @@
  */
 
 #include "m33mu/execution_state.h"
+#include "m33mu/execution_irq.h"
 
 #include <string.h>
 
@@ -316,4 +317,39 @@ void mm_execution_state_reset_cores(struct mm_execution_state *state,
         state->cores[1].it_remaining = 0u;
         state->cores[1].it_cond = 0u;
     }
+}
+
+mm_bool mm_execution_state_wake_sleeping_core(
+    struct mm_execution_state *state,
+    mm_u32 core_index)
+{
+    struct mm_execution_core_state *core;
+    enum mm_sec_state systick_sec = MM_SECURE;
+    mm_bool wake = MM_FALSE;
+
+    if (state == 0 || core_index >= 2u) {
+        return MM_FALSE;
+    }
+    core = &state->cores[core_index];
+    if (!core->cpu.sleeping) {
+        return MM_FALSE;
+    }
+    if (core->cpu.event_reg ||
+        mm_execution_irq_systick_pending_select(&core->cpu, &core->scs,
+                                                &systick_sec) ||
+        core->scs.pend_sv ||
+        mm_nvic_select_ex(&core->nvic, &core->cpu, &core->scs) >= 0) {
+        wake = MM_TRUE;
+    } else if (core->cpu.sleep_wfe) {
+        wake = mm_nvic_any_pending(&core->nvic);
+    } else {
+        /* WFI wakes on enabled pending interrupts even when masked. */
+        wake = mm_nvic_any_pending_enabled(&core->nvic);
+    }
+    if (wake) {
+        core->cpu.sleeping = MM_FALSE;
+        core->cpu.sleep_wfe = MM_FALSE;
+        core->cpu.event_reg = MM_FALSE;
+    }
+    return wake;
 }

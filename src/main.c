@@ -6852,12 +6852,8 @@ int main(int argc, char **argv)
                     continue;
                 }
 
-                {
-                    enum mm_sec_state systick_sec = MM_SECURE;
-
                 /* If CPU is sleeping (WFI/WFE), stay in low-power loop until an event or pending exception arrives. */
                 if (execution.cores[0].cpu.sleeping) {
-                    mm_bool wake = MM_FALSE;
                     mm_bool stopped = MM_FALSE;
                     stopped = !target_should_run(opt_gdb, &gdb, tui_paused, tui_step);
                     if (stopped) {
@@ -6888,34 +6884,21 @@ int main(int argc, char **argv)
                         }
                         continue;
                     }
-                    /* Wake on event register or any pending enabled exception. */
-                    if (execution.cores[0].cpu.event_reg) {
-                        wake = MM_TRUE;
-                    } else if (mm_execution_irq_systick_pending_select(&execution.cores[0].cpu, &execution.cores[0].scs, &systick_sec) || execution.cores[0].scs.pend_sv) {
-                        wake = MM_TRUE;
-                    } else if (mm_nvic_select_ex(&execution.cores[0].nvic, &execution.cores[0].cpu, &execution.cores[0].scs) >= 0) {
-                        wake = MM_TRUE;
-                    } else if (!execution.cores[0].cpu.sleep_wfe && mm_nvic_any_pending_enabled(&execution.cores[0].nvic)) {
-                        /* WFI wakes on an interrupt that would preempt with
-                         * PRIMASK clear ("cpsid i; wfi; cpsie i" idle loops). */
-                        wake = MM_TRUE;
-                    } else if (execution.cores[0].cpu.sleep_wfe && mm_nvic_any_pending(&execution.cores[0].nvic)) {
+                    if (execution.cores[0].cpu.sleep_wfe &&
+                        mm_nvic_any_pending(&execution.cores[0].nvic)) {
                         if (getenv("M33MU_SLEEP_TRACE")) {
                             printf("[SLEEP_WAKE] wfe pending irq (primask_s=%lu primask_ns=%lu)\n",
                                    (unsigned long)execution.cores[0].cpu.primask_s,
                                    (unsigned long)execution.cores[0].cpu.primask_ns);
                         }
-                        wake = MM_TRUE;
                     }
-                    if (wake) {
-                        execution.cores[0].cpu.sleeping = MM_FALSE;
-                        execution.cores[0].cpu.sleep_wfe = MM_FALSE;
-                        execution.cores[0].cpu.event_reg = MM_FALSE;
-                    } else if (execution.target.core_count > 1u && execution.target.mc_ops != 0 && execution.target.mc_ops->core1_running != 0 &&
+                    (void)mm_execution_state_wake_sleeping_core(&execution, 0u);
+                    if (execution.cores[0].cpu.sleeping &&
+                        execution.target.core_count > 1u && execution.target.mc_ops != 0 && execution.target.mc_ops->core1_running != 0 &&
                                execution.target.mc_ops->core1_running() && !execution.cores[1].cpu.sleeping) {
                         /* Core1 still has work: keep scheduling it rather than idling the host. */
                         continue;
-                    } else {
+                    } else if (execution.cores[0].cpu.sleeping) {
                         mm_u64 delta = mm_scs_systick_cycles_until_fire(&execution.cores[0].scs);
                         mm_u64 signal_delta = mm_signal_cycles_until_next_event();
                         if (signal_delta < delta) {
@@ -6955,12 +6938,7 @@ int main(int argc, char **argv)
                                 done = MM_TRUE;
                                 continue;
                             }
-                            if (mm_execution_irq_systick_pending_select(&execution.cores[0].cpu, &execution.cores[0].scs, &systick_sec) || execution.cores[0].scs.pend_sv || mm_nvic_select_ex(&execution.cores[0].nvic, &execution.cores[0].cpu, &execution.cores[0].scs) >= 0 ||
-                                (execution.cores[0].cpu.sleep_wfe && mm_nvic_any_pending(&execution.cores[0].nvic)) ||
-                                (!execution.cores[0].cpu.sleep_wfe && mm_nvic_any_pending_enabled(&execution.cores[0].nvic))) {
-                                execution.cores[0].cpu.sleeping = MM_FALSE;
-                                execution.cores[0].cpu.sleep_wfe = MM_FALSE;
-                                execution.cores[0].cpu.event_reg = MM_FALSE;
+                            if (mm_execution_state_wake_sleeping_core(&execution, 0u)) {
                                 goto handle_pending;
                             }
                             if (mm_system_reset_pending() && allow_system_reset(&execution.target, cpu_name)) {
@@ -6970,11 +6948,7 @@ int main(int argc, char **argv)
                             }
                         } else {
                             mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, delta, MM_FALSE, 0u, &execution.clock);
-                            if (mm_execution_irq_systick_pending_select(&execution.cores[0].cpu, &execution.cores[0].scs, &systick_sec) || execution.cores[0].scs.pend_sv) {
-                                execution.cores[0].cpu.sleeping = MM_FALSE;
-                                execution.cores[0].cpu.sleep_wfe = MM_FALSE;
-                                execution.cores[0].cpu.event_reg = MM_FALSE;
-                            }
+                            (void)mm_execution_state_wake_sleeping_core(&execution, 0u);
                             host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                             mm_target_usart_poll(&execution.target);
                             mm_target_spi_poll(&execution.target);
@@ -7018,8 +6992,6 @@ handle_pending:
                         continue;
                     }
                 }
-                }
-
                 if (opt_gdb && mm_gdb_stub_is_reverse(&gdb) && mm_gdb_stub_should_run(&gdb)) {
                     if (!mm_trace_undo_step(&execution.cores[0].cpu, &execution.map)) {
                         mm_gdb_stub_notify_stop(&gdb, 5);
