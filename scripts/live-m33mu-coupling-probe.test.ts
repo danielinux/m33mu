@@ -58,7 +58,8 @@ describe('live m33mu WASM and Perun shared-clock RC feedback', () => {
     const cycles = () => (BigInt(api.cycleHi(session)) << 32n) | BigInt(api.cycleLo(session));
     const edges: { cycle: number; timeNs: string; level: number }[] = [];
     const pendingDriveEvents: { cycle: number; level: number }[] = [];
-    const crossings: { cycle: number; level: number; mv: number }[] = [];
+    const drives: { cycle: number; level: number; initialVoltage: number }[] = [];
+    const crossings: { cycle: number; fractionalCycle: number; level: number; mv: number }[] = [];
     let digital = 0;
     let simCycle = 0;
     let previousMv = 0;
@@ -84,19 +85,24 @@ describe('live m33mu WASM and Perun shared-clock RC feedback', () => {
         source.maxVoltage = 0;
         source.bias = event.level ? 3.3 : 0;
         circuit.sim.analyzeFlag = true;
+        drives.push({ cycle: simCycle, level: event.level,
+          initialVoltage: capacitor.voltdiff });
       }
     };
     const advanceSolverTo = (target: number) => {
       while (simCycle < target) {
         expect(circuit.sim.step(1)).toBe(1);
         simCycle++;
-        const mv = Math.round(capacitor.voltdiff * 1000);
+        const mv = capacitor.voltdiff * 1000;
         const threshold = digital ? FALL_MV : RISE_MV;
         const didCross = digital ? previousMv > threshold && mv <= threshold : previousMv < threshold && mv >= threshold;
         if (didCross) {
           digital = digital ? 0 : 1;
-          crossings.push({ cycle: simCycle, level: digital, mv });
-          const ns = BigInt(Math.floor(simCycle * 1e9 / HZ));
+          const fraction = (threshold - previousMv) / (mv - previousMv);
+          const fractionalCycle = simCycle - 1 + fraction;
+          const cycle = Math.ceil(fractionalCycle);
+          crossings.push({ cycle, fractionalCycle, level: digital, mv });
+          const ns = BigInt(Math.floor(cycle * 1e9 / HZ));
           expect(api.gpio(session, 'PA6', Number(ns >> 32n), Number(ns & 0xffffffffn), digital)).toBe(0);
         }
         previousMv = mv;
@@ -121,6 +127,19 @@ describe('live m33mu WASM and Perun shared-clock RC feedback', () => {
       expect(edges.filter((e) => e.level === 1).length).toBeGreaterThanOrEqual(3);
       expect(edges.length).toBeGreaterThanOrEqual(5);
       expect(pendingDriveEvents).toHaveLength(0);
+      const crossingErrors = crossings.map((crossing) => {
+        const drive = drives.filter((event) => event.cycle <= crossing.fractionalCycle).at(-1)!;
+        const targetV = (crossing.level ? RISE_MV : FALL_MV) / 1000;
+        const sourceV = drive.level ? 3.3 : 0;
+        const tauSeconds = 1000 * 1e-8;
+        const elapsedSeconds = drive.level ?
+          -tauSeconds * Math.log((sourceV - targetV) / (sourceV - drive.initialVoltage)) :
+          -tauSeconds * Math.log(targetV / drive.initialVoltage);
+        const expectedCycle = drive.cycle + elapsedSeconds * HZ;
+        return { cycle: crossing.fractionalCycle, expectedCycle,
+          errorCycles: crossing.fractionalCycle - expectedCycle };
+      });
+      for (const error of crossingErrors) expect(Math.abs(error.errorCycles)).toBeLessThan(1);
       for (const [index, crossing] of crossings.slice(0, 4).entries()) {
         const response = edges.find((edge, edgeIndex) =>
           edgeIndex >= 2 && edge.cycle > crossing.cycle);
@@ -132,7 +151,7 @@ describe('live m33mu WASM and Perun shared-clock RC feedback', () => {
       }
       expect(Math.abs(Number(cycles()) - simCycle)).toBeLessThanOrEqual(1);
       writeFileSync(resultPath, JSON.stringify({ solver: 'Perun', hz: HZ, quantumNs: 1e9 / HZ,
-        thresholdsMv: { rise: RISE_MV, fall: FALL_MV }, crossings, outputEdges: edges,
+        thresholdsMv: { rise: RISE_MV, fall: FALL_MV }, drives, crossings, crossingErrors, outputEdges: edges,
         finalCycle: Number(cycles()), finalSolverCycle: simCycle }, null, 2));
     } finally {
       api.destroy(session);

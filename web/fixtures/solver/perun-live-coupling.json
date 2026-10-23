@@ -6,26 +6,84 @@
     "rise": 1775,
     "fall": 1525
   },
+  "drives": [
+    {
+      "cycle": 37,
+      "level": 0,
+      "initialVoltage": 0
+    },
+    {
+      "cycle": 62,
+      "level": 1,
+      "initialVoltage": 0
+    },
+    {
+      "cycle": 569,
+      "level": 0,
+      "initialVoltage": 1.804416603288236
+    },
+    {
+      "cycle": 690,
+      "level": 1,
+      "initialVoltage": 1.4957139797625698
+    },
+    {
+      "cycle": 811,
+      "level": 0,
+      "initialVoltage": 1.8043941083650474
+    },
+    {
+      "cycle": 932,
+      "level": 1,
+      "initialVoltage": 1.4956953599331735
+    }
+  ],
   "crossings": [
     {
       "cycle": 557,
+      "fractionalCycle": 556.5342465885562,
       "level": 1,
-      "mv": 1776
+      "mv": 1776.1098624397719
     },
     {
       "cycle": 678,
+      "fractionalCycle": 677.5901186881829,
       "level": 0,
-      "mv": 1524
+      "mv": 1524.0231921419315
     },
     {
       "cycle": 799,
+      "fractionalCycle": 798.5438721059119,
       "level": 1,
-      "mv": 1776
+      "mv": 1776.0869417576691
     },
     {
       "cycle": 920,
+      "fractionalCycle": 919.5821524852125,
       "level": 0,
-      "mv": 1524
+      "mv": 1524.004219897092
+    }
+  ],
+  "crossingErrors": [
+    {
+      "cycle": 556.5342465885562,
+      "expectedCycle": 556.0339573843582,
+      "errorCycles": 0.5002892041979976
+    },
+    {
+      "cycle": 677.5901186881829,
+      "expectedCycle": 676.6754675243019,
+      "errorCycles": 0.9146511638809898
+    },
+    {
+      "cycle": 798.5438721059119,
+      "expectedCycle": 797.629149962967,
+      "errorCycles": 0.9147221429449246
+    },
+    {
+      "cycle": 919.5821524852125,
+      "expectedCycle": 918.6674888565406,
+      "errorCycles": 0.914663628671974
     }
   ],
   "outputEdges": [
