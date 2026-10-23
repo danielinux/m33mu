@@ -569,7 +569,10 @@ static enum mm_web_error web_execute_budgeted(
                 result_out->error = session->pending_error;
                 return result_out->error;
             }
-            if (irq_result == MM_EXECUTION_IRQ_DELIVERED) continue;
+            if (irq_result == MM_EXECUTION_IRQ_DELIVERED) {
+                work++;
+                continue;
+            }
         }
         if (!mm_execution_state_advance_for_instruction(state, 0u)) {
             result_out->error = MM_WEB_INITIALIZATION_FAILED;

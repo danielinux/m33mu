@@ -234,6 +234,13 @@ if (process.env.M33MU_ACTIVE_EXTI_FIRMWARE) {
     (loopState.registers[4] + 1) >>> 0,
     'instruction at the GPIO/EXTI boundary must execute before IRQ entry');
 
+  const dispatchOnly = await request('step', { instructionBudget: 1 });
+  assert.equal(dispatchOnly.ok, true);
+  assert.equal(dispatchOnly.result.instructions, 0,
+    'IRQ dispatch must consume the one-unit scheduler work budget');
+  assert.equal(dispatchOnly.result.cycleTotal, boundaryStep.result.cycleTotal,
+    'IRQ entry alone must not advance virtual cycles');
+
   const handler = await request('step', { instructionBudget: 32 });
   assert.equal(handler.ok, true);
   assert.equal(handler.result.stopped, true,
