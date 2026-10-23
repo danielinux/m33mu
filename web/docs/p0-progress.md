@@ -66,7 +66,7 @@ Updated 2026-10-23 (HEAD `0345d4d`). Keep this checklist current as P0 work adva
 
 ## In progress
 
-- [ ] P1 browser UI and minimal verified H563 workbench. A React/Vite shell bundles all 15 provisional board SVG/layout assets, displays the H563 layout as visual-only, accepts H563 ELF32/ARM firmware, and exposes worker run/pause/step/reset, CPU registers, virtual time and capability status. Board contact anchors remain unverified, so wiring/analog are disabled. The UI production build and packaged Emscripten worker build pass; interactive project editing, board catalog selection, save/open, scope/serial, and verified pad wiring remain open.
+- [ ] P1 browser UI and minimal H563 workbench. A React/Vite shell bundles all 15 provisional board SVG/layout assets, displays the H563 layout as visual-only, accepts H563 ELF32/ARM firmware, and exposes worker run/pause/step/reset, CPU registers, virtual time and capability status. Save/open now uses the v1 JSON project schema, embeds the optional ELF, verifies its SHA-256 on open, and rejects circuit contents the current UI cannot preserve. Board contact anchors remain unverified, so wiring/analog are disabled. The strict TypeScript/Vite production build passes; interactive project editing, board catalog selection, scope/serial, and verified pad wiring remain open.
 
 ## Not started
 - [ ] P2 analog device breadth, ADC and instruments.

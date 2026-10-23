@@ -15,8 +15,26 @@ type Machine = {
 };
 type WorkerMessage = { kind: 'response' | 'event'; requestId?: number; ok?: boolean;
   result?: any; error?: { code: string; message: string }; event?: string; payload?: any };
+type WorkbenchProject = {
+  schemaVersion: 1; projectId: string; name: string;
+  simulator: { cpu: 'stm32h563'; firmwareFormat: 'elf'; firmwareSha256: string | null;
+    firmwareName: string; cpuHz: number; firmwareBase64?: string };
+  boards: { id: string; cpu: string; layoutVersion: number; x: number; y: number;
+    rotation: 0; electricalEnabled: false }[];
+  contacts: unknown[]; nets: unknown[]; components: unknown[]; instruments: unknown[];
+  ui?: { zoom?: number };
+};
 
 const hex = (value: number) => `0x${(value >>> 0).toString(16).padStart(8, '0')}`;
+
+function encodeBase64(bytes: Uint8Array) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
 
 export function Workbench() {
   const cpu = 'stm32h563';
@@ -25,6 +43,7 @@ export function Workbench() {
   const [machine, setMachine] = useState<Machine | null>(null);
   const [firmwareName, setFirmwareName] = useState('No firmware loaded');
   const [firmwareHash, setFirmwareHash] = useState('');
+  const [firmwareBytes, setFirmwareBytes] = useState<Uint8Array | null>(null);
   const [runState, setRunState] = useState<'idle' | 'running' | 'paused' | 'stopped'>('idle');
   const [fault, setFault] = useState('');
   const [message, setMessage] = useState('Select an ELF firmware image to start the H563 session.');
@@ -94,7 +113,7 @@ export function Workbench() {
       const digest = await crypto.subtle.digest('SHA-256', bytes);
       const hash = [...new Uint8Array(digest)].map((v) => v.toString(16).padStart(2, '0')).join('');
       await request('loadFirmware', { bytes },);
-      setFirmwareName(file.name); setFirmwareHash(hash); setMessage('Firmware loaded into the H563 worker session.');
+      setFirmwareName(file.name); setFirmwareHash(hash); setFirmwareBytes(bytes); setMessage('Firmware loaded into the H563 worker session.');
       setRunState('paused');
     } catch (error) { setFault(error instanceof Error ? error.message : String(error)); }
     finally { event.target.value = ''; }
@@ -120,6 +139,62 @@ export function Workbench() {
     catch (error) { setFault(error instanceof Error ? error.message : String(error)); }
   }
 
+  function saveProject() {
+    const project: WorkbenchProject = {
+      schemaVersion: 1, projectId: crypto.randomUUID(), name: firmwareName.replace(/\.elf$/i, '') || 'H563 project',
+      simulator: { cpu: 'stm32h563', firmwareFormat: 'elf', firmwareSha256: firmwareHash || null,
+        firmwareName: firmwareBytes ? firmwareName : '', cpuHz: machine?.cpuHz ?? 64_000_000,
+        ...(firmwareBytes ? { firmwareBase64: encodeBase64(firmwareBytes) } : {}) },
+      boards: [{ id: 'board-1', cpu: 'stm32h563', layoutVersion: 1, x: 0, y: 0, rotation: 0, electricalEnabled: false }],
+      contacts: [], nets: [], components: [], instruments: [], ui: { zoom },
+    };
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url; anchor.download = `${project.name.replace(/[^a-zA-Z0-9_-]+/g, '-') || 'm33mu-project'}.m33mu.json`;
+    anchor.click(); URL.revokeObjectURL(url);
+    setMessage('Project saved as a v1 JSON document, including the loaded ELF when present.');
+  }
+
+  async function openProject(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setFault(''); setMessage(`Opening ${file.name}…`);
+    try {
+      if (file.size > 48 * 1024 * 1024) throw new Error('Project JSON exceeds the 48 MiB import limit.');
+      const project = JSON.parse(await file.text()) as WorkbenchProject;
+      if (project.schemaVersion !== 1 || project.simulator?.cpu !== cpu || !Array.isArray(project.boards) ||
+          project.simulator.firmwareFormat !== 'elf' || project.boards.length !== 1 ||
+          project.boards[0].cpu !== cpu || project.boards[0].electricalEnabled !== false ||
+          !Array.isArray(project.contacts) || project.contacts.length !== 0 ||
+          !Array.isArray(project.nets) || project.nets.length !== 0 ||
+          !Array.isArray(project.components) || project.components.length !== 0 ||
+          !Array.isArray(project.instruments) || project.instruments.length !== 0) {
+        throw new Error('This project is not a supported v1 STM32H563 workbench project.');
+      }
+      setZoom(Math.min(1.5, Math.max(.55, Number(project.ui?.zoom) || 1)));
+      if (project.simulator.firmwareBase64) {
+        if (project.simulator.firmwareBase64.length > 44_739_244) throw new Error('Embedded ELF exceeds the 32 MiB worker limit.');
+        const binary = atob(project.simulator.firmwareBase64);
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
+        const hash = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('');
+        if (hash !== project.simulator.firmwareSha256) throw new Error('Embedded ELF SHA-256 does not match the project manifest.');
+        await request('loadFirmware', { bytes });
+        setFirmwareBytes(bytes); setFirmwareHash(hash); setFirmwareName(project.simulator.firmwareName || file.name);
+        setRunState('paused'); setMessage(`Opened ${project.name || file.name}; ELF restored and verified.`);
+      } else {
+        worker.current?.terminate(); worker.current = null;
+        pending.current.forEach(({ reject }) => reject(new Error('Worker session replaced by project')));
+        pending.current.clear();
+        setFirmwareBytes(null); setFirmwareHash(''); setFirmwareName('No firmware loaded');
+        setMachine(null); setRunState('idle');
+        setMessage(`Opened ${project.name || file.name}. Load an ELF to start the H563 session.`);
+      }
+    } catch (error) { setFault(error instanceof Error ? error.message : String(error)); }
+    finally { event.target.value = ''; }
+  }
+
   const view = layout?.pixelViewbox ?? [0, 0, 690, 950];
   const canRun = !!firmwareHash && runState !== 'running' && runState !== 'stopped';
   return <main className="app-shell">
@@ -130,6 +205,7 @@ export function Workbench() {
       </select></div>
       <div className="firmware-name" title={firmwareHash || undefined}><span className={`status-dot ${runState}`} />{firmwareName}</div>
       <div className="transport">
+        <label className="button project-button">Open project<input type="file" accept=".json,.m33mu.json,application/json" onChange={openProject} /></label>
         <label className="button primary load-button">Load ELF<input type="file" accept=".elf,application/octet-stream" onChange={loadFirmware} /></label>
         {runState === 'running' ? <button className="button" onClick={pause}>Pause</button> : <button className="button" onClick={run} disabled={!canRun}>Run</button>}
         <button className="button" onClick={step} disabled={!firmwareHash || runState === 'running'}>Step</button>
@@ -155,7 +231,7 @@ export function Workbench() {
             {layout?.connectors.flatMap((connector) => connector.contacts.map((contact) => <button key={`${connector.id}-${contact.number}`} className={`contact ${selected === contact ? 'contact-selected' : ''}`} style={{ left: `${(contact.x / view[2]) * 100}%`, top: `${(contact.y / view[3]) * 100}%` }} title={`${connector.id} contact ${contact.number} · mapping unverified`} aria-label={`${connector.id} contact ${contact.number}, visual only`} onClick={() => setSelected(contact)} />))}
           </div>
         </div>
-        <div className="canvas-status"><span className="visual-badge">VISUAL ONLY</span><span>{layout?.geometryStatus.replaceAll('_', ' ') ?? 'Loading board geometry'}</span><span className="status-spacer" /><button onClick={() => setMessage('Project save/open is being added after the v1 project serializer.')}>Save project</button></div>
+          <div className="canvas-status"><span className="visual-badge">VISUAL ONLY</span><span>{layout?.geometryStatus.replaceAll('_', ' ') ?? 'Loading board geometry'}</span><span className="status-spacer" /><button onClick={saveProject}>Save project</button></div>
       </section>
 
       <aside className="right-panel">

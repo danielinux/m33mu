@@ -18,7 +18,8 @@
         "firmwareFormat": {"enum": ["elf", "bin", "hex", "uf2"]},
         "firmwareSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
         "firmwareName": {"type": "string", "maxLength": 256},
-        "cpuHz": {"type": "integer", "minimum": 1}
+        "cpuHz": {"type": "integer", "minimum": 1},
+        "firmwareBase64": {"type": "string", "contentEncoding": "base64"}
       }
     },
     "boards": {
