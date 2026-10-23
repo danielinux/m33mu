@@ -353,3 +353,23 @@ mm_bool mm_execution_state_wake_sleeping_core(
     }
     return wake;
 }
+
+enum mm_execution_irq_dispatch_result
+mm_execution_state_dispatch_pending(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    enum mm_execution_irq_block_policy block_policy,
+    mm_execution_irq_enter_fn enter_exception,
+    void *enter_opaque,
+    mm_bool *done)
+{
+    struct mm_execution_core_state *core;
+    if (state == 0 || core_index >= 2u) {
+        return MM_EXECUTION_IRQ_NONE;
+    }
+    core = &state->cores[core_index];
+    return mm_execution_irq_dispatch_pending(
+        &core->cpu, &state->map, &core->scs, &core->nvic, block_policy,
+        enter_exception, enter_opaque, &core->it_pattern, &core->it_remaining,
+        &core->it_cond, done);
+}

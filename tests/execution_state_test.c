@@ -3,12 +3,32 @@
 #include <string.h>
 
 #include "m33mu/execution_state.h"
+#include "m33mu/vector.h"
 
 static char target_setup_order[16];
 static size_t target_setup_count;
 static mm_u32 fetch_fault_handler_calls;
 static mm_bool fetch_fault_handler_result;
 static mm_u32 fetch_fault_handler_addr;
+static mm_bool irq_callback_state_owned;
+
+static mm_bool test_session_irq_enter(void *opaque,
+                                      struct mm_cpu *cpu,
+                                      struct mm_memmap *map,
+                                      struct mm_scs *scs,
+                                      mm_u32 exception_number,
+                                      mm_u32 return_pc,
+                                      mm_u32 xpsr,
+                                      enum mm_sec_state handler_sec)
+{
+    struct mm_execution_state *state = (struct mm_execution_state *)opaque;
+    irq_callback_state_owned = state != 0 && cpu == &state->cores[0].cpu &&
+        map == &state->map && scs == &state->cores[0].scs &&
+        exception_number == MM_VECT_PENDSV && handler_sec == cpu->sec_state &&
+        return_pc == (cpu->r[15] & ~1u) && xpsr == cpu->xpsr;
+    scs->pend_sv = MM_FALSE;
+    return MM_TRUE;
+}
 
 static mm_bool test_fetch_fault_handler(struct mm_cpu *cpu,
                                         struct mm_memmap *map,
@@ -181,6 +201,35 @@ static int test_session_sleep_wake(void)
     cpu->sleeping = MM_TRUE;
     state.cores[0].scs.pend_sv = MM_TRUE;
     if (!mm_execution_state_wake_sleeping_core(&state, 0u) || cpu->sleeping) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
+static int test_session_pending_dispatch(void)
+{
+    struct mm_execution_state state;
+    mm_bool done = MM_FALSE;
+    enum mm_execution_irq_dispatch_result result;
+    mm_execution_state_init(&state);
+    mm_scs_init(&state.cores[0].scs, 0x410fc241u);
+    mm_nvic_init(&state.cores[0].nvic);
+    state.cores[0].cpu.r[15] = 0x1235u;
+    state.cores[0].scs.pend_sv = MM_TRUE;
+    irq_callback_state_owned = MM_FALSE;
+    result = mm_execution_state_dispatch_pending(
+        &state, 0u, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+        test_session_irq_enter, &state, &done);
+    if (result != MM_EXECUTION_IRQ_DELIVERED || !irq_callback_state_owned ||
+        state.cores[0].scs.pend_sv || done) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    if (mm_execution_state_dispatch_pending(
+            &state, 2u, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+            test_session_irq_enter, &state, &done) != MM_EXECUTION_IRQ_NONE) {
         mm_execution_state_destroy(&state);
         return 1;
     }
@@ -424,6 +473,10 @@ int main(void)
     }
     if (test_session_sleep_wake() != 0) {
         fprintf(stderr, "execution_state_test: sleep/wake decision failed\n");
+        return 1;
+    }
+    if (test_session_pending_dispatch() != 0) {
+        fprintf(stderr, "execution_state_test: pending dispatch failed\n");
         return 1;
     }
     if (test_session_execute_decoded() != 0) {

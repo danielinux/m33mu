@@ -6984,10 +6984,9 @@ handle_pending:
                 /* Deliver pending exceptions through the shared production policy. */
                 {
                     enum mm_execution_irq_dispatch_result irq_result;
-                    irq_result = mm_execution_irq_dispatch_pending(
-                        &execution.cores[0].cpu, &execution.map, &execution.cores[0].scs, &execution.cores[0].nvic, MM_EXECUTION_IRQ_SKIP_BLOCKED,
-                        execution_irq_enter, 0, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining,
-                        &execution.cores[0].it_cond, &done);
+                    irq_result = mm_execution_state_dispatch_pending(
+                        &execution, 0u, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+                        execution_irq_enter, 0, &done);
                     if (irq_result == MM_EXECUTION_IRQ_DELIVERED) {
                         continue;
                     }

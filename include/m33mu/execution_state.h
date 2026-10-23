@@ -18,6 +18,7 @@
 #include "m33mu/fetch.h"
 #include "m33mu/decode.h"
 #include "m33mu/execute.h"
+#include "m33mu/execution_irq.h"
 
 struct mm_execution_core_state {
     struct mm_cpu cpu;
@@ -137,5 +138,13 @@ void mm_execution_state_reset_cores(struct mm_execution_state *state,
 mm_bool mm_execution_state_wake_sleeping_core(
     struct mm_execution_state *state,
     mm_u32 core_index);
+enum mm_execution_irq_dispatch_result
+mm_execution_state_dispatch_pending(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    enum mm_execution_irq_block_policy block_policy,
+    mm_execution_irq_enter_fn enter_exception,
+    void *enter_opaque,
+    mm_bool *done);
 
 #endif /* M33MU_EXECUTION_STATE_H */
