@@ -1,6 +1,6 @@
 # Web workbench P0 tracker
 
-Updated 2026-10-23 (HEAD pending local commit). Keep this checklist current as P0 work advances.
+Updated 2026-10-23 (HEAD `2ceefbc`). Keep this checklist current as P0 work advances.
 
 ## Completed
 
