@@ -6784,9 +6784,7 @@ int main(int argc, char **argv)
 
                 if (!running_now) {
                     host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
-                    mm_target_usart_poll(&execution.target);
-                    mm_target_spi_poll(&execution.target);
-                    mm_target_eth_poll(&execution.target);
+                    mm_execution_state_poll_target_devices(&execution);
                     rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                     mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                     mm_usbdev_poll();
@@ -6929,9 +6927,7 @@ int main(int argc, char **argv)
                             }
                             mm_execution_state_advance_cycles(
                                 &execution, 0u, idle_cycles, MM_FALSE, 0u);
-                            mm_target_usart_poll(&execution.target);
-                            mm_target_spi_poll(&execution.target);
-                            mm_target_eth_poll(&execution.target);
+                            mm_execution_state_poll_target_devices(&execution);
                             rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                             mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
@@ -6954,9 +6950,8 @@ int main(int argc, char **argv)
                                 &execution, 0u, delta, MM_FALSE, 0u);
                             (void)mm_execution_state_wake_sleeping_core(&execution, 0u);
                             host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
-                            mm_target_usart_poll(&execution.target);
-                            mm_target_spi_poll(&execution.target);
-                            mm_target_eth_poll(&execution.target);
+                            (void)mm_execution_state_poll_target_devices_if_due(
+                                &execution, 0u);
                             rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                             mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
@@ -6966,7 +6961,6 @@ int main(int argc, char **argv)
                                 done = MM_TRUE;
                                 continue;
                             }
-                            execution.clock.cycles_since_poll = 0;
                             if (mm_system_reset_pending() && allow_system_reset(&execution.target, cpu_name)) {
                                 reset_again = MM_TRUE;
                                 mm_system_clear_reset();
@@ -7204,10 +7198,9 @@ handle_pending:
                             tb = next_tb;
                             continue;
                         }
-                        if (tb != 0 && execution.clock.cycles_since_poll >= poll_granularity) {
-                            mm_target_usart_poll(&execution.target);
-                            mm_target_spi_poll(&execution.target);
-                            mm_target_eth_poll(&execution.target);
+                        if (tb != 0 &&
+                            mm_execution_state_poll_target_devices_if_due(
+                                &execution, poll_granularity)) {
                             rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                             mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
@@ -7217,7 +7210,6 @@ handle_pending:
                                 done = MM_TRUE;
                                 continue;
                             }
-                            execution.clock.cycles_since_poll = 0;
                         }
                         if (tb != 0 || done || execution.cores[0].cpu.sleeping || execution.cores[0].it_remaining != 0u) {
                             continue;
@@ -7540,10 +7532,8 @@ handle_pending:
 
                 }
 
-                if (execution.clock.cycles_since_poll >= poll_granularity) {
-                    mm_target_usart_poll(&execution.target);
-                    mm_target_spi_poll(&execution.target);
-                    mm_target_eth_poll(&execution.target);
+                if (mm_execution_state_poll_target_devices_if_due(
+                        &execution, poll_granularity)) {
                     rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                     mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                     mm_usbdev_poll();
@@ -7553,7 +7543,6 @@ handle_pending:
                         done = MM_TRUE;
                         continue;
                     }
-                    execution.clock.cycles_since_poll = 0;
                 }
 
                 host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);

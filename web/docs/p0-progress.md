@@ -51,6 +51,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [x] Add `mm_execution_state_advance_cycles()` and route all primary-core scheduler advances through owned core SCS, target config, and clock state. This covers sleep fast-forward, translated blocks, flash stalls and single-instruction timing; native state tests check accumulated counters and invalid core selection. Full CTest passes 102 enabled tests (one disabled).
 - [x] Enforce one initialized `mm_execution_state` at a time while signal and target runtime state remain process-global. Expose signal event countdown and simulated nanoseconds through the active session; primary sleep scheduling uses the session countdown. Native tests reject a second live session and verify one second of signal time after 64 million cycles. Full CTest passes 102 enabled tests (one disabled).
 - [x] Reset the process-global signal engine at session init and destroy, including trace bindings, triggers and virtual time; restore its documented 64 MHz default until target setup sets the actual rate. A lifecycle regression test proves a second sequential session starts at zero signal time. Full CTest passes 102 enabled tests (one disabled).
+- [x] Move target USART/SPI/Ethernet polling and its due-cycle quantum reset behind `mm_execution_state`; retain the original unconditional sleep/paused polling behavior and keep USB/TUI host servicing in the CLI. Native tests verify threshold handling, callback ordering and counter reset. Full CTest passes 102 enabled tests (one disabled).
 
 ## Not started
 

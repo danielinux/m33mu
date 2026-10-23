@@ -69,6 +69,9 @@ static void test_eth_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 { (void)bus; (void)nvic; note_target_setup('7'); }
 static void test_timer_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 { (void)bus; (void)nvic; note_target_setup('8'); }
+static void test_usart_poll(void) { note_target_setup('A'); }
+static void test_spi_poll(void) { note_target_setup('B'); }
+static void test_eth_poll(void) { note_target_setup('C'); }
 
 static mm_bool test_fpu_allowed(const struct mm_cpu *cpu,
                                 const struct mm_scs *scs)
@@ -105,6 +108,33 @@ static int test_target_setup_order(void)
     mm_execution_state_init_target_devices(&state);
     if (target_setup_count != 9u ||
         memcmp(target_setup_order, "012345678", 9u) != 0) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
+static int test_session_poll_quantum(void)
+{
+    struct mm_execution_state state;
+    if (!mm_execution_state_init(&state)) {
+        return 1;
+    }
+    state.target.usart_poll = test_usart_poll;
+    state.target.spi_poll = test_spi_poll;
+    state.target.eth_poll = test_eth_poll;
+    state.clock.cycles_since_poll = 7u;
+    target_setup_count = 0u;
+    if (mm_execution_state_poll_target_devices_if_due(&state, 8u) ||
+        target_setup_count != 0u || state.clock.cycles_since_poll != 7u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    if (!mm_execution_state_poll_target_devices_if_due(&state, 7u) ||
+        target_setup_count != 3u ||
+        memcmp(target_setup_order, "ABC", 3u) != 0 ||
+        state.clock.cycles_since_poll != 0u) {
         mm_execution_state_destroy(&state);
         return 1;
     }
@@ -632,6 +662,10 @@ int main(void)
     }
     if (test_target_setup_order() != 0) {
         fprintf(stderr, "execution_state_test: target setup ordering failed\n");
+        return 1;
+    }
+    if (test_session_poll_quantum() != 0) {
+        fprintf(stderr, "execution_state_test: target polling quantum failed\n");
         return 1;
     }
     if (test_session_it_state() != 0) {

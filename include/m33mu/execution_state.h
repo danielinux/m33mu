@@ -84,6 +84,13 @@ mm_bool mm_execution_state_configure_memory(struct mm_execution_state *state);
 void mm_execution_state_init_code_cache(struct mm_execution_state *state);
 void mm_execution_state_reset_soc(struct mm_execution_state *state);
 void mm_execution_state_init_target_devices(struct mm_execution_state *state);
+/* Service target-owned device callbacks; the due variant resets the owned
+ * poll quantum only when the configured cycle threshold has been reached. */
+void mm_execution_state_poll_target_devices(
+    struct mm_execution_state *state);
+mm_bool mm_execution_state_poll_target_devices_if_due(
+    struct mm_execution_state *state,
+    mm_u64 cycle_threshold);
 /* Load bounded ELF32/ARM PT_LOAD records into the state's owned buffers. */
 int mm_execution_state_load_elf(struct mm_execution_state *state,
                                 const mm_u8 *image,

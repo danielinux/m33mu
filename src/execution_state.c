@@ -342,6 +342,30 @@ void mm_execution_state_init_target_devices(struct mm_execution_state *state)
                   &state->cores[0].nvic);
 }
 
+void mm_execution_state_poll_target_devices(
+    struct mm_execution_state *state)
+{
+    if (state == 0) {
+        return;
+    }
+    mm_target_usart_poll(&state->target);
+    mm_target_spi_poll(&state->target);
+    mm_target_eth_poll(&state->target);
+}
+
+mm_bool mm_execution_state_poll_target_devices_if_due(
+    struct mm_execution_state *state,
+    mm_u64 cycle_threshold)
+{
+    if (state == 0 ||
+        state->clock.cycles_since_poll < cycle_threshold) {
+        return MM_FALSE;
+    }
+    mm_execution_state_poll_target_devices(state);
+    state->clock.cycles_since_poll = 0u;
+    return MM_TRUE;
+}
+
 void mm_execution_state_reset_cores(struct mm_execution_state *state,
                                     mm_u32 core_count,
                                     mm_u32 vtor_s,
