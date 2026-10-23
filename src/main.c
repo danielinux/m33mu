@@ -5770,7 +5770,7 @@ int main(int argc, char **argv)
         } else if (strncmp(argv[i], "--signal-bind:", 14) == 0) {
             char tmp[512];
             char *tok;
-            mm_bool have_trace = MM_FALSE, have_target = MM_FALSE, have_role = MM_FALSE;
+            mm_bool have_trace = MM_FALSE, have_target = MM_FALSE;
             struct mm_signal_bind_spec spec;
             memset(&spec, 0, sizeof(spec));
             snprintf(tmp, sizeof(tmp), "%s", argv[i] + 14);
@@ -5795,15 +5795,14 @@ int main(int argc, char **argv)
                         fprintf(stderr, "unsupported --signal-bind role: %s\n", tok + 5);
                         return 1;
                     }
-                    have_role = MM_TRUE;
                 } else {
                     fprintf(stderr, "unrecognised --signal-bind field: %s\n", tok);
                     return 1;
                 }
                 tok = strtok(0, ":");
             }
-            if (!have_trace || !have_target || !have_role) {
-                fprintf(stderr, "--signal-bind requires trace=, target=, and role=\n");
+            if (!have_trace || !have_target) {
+                fprintf(stderr, "--signal-bind requires trace= and target=\n");
                 return 1;
             }
             if (signal_bind_count >= (int)(sizeof(signal_bind_specs) / sizeof(signal_bind_specs[0]))) {
@@ -5914,7 +5913,7 @@ int main(int argc, char **argv)
 #endif
                         "[--uart-stdout] [--quit-on-faults] [--meminfo] [--record] [--record-start <pc>] [--record-start-dump] [--record-start-dump-ram] [--record-end-dump-ram] [--record-trace <path>] [--record-quiet] [--record-dump <n>] [--call-trace] [--dualbank] [--fault-clock N] [--no-tz] [--secwm1=<strt>:<end>] [--secwm2=<strt>:<end>] [--gdb-symbols <elf>] "
                         "[--expect-bkpt 0xNN] [--timeout seconds] "
-                        "[--signal-file=<path>] [--signal-bind:trace=<name>:target=PXn:role=gpio] "
+                        "[--signal-file=<path>] [--signal-bind:trace=<name>:target=PXn[:role=gpio]] "
                         "[--signal-sync=<symbol|addr>] [--vdd-mv=<mV>] "
                         "[--gpio-vil-mv=<mV>] [--gpio-vih-mv=<mV>] "
                         "[--signal-record=<path>] [--signal-watch:target=PXn] "

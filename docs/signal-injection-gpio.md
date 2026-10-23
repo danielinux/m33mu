@@ -20,14 +20,15 @@ LPC, RP2350, MCXN, i.MX RT) need a pad model of their own first.
 build/m33mu --cpu stm32h5f4 \
     --vdd-mv=3300 \
     --signal-file=stimulus.sigc \
-    --signal-bind:trace=vin:target=PA5:role=gpio \
+    --signal-bind:trace=vin:target=PA5 \
     --signal-sync=signal_trigger_marker \
     firmware.elf
 ```
 
 - `--signal-file=<path>`: the `.sigc` container holding the traces.
-- `--signal-bind:trace=<name>:target=<PXn>:role=gpio`: drive pin
-  `PXn` from the named trace. Can be repeated, up to 32 bindings.
+- `--signal-bind:trace=<name>:target=<PXn>[:role=gpio]`: drive pin
+  `PXn` from the named trace. `role=` is optional and defaults to `gpio`, the
+  only role supported. Can be repeated, up to 32 bindings.
 - `--signal-sync=<symbol|address>`: the PC that starts replay, required with
   `--signal-bind`. A symbol is looked up in the ELF image's symbol table,
   which requires the image to be an ELF and m33mu to be built with libelf. A
@@ -139,7 +140,6 @@ and resumes where it left off; this is intended and keeps runs deterministic.
 - HDF5 to `.sigc` converter.
 - A trigger based on a register write, for firmware without symbols.
 - GPDMA transfers triggered by EXTI.
-- Recording output pins. Firmware can read `ODR` itself.
 - Snapshots and reverse stepping (`--record`). Neither the replay position nor
   the GPIO pad levels are saved, so stepping back across an injected edge does
   not undo it.
