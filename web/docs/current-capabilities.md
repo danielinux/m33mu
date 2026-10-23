@@ -1,6 +1,6 @@
 # Web workbench: current capabilities
 
-Reviewed through local HEAD `98dc537` on 2026-10-23. The upstream base was `34cc86d550b4a471be9bde3f397f56507bdb1d3b`; PR #15 head `012eaf51e57c4803956952ee5dc1f38ddfd54699` was merged locally as `5799dd587dcba1768367ad6dd29af64ac36eff3a`.
+Reviewed through local HEAD `0535afa` on 2026-10-23. The upstream base was `34cc86d550b4a471be9bde3f397f56507bdb1d3b`; PR #15 head `012eaf51e57c4803956952ee5dc1f38ddfd54699` was merged locally as `5799dd587dcba1768367ad6dd29af64ac36eff3a`.
 
 This is a development status page, not a claim that the browser workbench exists yet.
 
