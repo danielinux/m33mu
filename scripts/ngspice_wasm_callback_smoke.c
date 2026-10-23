@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 
@@ -80,6 +81,8 @@ int main(void)
     int count;
     int before = -1;
     int after = -1;
+    double max_reference = 0.0;
+    double max_abs_error = 0.0;
     int i;
 
     ngSpice_nospinit();
@@ -107,20 +110,35 @@ int main(void)
     time = time_vector->v_realdata;
 
     for (i = 0; i < count; ++i) {
-        if (time[i] <= source_change_time)
+        double reference;
+        double error;
+        if (time[i] <= source_change_time) {
+            reference = 1.0 - exp(-time[i] / (1e3 * 10e-6));
             before = i;
+        } else {
+            double at_change = 1.0 - exp(-source_change_time / (1e3 * 10e-6));
+            reference = at_change *
+                exp(-(time[i] - source_change_time) / (1e3 * 10e-6));
+        }
+        error = fabs(out[i] - reference);
+        if (fabs(reference) > max_reference)
+            max_reference = fabs(reference);
+        if (error > max_abs_error)
+            max_abs_error = error;
         if (after < 0 && time[i] >= source_change_time + 0.1e-3)
             after = i;
     }
     if (before < 0 || after < 0 || after >= count ||
         !(out[before] > 0.04 && out[after] < out[before] &&
-          out[count - 1] < out[after]))
+          out[count - 1] < out[after]) || max_reference <= 0.0 ||
+        max_abs_error / max_reference > 0.01)
         return 7;
 
     printf("PASS: sync calls=%d, source changed at %.9g s, "
-           "RC output %.9g -> %.9g -> %.9g V (%d samples)\n",
+           "RC output %.9g -> %.9g -> %.9g V (%d samples), "
+           "analytic max error %.5g%% of peak\n",
            sync_calls, source_change_time, out[before], out[after],
-           out[count - 1], count);
+           out[count - 1], count, 100.0 * max_abs_error / max_reference);
 
     if (ngSpice_Reset() != 0 || ngGet_Vec_Info(out_name) != NULL)
         return 8;
