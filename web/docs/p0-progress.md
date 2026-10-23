@@ -1,9 +1,10 @@
 # Web workbench P0 tracker
 
-Updated 2026-10-23 (scheduler implementation HEAD `9718aae`). Keep this checklist current as P0 work advances.
+Updated 2026-10-23 (full-suite validation HEAD `3c80ef1`). Keep this checklist current as P0 work advances.
 
 ## Completed
 
+- [x] Re-run full serial CTest after the web scheduler boundary and IRQ work-budget fixes: **108/108 enabled tests pass; one test is disabled**. This includes CLI/worker parity, native web session, WFI/EXTI worker wake, active-core EXTI boundary ordering, flash/TZ parity and GDB harness coverage.
 - [x] Re-run the current full serial CTest suite after live-coupling harness work: build succeeds; **106/106 enabled tests pass** (one disabled), including native session, Emscripten loader/session, worker API, flash/TZ parity and GDB harness tests.
 - [x] Re-run full native CTest after bounded WFI/WFE worker slices: **106/106 enabled tests pass** (one disabled). The Node/WASM worker smoke covers idle WFI pause, queued GPIO deadline advancement across yielding slices, and paused state after the event is consumed without an interrupt.
 - [x] Re-run full CTest with the real H563 WFI/EXTI worker fixture registered: **107/107 enabled tests pass** (one disabled), including the worker's timestamped PA6 event, architectural interrupt wake and success BKPT.
