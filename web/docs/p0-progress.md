@@ -1,6 +1,6 @@
 # Web workbench P0 tracker
 
-Updated 2026-10-23 (HEAD `f178452`). Keep this checklist current as P0 work advances.
+Updated 2026-10-23 (HEAD `c1a04ff`). Keep this checklist current as P0 work advances.
 
 ## Completed
 
