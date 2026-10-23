@@ -649,6 +649,19 @@ if(M33MU_BUILD_TESTS)
       set_tests_properties(wasm_worker_api_test PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
       )
+      find_program(M33MU_ARM_NONE_EABI_GCC arm-none-eabi-gcc)
+      if(M33MU_ARM_NONE_EABI_GCC)
+        add_test(NAME wasm_worker_wfi_exti_test
+          COMMAND "${CMAKE_COMMAND}" -E env
+            "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
+            "M33MU_NODE=${M33MU_NODE}"
+            "M33MU_CLI=$<TARGET_FILE:m33mu>"
+          "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
+            "${CMAKE_SOURCE_DIR}/scripts/test-web-worker-wfi.sh")
+        set_tests_properties(wasm_worker_wfi_exti_test PROPERTIES
+          WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        )
+      endif()
     endif()
   endif()
 endif()

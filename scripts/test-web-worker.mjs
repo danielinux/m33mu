@@ -60,11 +60,16 @@ function waitForEvent(predicate) {
   const existing = messages.find(message =>
     message.kind === 'event' && predicate(message));
   if (existing) return Promise.resolve(existing);
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      clearInterval(timer);
+      reject(new Error('Timed out waiting for worker event'));
+    }, 10000);
     const timer = setInterval(() => {
       const found = messages.find(message =>
         message.kind === 'event' && predicate(message));
       if (found) {
+        clearTimeout(timeout);
         clearInterval(timer);
         resolve(found);
       }
@@ -178,5 +183,24 @@ const wakeState = await waitForEvent(message =>
   message.event === 'state' && message.payload.requestId === wakeRun.requestId &&
   message.payload.sleeping && message.payload.paused);
 assert.ok(BigInt(wakeState.payload.virtualTimeNs) >= 1000000n);
+
+if (process.env.M33MU_WFI_FIRMWARE) {
+  const firmware = new Uint8Array(readFileSync(process.env.M33MU_WFI_FIRMWARE));
+  const wfiExtiLoad = await request('loadFirmware', { bytes: firmware });
+  assert.equal(wfiExtiLoad.ok, true);
+  const pa6Edge = await request('gpioWrite', {
+    socPad: 'PA6', level: true, eventTimeNs: '1000000'
+  });
+  assert.equal(pa6Edge.ok, true);
+  const wfiExtiRun = await request('run');
+  assert.equal(wfiExtiRun.ok, true);
+  const wfiExtiResult = await waitForEvent(message =>
+    message.payload.requestId === wfiExtiRun.requestId &&
+    (message.event === 'fault' ||
+      (message.event === 'state' && message.payload.stopped)));
+  assert.equal(wfiExtiResult.event, 'state');
+  assert.ok(BigInt(wfiExtiResult.payload.virtualTimeNs) >= 1000000n);
+  assert.equal(wfiExtiResult.payload.sleeping, false);
+}
 
 console.log('test-web-worker: ok');
