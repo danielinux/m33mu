@@ -6482,53 +6482,13 @@ int main(int argc, char **argv)
 
             /* Reset CPU state */
             {
-                int i;
-                for (i = 0; i < 16; ++i) cpu.r[i] = 0;
-                for (i = 0; i < 32; ++i) cpu.s[i] = 0;
-                cpu.xpsr = 0;
-                cpu.fpscr = 0;
-                cpu.fp_active = MM_FALSE;
-                cpu.sec_state = MM_SECURE;
-                cpu.mode = MM_THREAD;
-                cpu.priv_s = MM_FALSE;
-                cpu.priv_ns = MM_FALSE;
-                cpu.control_s = cpu.control_ns = 0;
-                cpu.primask_s = cpu.primask_ns = 0;
-                cpu.basepri_s = cpu.basepri_ns = 0;
-                cpu.faultmask_s = cpu.faultmask_ns = 0;
-                cpu.msp_s = cpu.msp_ns = 0;
-                cpu.psp_s = cpu.psp_ns = 0;
-                cpu.vtor_s = boot_base_s;
-                cpu.vtor_ns = boot_base_ns;
-                cpu.exc_depth = 0;
-                cpu.tz_depth = 0;
-                cpu.sleeping = MM_FALSE;
-                cpu.sleep_wfe = MM_FALSE;
-                cpu.event_reg = MM_FALSE;
+                mm_cpu_reset(&cpu, boot_base_s, boot_base_ns, MM_FALSE, MM_FALSE);
                 apply_target_boot_seed_regs(&cpu, cpu_name);
+                it_pattern = 0;
+                it_remaining = 0;
+                it_cond = 0;
                 if (cfg.core_count > 1u) {
-                    for (i = 0; i < 16; ++i) cpu1.r[i] = 0;
-                    for (i = 0; i < 32; ++i) cpu1.s[i] = 0;
-                    cpu1.xpsr = 0;
-                    cpu1.fpscr = 0;
-                    cpu1.fp_active = MM_FALSE;
-                    cpu1.sec_state = MM_SECURE;
-                    cpu1.mode = MM_THREAD;
-                    cpu1.priv_s = MM_FALSE;
-                    cpu1.priv_ns = MM_FALSE;
-                    cpu1.control_s = cpu1.control_ns = 0;
-                    cpu1.primask_s = cpu1.primask_ns = 0;
-                    cpu1.basepri_s = cpu1.basepri_ns = 0;
-                    cpu1.faultmask_s = cpu1.faultmask_ns = 0;
-                    cpu1.msp_s = cpu1.msp_ns = 0;
-                    cpu1.psp_s = cpu1.psp_ns = 0;
-                    cpu1.vtor_s = boot_base_s;
-                    cpu1.vtor_ns = boot_base_ns;
-                    cpu1.exc_depth = 0;
-                    cpu1.tz_depth = 0;
-                    cpu1.sleeping = MM_TRUE;
-                    cpu1.sleep_wfe = MM_TRUE;
-                    cpu1.event_reg = MM_FALSE;
+                    mm_cpu_reset(&cpu1, boot_base_s, boot_base_ns, MM_TRUE, MM_TRUE);
                     apply_target_boot_seed_regs(&cpu1, cpu_name);
                     it_pattern1 = 0;
                     it_remaining1 = 0;

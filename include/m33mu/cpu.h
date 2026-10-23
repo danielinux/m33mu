@@ -146,6 +146,14 @@ struct mm_cpu {
     mm_u32 vlstm_stack;
 };
 
+/* Reset all architectural CPU state. Vector-table loading and target-specific
+ * boot register seeds are applied by the caller after this base reset. */
+void mm_cpu_reset(struct mm_cpu *cpu,
+                  mm_u32 vtor_s,
+                  mm_u32 vtor_ns,
+                  mm_bool sleeping,
+                  mm_bool sleep_wfe);
+
 /* Accessors for banked SP and SPLIM based on mode and security. */
 mm_u32 mm_cpu_get_active_sp(const struct mm_cpu *cpu);
 void mm_cpu_set_active_sp(struct mm_cpu *cpu, mm_u32 value);

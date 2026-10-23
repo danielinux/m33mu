@@ -21,6 +21,26 @@
 
 #include "m33mu/cpu.h"
 
+#include <string.h>
+
+void mm_cpu_reset(struct mm_cpu *cpu,
+                  mm_u32 vtor_s,
+                  mm_u32 vtor_ns,
+                  mm_bool sleeping,
+                  mm_bool sleep_wfe)
+{
+    if (cpu == 0) {
+        return;
+    }
+    memset(cpu, 0, sizeof(*cpu));
+    cpu->vtor_s = vtor_s;
+    cpu->vtor_ns = vtor_ns;
+    cpu->sec_state = MM_SECURE;
+    cpu->mode = MM_THREAD;
+    cpu->sleeping = sleeping;
+    cpu->sleep_wfe = sleep_wfe;
+}
+
 #define CONTROL_SPSEL_MASK 0x2u
 
 static mm_bool control_sp_sel(const struct mm_cpu *cpu)
