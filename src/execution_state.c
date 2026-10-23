@@ -386,6 +386,16 @@ void mm_execution_state_reset_soc(struct mm_execution_state *state)
     mm_timer_reset(&state->target);
 }
 
+void mm_execution_state_reset_core_system(
+    struct mm_execution_state *state)
+{
+    if (state == 0) {
+        return;
+    }
+    memset(&state->core_sys, 0, sizeof(state->core_sys));
+    state->core_sys.dwt.vcycles = &state->clock.virtual_cycles;
+}
+
 void mm_execution_state_init_target_devices(struct mm_execution_state *state)
 {
     if (state == 0) {
@@ -402,6 +412,50 @@ void mm_execution_state_init_target_devices(struct mm_execution_state *state)
                        &state->cores[0].nvic);
     mm_timer_init(&state->target, &state->map.mmio,
                   &state->cores[0].nvic);
+}
+
+mm_bool mm_execution_state_init_core_system(
+    struct mm_execution_state *state,
+    mm_u32 cpuid)
+{
+    mm_u32 i;
+    if (state == 0 || state->target.core_count == 0u ||
+        state->target.core_count > 2u || state->map.mmio.regions == 0) {
+        return MM_FALSE;
+    }
+    memset(&state->scs_mux, 0, sizeof(state->scs_mux));
+    for (i = 0u; i < state->target.core_count; ++i) {
+        mm_scs_init(&state->cores[i].scs, cpuid);
+        mm_scs_set_fpu_present(
+            &state->cores[i].scs,
+            (state->target.flags & MM_TARGET_FLAG_FPU) != 0u);
+    }
+    if (state->target.core_count > 1u) {
+        state->scs_mux.scs[0] = &state->cores[0].scs;
+        state->scs_mux.scs[1] = &state->cores[1].scs;
+        state->scs_mux.nvic[0] = &state->cores[0].nvic;
+        state->scs_mux.nvic[1] = &state->cores[1].nvic;
+        state->scs_mux.core_count = state->target.core_count;
+        state->scs_mux.active_core = &state->active_core;
+        mm_scs_register_regions_multi(&state->scs_mux, &state->map.mmio,
+                                      0xE000ED00u, 0xE002ED00u);
+    } else {
+        mm_scs_register_regions(&state->cores[0].scs, &state->map.mmio,
+                                0xE000ED00u, 0xE002ED00u,
+                                &state->cores[0].nvic);
+    }
+    if ((state->target.flags & MM_TARGET_FLAG_FPU) != 0u) {
+        for (i = 0u; i < state->target.core_count; ++i) {
+            state->cores[i].scs.cpacr_s |= 0x00F00000u;
+            state->cores[i].scs.cpacr_ns |= 0x00F00000u;
+            state->cores[i].scs.nsacr |= (1u << 10) | (1u << 11);
+        }
+    }
+    state->core_sys.dwt.vcycles = &state->clock.virtual_cycles;
+    if (!mm_core_sys_register(&state->map.mmio, &state->core_sys)) {
+        return MM_FALSE;
+    }
+    return MM_TRUE;
 }
 
 void mm_execution_state_poll_target_devices(

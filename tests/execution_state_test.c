@@ -813,6 +813,57 @@ static int test_session_bounded_elf_load(void)
     return 0;
 }
 
+static int test_session_core_system_setup(void)
+{
+    struct mm_execution_state state;
+    mm_u32 i;
+    if (!mm_execution_state_init(&state) ||
+        !mm_execution_state_select_target(&state, "stm32h563")) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_init_memory_map(&state);
+    mm_execution_state_reset_core_system(&state);
+    if (!mm_execution_state_init_core_system(&state, 0x410fc241u) ||
+        state.cores[0].scs.cpuid != 0x410fc241u ||
+        state.core_sys.dwt.vcycles != &state.clock.virtual_cycles ||
+        state.map.mmio.region_count == 0u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    if ((state.target.flags & MM_TARGET_FLAG_FPU) != 0u) {
+        for (i = 0u; i < state.target.core_count; ++i) {
+            if ((state.cores[i].scs.cpacr_s & 0x00F00000u) != 0x00F00000u ||
+                (state.cores[i].scs.cpacr_ns & 0x00F00000u) != 0x00F00000u ||
+                (state.cores[i].scs.nsacr & ((1u << 10) | (1u << 11))) !=
+                    ((1u << 10) | (1u << 11))) {
+                mm_execution_state_destroy(&state);
+                return 1;
+            }
+        }
+    }
+    mm_execution_state_destroy(&state);
+
+    if (!mm_execution_state_init(&state) ||
+        !mm_execution_state_select_target(&state, "imxrt700")) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_init_memory_map(&state);
+    mm_execution_state_reset_core_system(&state);
+    if (!mm_execution_state_init_core_system(&state, 0x410fc241u) ||
+        state.scs_mux.core_count != 2u ||
+        state.scs_mux.scs[0] != &state.cores[0].scs ||
+        state.scs_mux.scs[1] != &state.cores[1].scs ||
+        state.scs_mux.nvic[0] != &state.cores[0].nvic ||
+        state.scs_mux.nvic[1] != &state.cores[1].nvic) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
 int main(void)
 {
     struct mm_execution_state state;
@@ -859,6 +910,10 @@ int main(void)
     }
     if (test_session_bounded_elf_load() != 0) {
         fprintf(stderr, "execution_state_test: bounded session ELF load failed\n");
+        return 1;
+    }
+    if (test_session_core_system_setup() != 0) {
+        fprintf(stderr, "execution_state_test: core-system setup failed\n");
         return 1;
     }
     if (test_dual_core_reset_keeps_staged_peripheral_state() != 0) {

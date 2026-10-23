@@ -98,6 +98,13 @@ mm_bool mm_execution_state_configure_memory(struct mm_execution_state *state);
 void mm_execution_state_init_code_cache(struct mm_execution_state *state);
 void mm_execution_state_reset_soc(struct mm_execution_state *state);
 void mm_execution_state_init_target_devices(struct mm_execution_state *state);
+void mm_execution_state_reset_core_system(
+    struct mm_execution_state *state);
+/* Initialize the owned SCS/NVIC routing registers and core-system MMIO after
+ * target/MMIO registration, at the CLI's existing startup point. */
+mm_bool mm_execution_state_init_core_system(
+    struct mm_execution_state *state,
+    mm_u32 cpuid);
 /* Service target-owned device callbacks; the due variant resets the owned
  * poll quantum only when the configured cycle threshold has been reached. */
 void mm_execution_state_poll_target_devices(

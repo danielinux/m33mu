@@ -6069,10 +6069,7 @@ int main(int argc, char **argv)
                 }
             }
 #endif
-            memset(&execution.core_sys, 0, sizeof(execution.core_sys));
-            execution.core_sys.dwt.vcycles = &execution.clock.virtual_cycles;
-            execution.core_sys.dwt.ctrl = 0u;
-            execution.core_sys.dwt.cyccnt_base = 0u;
+            mm_execution_state_reset_core_system(&execution);
             mm_execution_state_init_code_cache(&execution);
             {
                 if (opt_boot_offset) {
@@ -6249,32 +6246,13 @@ int main(int argc, char **argv)
             mm_target_flash_bind(&execution.target, &execution.map, flash, execution.target.flash_size_s, persist.enabled ? &persist : 0);
             mm_execution_state_init_target_devices(&execution);
 
-            mm_scs_init(&execution.cores[0].scs, 0x410fc241u);
-            mm_scs_set_fpu_present(&execution.cores[0].scs, (execution.target.flags & MM_TARGET_FLAG_FPU) != 0u);
-            if (execution.target.core_count > 1u) {
-                mm_scs_init(&execution.cores[1].scs, 0x410fc241u);
-                mm_scs_set_fpu_present(&execution.cores[1].scs, (execution.target.flags & MM_TARGET_FLAG_FPU) != 0u);
-                execution.scs_mux.scs[0] = &execution.cores[0].scs;
-                execution.scs_mux.scs[1] = &execution.cores[1].scs;
-                execution.scs_mux.nvic[0] = &execution.cores[0].nvic;
-                execution.scs_mux.nvic[1] = &execution.cores[1].nvic;
-                execution.scs_mux.core_count = execution.target.core_count;
-                execution.scs_mux.active_core = &execution.active_core;
-                mm_scs_register_regions_multi(&execution.scs_mux, &execution.map.mmio, 0xE000ED00u, 0xE002ED00u);
-            } else {
-                mm_scs_register_regions(&execution.cores[0].scs, &execution.map.mmio, 0xE000ED00u, 0xE002ED00u, &execution.cores[0].nvic);
+            if (!mm_execution_state_init_core_system(&execution,
+                                                       0x410fc241u)) {
+                fprintf(stderr, "Failed to initialize core system for CPU %s\n",
+                        (cpu_name != 0) ? cpu_name : "unknown");
+                rc = 1;
+                goto cleanup;
             }
-            if ((execution.target.flags & MM_TARGET_FLAG_FPU) != 0u) {
-                execution.cores[0].scs.cpacr_s |= 0x00F00000u;
-                execution.cores[0].scs.cpacr_ns |= 0x00F00000u;
-                execution.cores[0].scs.nsacr |= (1u << 10) | (1u << 11);
-                if (execution.target.core_count > 1u) {
-                    execution.cores[1].scs.cpacr_s |= 0x00F00000u;
-                    execution.cores[1].scs.cpacr_ns |= 0x00F00000u;
-                    execution.cores[1].scs.nsacr |= (1u << 10) | (1u << 11);
-                }
-            }
-            mm_core_sys_register(&execution.map.mmio, &execution.core_sys);
             mm_prot_init(&execution.protection[0], &execution.cores[0].scs, &execution.target, &execution.cores[0].cpu);
             if (execution.target.core_count > 1u) {
                 mm_prot_init(&execution.protection[1], &execution.cores[1].scs, &execution.target, &execution.cores[1].cpu);
