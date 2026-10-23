@@ -9,9 +9,9 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [x] Build PR #15 from a clean archive with optional integrations disabled; its native build succeeds and CTest passes 90/90 enabled tests (one disabled).
 - [x] Build and run representative PR #15 H563 EXTI and timer capture firmware fixtures, plus H5F4 GPIO input fixture; all report expected breakpoint success.
 - [x] Merge the tested PR #15 head locally as `5799dd5`. Signal input remains digital-level injection and output remains `0/1/Z` observation; ADC is still a design, not implemented.
-- [x] Rebuild after loader extraction and run serial CTest: current suite has 95/95 enabled tests passing (one disabled), including the new Node-hosted WASM loader smoke. An earlier parallel harness run hit sandbox socket denial; isolated and serial runs pass.
+- [x] Rebuild after Emscripten core and loader work and run serial CTest: current suite has 96/96 enabled tests passing (one disabled), including the core-build and Node-hosted WASM loader smokes. An earlier parallel harness run hit sandbox socket denial; isolated and serial runs pass.
 - [x] Confirm Emscripten 6.0.5 and Node 24 are available.
-- [x] Attempt full CMake Emscripten build with tests and optional integrations disabled. It fails at `src/m33mu/eth_backend.c:16` due to missing Linux-only `linux/if.h`, confirming CMake's broad source set needs a dedicated web target.
+- [x] Attempt the broad root CMake Emscripten build; it fails at `src/m33mu/eth_backend.c:16` due to Linux-only `linux/if.h`. Add `cmake/wasm` static-core target excluding host modules, with repeatable `scripts/build-web-core.sh`; its CTest smoke passes. This target is a compileable core, not a runnable browser emulator.
 - [x] Verify H563 electrical signal mappings from ST's pinned CubeH5 example: PA5 is CN7 pin 10; PA6 is CN9 pin 1. Record the evidence in `web/boards/nucleo-h563zi-pins.json`. Exact schematic revision and artwork-anchor reconciliation remain open, so both contacts stay electrically disabled.
 - [x] Parse the supplied 15-board artwork manifest and confirm its policy leaves electrical wiring disabled; H563 has zero artwork pins marked verified.
 - [x] Record current implementation limits and per-target board/GPIO status in `current-capabilities.md`.
@@ -19,7 +19,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 
 ## In progress / next
 
-- [ ] Build an explicit Emscripten source target without Linux network, terminal, debugger socket and optional native plugins. Initial full-build probe failed at `eth_backend.c` on `linux/if.h`.
+- [x] Build an explicit Emscripten source target without Linux network, terminal, debugger socket and optional native plugins. Initial broad-build probe failed at `eth_backend.c` on `linux/if.h`; the dedicated static-core target now builds.
 - [ ] Extract the production firmware execution path into a one-session API; do not use `src/runloop.c` as a substitute. Shared in-memory ELF32/ARM loading is implemented by `mm_elf_load_memory()` and builds with Emscripten.
 - [x] Run the new in-memory ELF loader tests as a Node-hosted WASM module using `scripts/test-web-elf-loader.sh`; all loader fixtures pass.
 - [x] Register the Node-hosted WASM loader smoke in CTest when both Emscripten and Node are found; focused CTest passes.

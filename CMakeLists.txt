@@ -603,7 +603,18 @@ if(M33MU_BUILD_TESTS)
     )
   endif()
   find_program(M33MU_EMCC emcc)
+  find_program(M33MU_EMCMAKE emcmake)
   find_program(M33MU_NODE node)
+  if(M33MU_EMCMAKE)
+    add_test(NAME wasm_core_build_test
+      COMMAND "${CMAKE_COMMAND}" -E env
+        "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
+        "${CMAKE_SOURCE_DIR}/scripts/build-web-core.sh"
+        "${CMAKE_BINARY_DIR}/wasm-core-smoke")
+    set_tests_properties(wasm_core_build_test PROPERTIES
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+  endif()
   if(M33MU_EMCC AND M33MU_NODE)
     add_test(NAME wasm_elf_loader_test
       COMMAND "${CMAKE_COMMAND}" -E env
