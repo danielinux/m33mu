@@ -36,6 +36,7 @@ void Reset_Handler(void)
     SYST_CVR = 0;
     SYST_CSR = SYST_CSR_ENABLE | SYST_CSR_CLKSOURCE;
 
+    signal_trigger_marker();
     for (t = 0; t < TOGGLE_COUNT; ++t) {
         uint32_t start_cvr = SYST_CVR;
         uint32_t elapsed;

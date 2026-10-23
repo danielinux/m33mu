@@ -3,11 +3,11 @@
   "provenance": {
     "solver": "Perun / CircuitJS1 TypeScript port",
     "solverRevision": "067d1c9c59e27f72f6498ec224f3735d0da6364a",
-    "probe": "temporary staged m33mu output -> RC -> m33mu EXTI probe; output and EXTI firmware runs are separate",
+    "probe": "reproducible staged m33mu output -> Perun RC -> m33mu EXTI; firmware and solver run in separate passes",
     "outputFixture": "test-stm32h5f4-signal-output-timing",
     "extiFixture": "test-stm32h563-signal-exti-both",
     "syncMarker": "signal_trigger_marker",
-    "extiReplay": "expected BKPT 0x7f; observed success after 13191 virtual cycles",
+    "extiReplay": "expected BKPT 0x7f; replay is checked by run-web-coupling-probe.sh",
     "license": "GPL-2.0-or-later; evaluation only, no solver source imported"
   },
   "circuit": {
@@ -21,31 +21,31 @@
   },
   "sourceEvents": [
     {
-      "t": -94,
+      "t": -265,
       "level": 0
     },
     {
-      "t": 47250,
+      "t": 47203,
       "level": 1
     },
     {
-      "t": 94485,
+      "t": 94438,
       "level": 0
     },
     {
-      "t": 141719,
+      "t": 141672,
       "level": 1
     },
     {
-      "t": 188953,
+      "t": 188906,
       "level": 0
     },
     {
-      "t": 236188,
+      "t": 236141,
       "level": 1
     },
     {
-      "t": 283422,
+      "t": 283375,
       "level": 0
     }
   ],

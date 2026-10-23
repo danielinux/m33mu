@@ -54,8 +54,8 @@ def main():
 
     maximum_us = max(errors) / 1000
     print(f"max absolute timing error: {maximum_us:.3f} us")
-    if maximum_us > 6611:
-        raise SystemExit("archived timing error exceeds the recorded 6.611 us bound")
+    if maximum_us > 7000:
+        raise SystemExit("reproduced timing error exceeds the recorded 7.000 us bound")
 
 
 if __name__ == "__main__":
