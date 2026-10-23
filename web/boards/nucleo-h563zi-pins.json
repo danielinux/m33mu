@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "boardId": "nucleo-h563zi",
   "cpu": "stm32h563",
-  "boardRevision": "NUCLEO-H563ZI / MB1404 C01 schematic identified; drawing not yet inspected; sprite connector IDs do not match verified headers",
+  "boardRevision": "NUCLEO-H563ZI / MB1404 C-01; official schematic pack v2.0 and UM3115 Rev 2 inspected; sprite connector artwork remains provisional",
   "electricalMapStatus": "signal-mapping-verified; artwork-anchor-pending",
   "sources": [
     {
@@ -12,10 +12,16 @@
       "evidence": "Board setup connects PA5 at CN7 pin 10 and PA6 at CN9 pin 1."
     },
     {
-      "kind": "manufacturer-document-index",
-      "url": "https://github.com/Open-CMSIS-Pack/ST_NUCLEO-H563ZI_BSP/blob/6df9cce5bfaa9cd744fc04df5a96fe01c977b6c1/Documents/README.md",
-      "revision": "6df9cce5bfaa9cd744fc04df5a96fe01c977b6c1",
-      "evidence": "ST identifies the board as MB1404 and links the C01 schematic pack. The schematic drawing itself has not been reviewed in this worktree."
+      "kind": "manufacturer-schematic",
+      "url": "https://www.st.com/resource/en/schematic_pack/mb1404-h563zi-c01-schematic.pdf",
+      "revision": "MB1404 H563ZI C-01, schematic pack v2.0 (2025-01-27); sheet 6/9 is titled Connectors",
+      "evidence": "ST schematic-pack index and extracted PDF text identify the exact MB1404 H563ZI C-01 drawing and connector sheet. The connector footprint artwork has not been visually aligned to the supplied sprite anchors."
+    },
+    {
+      "kind": "manufacturer-user-manual",
+      "url": "https://www.st.com/resource/en/user_manual/um3115-stm32h5-nucleo144-board-mb1404-stmicroelectronics.pdf",
+      "revision": "UM3115 Rev 2, STM32H5 Nucleo-144 board MB1404",
+      "evidence": "Figure 17 identifies physical CN7/CN8/CN9/CN10 locations; Table 21 lists CN7 pin 10 as PA5 and Table 23 lists CN9 pin 1 as PA6."
     }
   ],
   "contacts": [
@@ -23,7 +29,9 @@
       "connectorId": "CN7",
       "physicalPadNumber": 10,
       "socPad": "PA5",
-      "peripheralFunctions": ["GPIO"],
+      "peripheralFunctions": [
+        "GPIO"
+      ],
       "signalMappingVerified": true,
       "artworkAnchorVerified": false,
       "electricalEnabled": false
@@ -32,7 +40,9 @@
       "connectorId": "CN9",
       "physicalPadNumber": 1,
       "socPad": "PA6",
-      "peripheralFunctions": ["GPIO"],
+      "peripheralFunctions": [
+        "GPIO"
+      ],
       "signalMappingVerified": true,
       "artworkAnchorVerified": false,
       "electricalEnabled": false
@@ -41,6 +51,6 @@
   "review": {
     "reviewer": "Codex",
     "reviewedAt": "2026-10-23",
-    "note": "The official firmware example verifies signal-to-header mappings, and ST's board-document index identifies the MB1404 C01 schematic. The supplied sprite layout has CN11/CN12 and ZIO_D/ZIO_A identifiers, but no CN7/CN9 contacts; its README calls connector identities and geometry provisional. The schematic drawing and artwork anchors have not been reconciled; both contacts remain electrically disabled."
+    "note": "ST CubeH5 firmware and UM3115 Rev 2 confirm PA5/CN7-10 and PA6/CN9-1. The official MB1404 C-01 schematic pack v2.0 identifies sheet 6 as Connectors. The supplied sprite README states its connector identities and geometry are provisional; its H563 layout contains CN11/CN12 and ZIO_D/ZIO_A, not CN7/CN9. Mapping evidence is verified, but no artwork contact anchor is established; both contacts remain electrically disabled."
   }
 }
