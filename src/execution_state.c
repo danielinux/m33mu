@@ -576,6 +576,16 @@ mm_u64 mm_execution_state_signal_now_ns(
     return mm_signal_now_ns();
 }
 
+mm_bool mm_execution_state_signal_reset(
+    struct mm_execution_state *state)
+{
+    if (state == 0 || state != g_active_execution_state) {
+        return MM_FALSE;
+    }
+    mm_signal_reset();
+    return MM_TRUE;
+}
+
 mm_bool mm_execution_state_signal_set_cpu_hz(
     struct mm_execution_state *state,
     mm_u64 hz)
