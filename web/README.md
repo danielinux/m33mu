@@ -15,4 +15,4 @@ npm --prefix web run dev
 
 The app build compiles the Emscripten worker into `web/public/worker/` and builds the static app into `web/dist/`. The worker and board assets are served locally. No server-side emulator, CDN font, or network service is required at runtime.
 
-The development toolchain requires Node.js/npm, CMake, and Emscripten. The worker currently runs H563 firmware only, through the production session bridge. The 512-instruction worker slices yield to browser messages between slices.
+The development toolchain requires Node.js/npm, CMake, and Emscripten. The worker currently runs H563 firmware only, through the production session bridge. Run slices are bounded to 512 scheduler work units and yield to browser messages, including during long WFI/WFE waits with a scheduled wake source.

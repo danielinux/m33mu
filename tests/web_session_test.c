@@ -326,6 +326,52 @@ int main(void)
         fprintf(stderr, "web_session_test: WFI scheduler handling failed\n");
         return 1;
     }
+    {
+        mm_u64 previous_cycles = cpu.virtual_cycles;
+        mm_u64 wake_time_ns = 100000u;
+        mm_u32 slices = 0u;
+        if (mm_web_schedule_gpio_input(session, "PA5", MM_TRUE,
+                                       wake_time_ns) != MM_WEB_OK ||
+            !mm_web_has_pending_deadline(session)) {
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: sleeping deadline not reported\n");
+            return 1;
+        }
+        if (mm_web_step_instructions(session, 1u, &step) != MM_WEB_OK ||
+            step.instructions != 0u ||
+            mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+            !cpu.sleeping || cpu.virtual_cycles - previous_cycles > 64u ||
+            !mm_web_has_pending_deadline(session)) {
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: bounded sleeping step failed\n");
+            return 1;
+        }
+        previous_cycles = cpu.virtual_cycles;
+        while (slices < 64u && previous_cycles < 6400u) {
+            mm_u64 current_cycles;
+            if (mm_web_run_slice(session, 8u, 2u, &step) != MM_WEB_OK ||
+                mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+                step.instructions != 0u || !cpu.sleeping) {
+                mm_web_destroy(session);
+                fprintf(stderr, "web_session_test: bounded sleeping slice failed\n");
+                return 1;
+            }
+            current_cycles = cpu.virtual_cycles;
+            if (current_cycles - previous_cycles > 128u) {
+                mm_web_destroy(session);
+                fprintf(stderr, "web_session_test: sleep slice exceeded work budget\n");
+                return 1;
+            }
+            previous_cycles = current_cycles;
+            slices++;
+        }
+        if (cpu.virtual_cycles != 6400u || slices < 2u ||
+            mm_web_has_pending_deadline(session)) {
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: scheduled deadline was not consumed\n");
+            return 1;
+        }
+    }
     mm_web_destroy(session);
     puts("web_session_test: ok");
     return 0;

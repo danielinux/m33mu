@@ -156,10 +156,13 @@ static mm_bool web_apply_due_gpio_events(struct mm_web_session *session)
     while (session->gpio_event_count != 0u &&
            session->gpio_events[0].cycle <= state->clock.virtual_cycles) {
         struct mm_web_gpio_event event = session->gpio_events[0];
-        if (!mm_gpio_set_external_input(event.bank, event.pin,
-                                        event.level, 0u)) {
+        if (!mm_gpio_external_input_writer_present()) {
             return MM_FALSE;
         }
+        /* The board model accepts a pad stimulus even when the current GPIO
+         * mode hides it from IDR (for example, reset-default analog mode). */
+        (void)mm_gpio_set_external_input(event.bank, event.pin,
+                                         event.level, 0u);
         if (session->gpio_event_count > 1u) {
             memmove(&session->gpio_events[0], &session->gpio_events[1],
                     (session->gpio_event_count - 1u) *
@@ -488,15 +491,18 @@ enum mm_web_error mm_web_reset(struct mm_web_session *session)
     return MM_WEB_OK;
 }
 
-enum mm_web_error mm_web_step_instructions(
+static enum mm_web_error web_execute_budgeted(
     struct mm_web_session *session,
     mm_u32 instruction_budget,
+    mm_u32 work_budget,
     struct mm_web_step_result *result_out)
 {
     struct mm_execution_state *state;
     mm_u32 i;
+    mm_u32 work;
     if (result_out != 0) memset(result_out, 0, sizeof(*result_out));
-    if (session == 0 || result_out == 0 || instruction_budget == 0u) {
+    if (session == 0 || result_out == 0 || instruction_budget == 0u ||
+        work_budget == 0u) {
         return MM_WEB_INVALID_ARGUMENT;
     }
     if (!session->loaded) return MM_WEB_NOT_BOOTED;
@@ -506,7 +512,9 @@ enum mm_web_error mm_web_step_instructions(
     }
     state = &session->execution;
     i = 0u;
-    while (i < instruction_budget && !session->stopped) {
+    work = 0u;
+    while (i < instruction_budget && work < work_budget &&
+           !session->stopped) {
         struct mm_execute_ctx context;
         struct mm_fetch_result fetch;
         struct mm_decoded decoded;
@@ -542,6 +550,7 @@ enum mm_web_error mm_web_step_instructions(
             mm_execution_state_advance_cycles(
                 state, 0u, delta, MM_TRUE,
                 state->cores[0].cpu.r[15] & ~1u);
+            work++;
             (void)mm_execution_state_poll_target_devices_if_due(
                 state, MM_WEB_TARGET_POLL_CYCLES);
             if (!web_apply_due_gpio_events(session)) {
@@ -555,6 +564,7 @@ enum mm_web_error mm_web_step_instructions(
             result_out->error = MM_WEB_INITIALIZATION_FAILED;
             return result_out->error;
         }
+        work++;
         if (!web_apply_due_gpio_events(session)) {
             result_out->error = MM_WEB_EXECUTION_FAULT;
             return result_out->error;
@@ -616,6 +626,44 @@ enum mm_web_error mm_web_step_instructions(
     return MM_WEB_OK;
 }
 
+enum mm_web_error mm_web_step_instructions(
+    struct mm_web_session *session,
+    mm_u32 instruction_budget,
+    struct mm_web_step_result *result_out)
+{
+    return web_execute_budgeted(session, instruction_budget, instruction_budget,
+                                result_out);
+}
+
+enum mm_web_error mm_web_run_slice(
+    struct mm_web_session *session,
+    mm_u32 instruction_budget,
+    mm_u32 work_budget,
+    struct mm_web_step_result *result_out)
+{
+    return web_execute_budgeted(session, instruction_budget, work_budget,
+                                result_out);
+}
+
+mm_bool mm_web_has_pending_deadline(
+    const struct mm_web_session *session)
+{
+    mm_u64 host_deadline = 0u;
+    mm_u64 now;
+    mm_u64 event_cycle;
+    if (session == 0 || !session->loaded ||
+        !session->execution.cores[0].cpu.sleeping) {
+        return MM_FALSE;
+    }
+    if (session->gpio_event_count != 0u) {
+        now = session->execution.clock.virtual_cycles;
+        event_cycle = session->gpio_events[0].cycle;
+        host_deadline = event_cycle > now ? event_cycle - now : 1u;
+    }
+    return mm_execution_state_cycles_until_wake(
+        &session->execution, 0u, host_deadline) != (mm_u64)-1;
+}
+
 enum mm_web_error mm_web_set_gpio_input(
     struct mm_web_session *session,
     const char *soc_pad,
@@ -653,8 +701,11 @@ enum mm_web_error mm_web_schedule_gpio_input(
         return MM_WEB_INVALID_ARGUMENT;
     }
     if (event_cycle <= session->execution.clock.virtual_cycles) {
-        return mm_gpio_set_external_input(bank, pin, level, 0u) ?
-            MM_WEB_OK : MM_WEB_EXECUTION_FAULT;
+        if (!mm_gpio_external_input_writer_present()) {
+            return MM_WEB_EXECUTION_FAULT;
+        }
+        (void)mm_gpio_set_external_input(bank, pin, level, 0u);
+        return MM_WEB_OK;
     }
     if (session->gpio_event_count >= MM_WEB_GPIO_EVENT_CAPACITY) {
         return MM_WEB_EVENT_QUEUE_FULL;

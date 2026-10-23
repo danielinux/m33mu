@@ -153,4 +153,30 @@ const badPad = await request('gpioWrite', {
 assert.equal(badPad.ok, false);
 assert.equal(badPad.error.code, 'INVALID_ARGUMENT');
 
+const wfiLoad = await request('loadFirmware', {
+  bytes: h563Elf([0xbf30, 0xbeab])
+});
+assert.equal(wfiLoad.ok, true);
+const idleRun = await request('run');
+assert.equal(idleRun.ok, true);
+const idleState = await waitForEvent(message =>
+  message.event === 'state' && message.payload.requestId === idleRun.requestId);
+assert.equal(idleState.payload.sleeping, true);
+assert.equal(idleState.payload.paused, true);
+
+const wakeInput = await request('gpioWrite', {
+  socPad: 'PA5', level: true, eventTimeNs: '1000000'
+});
+assert.equal(wakeInput.ok, true);
+const wakeRun = await request('run');
+assert.equal(wakeRun.ok, true);
+const yieldingSleep = await waitForEvent(message =>
+  message.event === 'state' && message.payload.requestId === wakeRun.requestId &&
+  message.payload.sleeping && !message.payload.paused);
+assert.ok(BigInt(yieldingSleep.payload.virtualTimeNs) < 1000000n);
+const wakeState = await waitForEvent(message =>
+  message.event === 'state' && message.payload.requestId === wakeRun.requestId &&
+  message.payload.sleeping && message.payload.paused);
+assert.ok(BigInt(wakeState.payload.virtualTimeNs) >= 1000000n);
+
 console.log('test-web-worker: ok');

@@ -63,7 +63,8 @@ typedef void (*mm_web_pad_listener_fn)(void *opaque,
                                        const char *soc_pad,
                                        mm_u8 level);
 
-/* Initial P0 bridge. Stepping is instruction-budgeted and stops on BKPT;
+/* Initial P0 bridge. Stepping is instruction-budgeted, bounds sleep-time
+ * advancement by the same budget, and stops on BKPT;
  * supported architectural exceptions use shared entry/unstack behavior, while
  * unhandled faults return errors. It is not yet the complete CLI scheduler.
  * Sessions are process-singleton while target GPIO/peripheral state
@@ -78,6 +79,19 @@ enum mm_web_error mm_web_step_instructions(
     struct mm_web_session *session,
     mm_u32 instruction_budget,
     struct mm_web_step_result *result_out);
+/* Execute a yielding scheduler slice. The work budget counts scheduler
+ * iterations, including bounded sleep-time advancement, so long WFI/WFE waits
+ * return to the host between slices. */
+enum mm_web_error mm_web_run_slice(
+    struct mm_web_session *session,
+    mm_u32 instruction_budget,
+    mm_u32 work_budget,
+    struct mm_web_step_result *result_out);
+/* True while a sleeping core has a queued GPIO event or future SysTick/signal
+ * deadline that requires virtual-time advancement. The event itself may not
+ * wake the core unless firmware has configured the corresponding interrupt. */
+mm_bool mm_web_has_pending_deadline(
+    const struct mm_web_session *session);
 /* Apply an input transition at the current virtual time. */
 enum mm_web_error mm_web_set_gpio_input(
     struct mm_web_session *session,

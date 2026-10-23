@@ -29,6 +29,22 @@ int mm_web_abi_step(void *session, unsigned int budget)
     return (int)g_last_error;
 }
 
+int mm_web_abi_run_slice(void *session,
+                         unsigned int instruction_budget,
+                         unsigned int work_budget)
+{
+    g_last_error = mm_web_run_slice(
+        (struct mm_web_session *)session, (mm_u32)instruction_budget,
+        (mm_u32)work_budget, &g_last_step);
+    return (int)g_last_error;
+}
+
+unsigned int mm_web_abi_has_pending_deadline(void *session)
+{
+    return mm_web_has_pending_deadline(
+        (const struct mm_web_session *)session) ? 1u : 0u;
+}
+
 int mm_web_abi_reset(void *session)
 {
     g_last_error = mm_web_reset((struct mm_web_session *)session);

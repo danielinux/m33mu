@@ -54,6 +54,10 @@ export function attachM33muWorker(scope, createModule) {
         create: wrap('mm_web_abi_create', 'number', []),
         load: wrap('mm_web_abi_load', 'number', ['number', 'number', 'number']),
         step: wrap('mm_web_abi_step', 'number', ['number', 'number']),
+        runSlice: wrap('mm_web_abi_run_slice', 'number',
+          ['number', 'number', 'number']),
+        hasPendingDeadline: wrap('mm_web_abi_has_pending_deadline', 'number',
+          ['number']),
         reset: wrap('mm_web_abi_reset', 'number', ['number']),
         gpio: wrap('mm_web_abi_gpio_input', 'number',
           ['number', 'string', 'number', 'number', 'number']),
@@ -157,7 +161,7 @@ export function attachM33muWorker(scope, createModule) {
 
   function runSlice(generation, requestId) {
     if (generation !== runGeneration || !session) return;
-    const status = api.step(session, RUN_SLICE);
+    const status = api.runSlice(session, RUN_SLICE, RUN_SLICE);
     if (!drainGpioOutput(requestId)) return;
     if (status !== 0) {
       const error = errorFromCode(status);
@@ -165,8 +169,12 @@ export function attachM33muWorker(scope, createModule) {
       return;
     }
     const stopped = api.stopped() !== 0;
-    emitState(requestId, stopped);
-    if (!stopped && !snapshot().sleeping && generation === runGeneration) {
+    const state = snapshot();
+    const sleepDeadlinePending = state.sleeping &&
+      api.hasPendingDeadline(session) !== 0;
+    emitState(requestId, stopped, { paused: state.sleeping && !sleepDeadlinePending });
+    if (!stopped && (!state.sleeping || sleepDeadlinePending) &&
+        generation === runGeneration) {
       scope.setTimeout(() => runSlice(generation, requestId), 0);
     }
   }
