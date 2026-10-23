@@ -3,6 +3,7 @@
  */
 
 #include "m33mu/web.h"
+#include "m33mu/system_reset.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -403,6 +404,7 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
         return 0;
     }
     g_web_active_session = session;
+    mm_system_clear_reset();
     mm_gpio_set_pad_listener(web_gpio_pad_changed, session);
     session->max_image_size = config != 0 && config->max_image_size != 0u ?
         config->max_image_size : MM_WEB_DEFAULT_IMAGE_LIMIT;
@@ -428,6 +430,7 @@ enum mm_web_error mm_web_load_elf(struct mm_web_session *session,
     if (session == 0 || data == 0 || size == 0u) {
         return MM_WEB_INVALID_ARGUMENT;
     }
+    mm_system_clear_reset();
     mm_execution_state_end_run(&session->execution);
     mm_execution_state_init_code_cache(&session->execution);
     mm_execution_clock_reset(&session->execution.clock);
@@ -464,6 +467,7 @@ enum mm_web_error mm_web_reset(struct mm_web_session *session)
 {
     if (session == 0) return MM_WEB_INVALID_ARGUMENT;
     if (!session->loaded) return MM_WEB_NOT_BOOTED;
+    mm_system_clear_reset();
     mm_execution_state_end_run(&session->execution);
     if (!web_initialize_target_hardware(session)) {
         return MM_WEB_INITIALIZATION_FAILED;
@@ -622,6 +626,16 @@ static enum mm_web_error web_execute_budgeted(
             return result_out->error;
         }
         result_out->instructions++;
+        if (mm_system_reset_pending()) {
+            mm_system_clear_reset();
+            if (mm_web_reset(session) != MM_WEB_OK) {
+                result_out->error = MM_WEB_INITIALIZATION_FAILED;
+                return result_out->error;
+            }
+            result_out->system_reset = MM_TRUE;
+            result_out->stopped = MM_FALSE;
+            return MM_WEB_OK;
+        }
         session->stopped = done;
     }
     result_out->stopped = session->stopped;

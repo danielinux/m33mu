@@ -46,6 +46,32 @@ function h563Elf(instructions) {
   return bytes;
 }
 
+function h563SysresetElf() {
+  const bytes = new Uint8Array(116);
+  const view = new DataView(bytes.buffer);
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 1, 1, 1]);
+  put16(view, 18, 40);
+  put32(view, 24, 0x0c000009);
+  put32(view, 28, 52);
+  put16(view, 40, 52);
+  put16(view, 42, 32);
+  put16(view, 44, 1);
+  put32(view, 52, 1);
+  put32(view, 56, 84);
+  put32(view, 60, 0x0c000000);
+  put32(view, 64, 0x0c000000);
+  put32(view, 68, 32);
+  put32(view, 72, 32);
+  put32(view, 76, 4);
+  put32(view, 84, 0x30080000);
+  put32(view, 88, 0x0c000009);
+  [0x4802, 0x4903, 0x6001, 0x2007, 0xe7fe].forEach((insn, index) =>
+    put16(view, 92 + index * 2, insn));
+  put32(view, 104, 0xe000ed0c);
+  put32(view, 108, 0x05fa0004);
+  return bytes;
+}
+
 let nextRequestId = 1;
 function request(operation, payload = {}) {
   const requestId = nextRequestId++;
@@ -246,5 +272,28 @@ if (process.env.M33MU_ACTIVE_EXTI_FIRMWARE) {
   assert.equal(handler.result.stopped, true,
     'active-core timestamped EXTI did not reach the handler BKPT');
 }
+
+const sysresetLoad = await request('loadFirmware', { bytes: h563SysresetElf() });
+assert.equal(sysresetLoad.ok, true);
+const sysresetStep = await request('step', { instructionBudget: 8 });
+assert.equal(sysresetStep.ok, true);
+assert.equal(sysresetStep.result.instructions, 3);
+assert.equal(sysresetStep.result.systemReset, true);
+assert.equal(sysresetStep.result.pc, 0x0c000009);
+assert.equal(sysresetStep.result.cycleTotal, '0');
+const afterSystemReset = await request('step', { instructionBudget: 1 });
+assert.equal(afterSystemReset.ok, true);
+assert.equal(afterSystemReset.result.systemReset, false);
+assert.equal(afterSystemReset.result.r0 >>> 0, 0xe000ed0c);
+const sysresetRunLoad = await request('loadFirmware', { bytes: h563SysresetElf() });
+assert.equal(sysresetRunLoad.ok, true);
+const sysresetRun = await request('run');
+assert.equal(sysresetRun.ok, true);
+const sysresetRunEvent = await waitForEvent(message =>
+  message.event === 'state' && message.payload.requestId === sysresetRun.requestId &&
+  message.payload.systemReset === true);
+assert.equal(sysresetRunEvent.payload.pc, 0x0c000009);
+assert.equal(sysresetRunEvent.payload.cycleTotal, '0');
+assert.equal((await request('pause')).ok, true);
 
 console.log('test-web-worker: ok');

@@ -24,11 +24,10 @@
 #include "m33mu/trace.h"
 #include "rp2350/rp2350_mmio.h"
 #include "m33mu/memmap.h"
+#include "m33mu/system_reset.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
-extern void mm_system_request_reset(void);
 
 struct mm_scs_mmio {
     struct mm_scs *scs;

@@ -73,6 +73,7 @@
 #include "m33mu/execution_state.h"
 #include "m33mu/execution_irq.h"
 #include "m33mu/execution_exception.h"
+#include "m33mu/system_reset.h"
 #include "m33mu/spiflash.h"
 #include "m33mu/usbdev.h"
 #include "m33mu/eth_backend.h"
@@ -209,7 +210,6 @@ static mm_u64 deadline_ns(mm_u64 vcycles, mm_u64 host0_ns, mm_u64 cpu_hz)
 }
 
 static int load_file_at(const char *path, mm_u8 *dst, size_t max_len, mm_u32 offset, size_t *loaded);
-void mm_system_request_reset(void);
 static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struct mm_scs *scs, mm_u32 fault_pc, mm_u32 fault_xpsr);
 static struct mm_decoded decode_t32_fast(const struct mm_fetch_result *fetch,
                                          const struct mm_cpu *cpu,
@@ -2635,32 +2635,6 @@ static struct mm_decoded decode_t32_fast(const struct mm_fetch_result *fetch,
         return d;
     }
     return mm_decode_t32(fetch);
-}
-
-static volatile mm_bool g_system_reset_pending = MM_FALSE;
-static volatile mm_bool g_boot_override_pending = MM_FALSE;
-static volatile mm_u32 g_boot_override_mode = 0u;
-
-void mm_system_request_reset(void)
-{
-    g_system_reset_pending = MM_TRUE;
-}
-
-void mm_system_request_reset_boot(int mode)
-{
-    g_boot_override_mode = (mm_u32)mode;
-    g_boot_override_pending = MM_TRUE;
-    g_system_reset_pending = MM_TRUE;
-}
-
-static mm_bool mm_system_reset_pending(void)
-{
-    return g_system_reset_pending;
-}
-
-static void mm_system_clear_reset(void)
-{
-    g_system_reset_pending = MM_FALSE;
 }
 
 static char *dup_range(const char *s, size_t n)
@@ -5261,9 +5235,11 @@ int main(int argc, char **argv)
             }
 
             mm_system_clear_reset();
-            if (g_boot_override_pending) {
-                boot_mode_local = (enum mm_boot_mode)g_boot_override_mode;
-                g_boot_override_pending = MM_FALSE;
+            {
+                mm_u32 boot_override_mode;
+                if (mm_system_reset_take_boot_mode(&boot_override_mode)) {
+                    boot_mode_local = (enum mm_boot_mode)boot_override_mode;
+                }
             }
             mm_execution_state_init_memory_map(&execution);
             g_timeout_map = &execution.map;

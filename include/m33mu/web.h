@@ -50,6 +50,7 @@ struct mm_web_cpu_state {
 struct mm_web_step_result {
     mm_u32 instructions;
     mm_bool stopped;
+    mm_bool system_reset;
     enum mm_web_error error;
 };
 

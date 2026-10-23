@@ -82,6 +82,38 @@ static size_t make_h563_elf(mm_u8 image[96])
     return 96u;
 }
 
+static size_t make_h563_sysreset_elf(mm_u8 image[116])
+{
+    const mm_u32 flash_base = 0x0c000000u;
+    const mm_u32 ram_top = 0x30080000u;
+    memset(image, 0, 116u);
+    image[0] = 0x7fu; image[1] = 'E'; image[2] = 'L'; image[3] = 'F';
+    image[4] = 1u; image[5] = 1u; image[6] = 1u;
+    put_le16(image + 18u, 40u);
+    put_le32(image + 24u, flash_base + 9u);
+    put_le32(image + 28u, 52u);
+    put_le16(image + 40u, 52u);
+    put_le16(image + 42u, 32u);
+    put_le16(image + 44u, 1u);
+    put_le32(image + 52u, 1u);
+    put_le32(image + 56u, 84u);
+    put_le32(image + 60u, flash_base);
+    put_le32(image + 64u, flash_base);
+    put_le32(image + 68u, 32u);
+    put_le32(image + 72u, 32u);
+    put_le32(image + 76u, 4u);
+    put_le32(image + 84u, ram_top);
+    put_le32(image + 88u, flash_base + 9u);
+    put_le16(image + 92u, 0x4802u); /* ldr r0, [pc, #8] */
+    put_le16(image + 94u, 0x4903u); /* ldr r1, [pc, #12] */
+    put_le16(image + 96u, 0x6001u); /* str r1, [r0]: AIRCR SYSRESETREQ */
+    put_le16(image + 98u, 0x2007u); /* reset restarts at this code, not here */
+    put_le16(image + 100u, 0xe7feu); /* b . */
+    put_le32(image + 104u, 0xe000ed0cu); /* AIRCR */
+    put_le32(image + 108u, 0x05fa0004u); /* VECTKEY | SYSRESETREQ */
+    return 116u;
+}
+
 static size_t make_h563_pendsv_elf(mm_u8 image[172])
 {
     const mm_u32 flash_base = 0x0c000000u;
@@ -373,6 +405,31 @@ int main(void)
         }
     }
     mm_web_destroy(session);
+    {
+        mm_u8 reset_image[116];
+        (void)make_h563_sysreset_elf(reset_image);
+        config.max_image_size = sizeof(reset_image);
+        session = mm_web_create(&config, &error);
+        if (session == 0 || error != MM_WEB_OK ||
+            mm_web_load_elf(session, reset_image, sizeof(reset_image)) != MM_WEB_OK ||
+            mm_web_step_instructions(session, 8u, &step) != MM_WEB_OK ||
+            step.instructions != 3u || !step.system_reset || step.stopped ||
+            mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+            cpu.r[15] != 0x0c000009u || cpu.virtual_cycles != 0u) {
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: SYSRESETREQ did not restart the session\n");
+            return 1;
+        }
+        if (mm_web_step_instructions(session, 1u, &step) != MM_WEB_OK ||
+            step.system_reset ||
+            mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+            cpu.r[0] != 0xe000ed0cu) {
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: execution did not resume at reset vector\n");
+            return 1;
+        }
+        mm_web_destroy(session);
+    }
     puts("web_session_test: ok");
     return 0;
 }

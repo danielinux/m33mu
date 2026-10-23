@@ -69,6 +69,7 @@ export function attachM33muWorker(scope, createModule) {
         lastError: wrap('mm_web_abi_last_error', 'number', []),
         instructionCount: wrap('mm_web_abi_last_instruction_count', 'number', []),
         stopped: wrap('mm_web_abi_last_stopped', 'number', []),
+        systemReset: wrap('mm_web_abi_last_system_reset', 'number', []),
         reg: wrap('mm_web_abi_cpu_reg', 'number', ['number', 'number']),
         cycles: wrap('mm_web_abi_cycle_low', 'number', ['number']),
         cyclesHigh: wrap('mm_web_abi_cycle_high', 'number', ['number']),
@@ -169,10 +170,13 @@ export function attachM33muWorker(scope, createModule) {
       return;
     }
     const stopped = api.stopped() !== 0;
+    const systemReset = api.systemReset() !== 0;
     const state = snapshot();
     const sleepDeadlinePending = state.sleeping &&
       api.hasPendingDeadline(session) !== 0;
-    emitState(requestId, stopped, { paused: state.sleeping && !sleepDeadlinePending });
+    emitState(requestId, stopped, {
+      paused: state.sleeping && !sleepDeadlinePending, systemReset
+    });
     if (!stopped && (!state.sleeping || sleepDeadlinePending) &&
         generation === runGeneration) {
       scope.setTimeout(() => runSlice(generation, requestId), 0);
@@ -229,6 +233,7 @@ export function attachM33muWorker(scope, createModule) {
         const result = {
           instructions: api.instructionCount(),
           stopped: api.stopped() !== 0,
+          systemReset: api.systemReset() !== 0,
           ...snapshot()
         };
         postResponse(requestId, result);

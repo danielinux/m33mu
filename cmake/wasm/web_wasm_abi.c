@@ -108,6 +108,11 @@ unsigned int mm_web_abi_last_stopped(void)
     return g_last_step.stopped ? 1u : 0u;
 }
 
+unsigned int mm_web_abi_last_system_reset(void)
+{
+    return g_last_step.system_reset ? 1u : 0u;
+}
+
 unsigned int mm_web_abi_cpu_reg(void *session, unsigned int index)
 {
     struct mm_web_cpu_state snapshot;
