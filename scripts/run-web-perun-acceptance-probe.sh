@@ -2,7 +2,7 @@
 # Reproduce linear DC and RC acceptance against a pinned external Perun checkout.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-PERUN_DIR=${1:?usage: run-web-perun-linear-acceptance-probe.sh /path/to/pinned-Perun-checkout}
+PERUN_DIR=${1:?usage: run-web-perun-acceptance-probe.sh /path/to/pinned-Perun-checkout}
 EXPECTED_REV=067d1c9c59e27f72f6498ec224f3735d0da6364a
 ACTUAL_REV=$(git -C "$PERUN_DIR" rev-parse HEAD)
 if [ "$ACTUAL_REV" != "$EXPECTED_REV" ]; then
@@ -22,8 +22,8 @@ cleanup() {
     rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT HUP INT TERM
-cp "$ROOT/scripts/perun-linear-acceptance-probe.test.ts" "$PROBE_PATH"
-export M33MU_PERUN_LINEAR_RESULT="$TMP_DIR/perun-linear-acceptance.json"
+cp "$ROOT/scripts/perun-acceptance-probe.test.ts" "$PROBE_PATH"
+export M33MU_PERUN_ACCEPTANCE_RESULT="$TMP_DIR/perun-acceptance.json"
 cd "$PERUN_DIR"
 "$VITEST" run "tools/golden/src/$PROBE_NAME"
-cat "$M33MU_PERUN_LINEAR_RESULT"
+cat "$M33MU_PERUN_ACCEPTANCE_RESULT"

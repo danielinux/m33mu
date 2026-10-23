@@ -1,14 +1,15 @@
 // External linear-solver acceptance probe. This file is copied into a pinned Perun checkout by
-// run-web-perun-linear-acceptance-probe.sh; Perun source is not imported into m33mu.
+// run-web-perun-acceptance-probe.sh; Perun source is not imported into m33mu.
 import { writeFileSync } from 'node:fs';
 import { readCircuit } from '@perun/format';
-import { CapacitorElm, ResistorElm, VoltageElm } from '../../../packages/elements/src/index.ts';
+import { CapacitorElm, DiodeElm, ResistorElm, VoltageElm } from '../../../packages/elements/src/index.ts';
 import { describe, expect, it } from 'vitest';
 
-const resultPath = process.env.M33MU_PERUN_LINEAR_RESULT!;
+const resultPath = process.env.M33MU_PERUN_ACCEPTANCE_RESULT!;
 const tau = 1000 * 10e-6;
 const dividerText = `$ 1 5.0E-6 10 50 5.0 50\nv 96 320 96 96 0 0 40.0 5.0 0.0\nw 96 96 256 96 0\nr 256 96 256 208 0 2000.0\nr 256 208 256 320 0 3000.0\nw 96 320 256 320 0\ng 96 320 96 352 0\n`;
 const rcText = `$ 1 1.0E-6 10 50 5.0 50\nv 96 320 96 96 0 0 40.0 1.0 0.0\nr 96 96 256 96 0 1000.0\nc 256 96 256 320 0 1.0E-5 0.0\nw 96 320 256 320 0\ng 96 320 96 352 0\n`;
+const diodeText = `$ 1 5.0E-6 10 50 5.0 50\nv 96 320 96 96 0 0 40.0 5.0 0.0\nd 96 96 256 96 2 default\nr 256 96 256 320 0 1000.0\nw 96 320 256 320 0\ng 96 320 96 352 0\n`;
 
 describe('pinned Perun linear acceptance', () => {
   it('meets the DC divider and 1 us RC analytic criteria', () => {
@@ -54,6 +55,25 @@ describe('pinned Perun linear acceptance', () => {
     expect(Math.abs(rc.sim.t - 1e-3)).toBeLessThan(1e-9);
     expect(normalizedRcError).toBeLessThanOrEqual(0.01);
 
+    const diodeCircuit = readCircuit(diodeText);
+    expect(diodeCircuit.warnings).toEqual([]);
+    const diode = diodeCircuit.elements.find((e): e is DiodeElm => e instanceof DiodeElm)!;
+    const load = diodeCircuit.elements.find((e): e is ResistorElm =>
+      e instanceof ResistorElm && e.resistance === 1000)!;
+    expect(diode.modelName).toBe('default');
+    expect(diodeCircuit.sim.step(10)).toBe(10);
+    const diodeForwardV = diode.volts[0]! - diode.volts[1]!;
+    const diodeCurrentA = load.current;
+    // Reference values measured by the paired, checksum-pinned ngspice 47+ds WASM smoke.
+    const ngspiceDiodeForwardV = 0.526073126081;
+    const ngspiceDiodeCurrentA = 0.00447392687392;
+    const diodeVoltageRelativeError =
+      Math.abs(diodeForwardV - ngspiceDiodeForwardV) / ngspiceDiodeForwardV;
+    const diodeCurrentRelativeError =
+      Math.abs(diodeCurrentA - ngspiceDiodeCurrentA) / ngspiceDiodeCurrentA;
+    expect(diodeVoltageRelativeError).toBeLessThanOrEqual(1e-5);
+    expect(diodeCurrentRelativeError).toBeLessThanOrEqual(1e-5);
+
     writeFileSync(resultPath, JSON.stringify({
       perunRevision: '067d1c9c59e27f72f6498ec224f3735d0da6364a',
       divider: { sourceV: 5, upperOhm: 2000, lowerOhm: 3000,
@@ -62,6 +82,11 @@ describe('pinned Perun linear acceptance', () => {
         sourceChangeTimeS: changeTime, finalTimeS: rc.sim.t,
         maxAbsoluteErrorV: maxAbsoluteError, referencePeakV: referencePeak,
         normalizedMaxError: normalizedRcError },
+      defaultDiode: { sourceV: 5, loadOhm: 1000, perunModel: diode.modelName,
+        perunForwardV: diodeForwardV, ngspiceForwardV: ngspiceDiodeForwardV,
+        forwardRelativeError: diodeVoltageRelativeError, perunCurrentA: diodeCurrentA,
+        ngspiceCurrentA: ngspiceDiodeCurrentA,
+        currentRelativeError: diodeCurrentRelativeError, tolerance: 1e-5 },
     }, null, 2));
   });
 });
