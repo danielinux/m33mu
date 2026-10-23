@@ -57,6 +57,7 @@ describe('live m33mu WASM and Perun shared-clock RC feedback', () => {
 
     const cycles = () => (BigInt(api.cycleHi(session)) << 32n) | BigInt(api.cycleLo(session));
     const edges: { cycle: number; timeNs: string; level: number }[] = [];
+    const pendingDriveEvents: { cycle: number; level: number }[] = [];
     const crossings: { cycle: number; level: number; mv: number }[] = [];
     let digital = 0;
     let simCycle = 0;
@@ -72,6 +73,17 @@ describe('live m33mu WASM and Perun shared-clock RC feedback', () => {
         const eventCycle = Number((timeNs * BigInt(HZ) + 999_999_999n) /
           1_000_000_000n);
         edges.push({ cycle: eventCycle, timeNs: timeNs.toString(), level: api.level() });
+        pendingDriveEvents.push({ cycle: eventCycle, level: api.level() });
+      }
+    };
+    const applyDrivesAtBoundary = () => {
+      while (pendingDriveEvents.length > 0 &&
+             pendingDriveEvents[0]!.cycle <= simCycle) {
+        const event = pendingDriveEvents.shift()!;
+        expect(event.cycle).toBe(simCycle);
+        source.maxVoltage = 0;
+        source.bias = event.level ? 3.3 : 0;
+        circuit.sim.analyzeFlag = true;
       }
     };
     const advanceSolverTo = (target: number) => {
@@ -88,6 +100,7 @@ describe('live m33mu WASM and Perun shared-clock RC feedback', () => {
           expect(api.gpio(session, 'PA6', Number(ns >> 32n), Number(ns & 0xffffffffn), digital)).toBe(0);
         }
         previousMv = mv;
+        applyDrivesAtBoundary();
       }
     };
 
@@ -100,20 +113,14 @@ describe('live m33mu WASM and Perun shared-clock RC feedback', () => {
         drain();
         const after = Number(cycles());
         expect(after).toBeGreaterThanOrEqual(before);
-        if (edges.length > 0) {
-          const latest = edges.at(-1)!;
-          if (latest.cycle <= simCycle) {
-            source.maxVoltage = 0;
-            source.bias = latest.level ? 3.3 : 0;
-            circuit.sim.analyzeFlag = true;
-          }
-        }
+        applyDrivesAtBoundary();
         advanceSolverTo(after);
       }
       expect(api.stopped()).toBe(1);
       expect(crossings.length).toBeGreaterThanOrEqual(4);
       expect(edges.filter((e) => e.level === 1).length).toBeGreaterThanOrEqual(3);
       expect(edges.length).toBeGreaterThanOrEqual(5);
+      expect(pendingDriveEvents).toHaveLength(0);
       for (const [index, crossing] of crossings.slice(0, 4).entries()) {
         const response = edges.find((edge, edgeIndex) =>
           edgeIndex >= 2 && edge.cycle > crossing.cycle);
