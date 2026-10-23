@@ -43,12 +43,25 @@ typedef mm_bool (*mm_execution_mem_fault_fn)(
     mm_u32 fault_xpsr,
     mm_u32 addr,
     mm_bool is_exec);
+typedef mm_bool (*mm_execution_usage_fault_fn)(
+    struct mm_cpu *cpu,
+    struct mm_memmap *map,
+    struct mm_scs *scs,
+    mm_u32 fault_pc,
+    mm_u32 fault_xpsr,
+    mm_u32 ufsr_bits);
 
 enum mm_execution_fetch_status {
     MM_EXECUTION_FETCH_INVALID = 0,
     MM_EXECUTION_FETCH_READY,
     MM_EXECUTION_FETCH_FAULT_HANDLED,
     MM_EXECUTION_FETCH_FAULT_UNHANDLED
+};
+
+enum mm_execution_fault_status {
+    MM_EXECUTION_FAULT_INVALID = 0,
+    MM_EXECUTION_FAULT_HANDLED,
+    MM_EXECUTION_FAULT_UNHANDLED
 };
 
 /* Owned architectural, memory and scheduler state for a single emulation
@@ -171,6 +184,14 @@ enum mm_execution_instruction_outcome mm_execution_state_step_instruction(
     struct mm_decoded *decoded_out,
     mm_bool *fpu_ok_out,
     enum mm_exec_status *exec_status_out);
+/* Route an undefined decoded opcode through the supplied production fault
+ * policy using the session-owned CPU, map and SCS. */
+enum mm_execution_fault_status mm_execution_state_raise_undefined(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    mm_execution_usage_fault_fn raise_usage_fault,
+    const struct mm_fetch_result *fetch,
+    const struct mm_decoded *decoded);
 
 /* Reset CPU/IT state while preserving the staged SCS and NVIC initialization
  * order used by target and protection setup. */

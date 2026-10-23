@@ -322,6 +322,26 @@ enum mm_execution_instruction_outcome mm_execution_state_step_instruction(
         exec_status_out);
 }
 
+enum mm_execution_fault_status mm_execution_state_raise_undefined(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    mm_execution_usage_fault_fn raise_usage_fault,
+    const struct mm_fetch_result *fetch,
+    const struct mm_decoded *decoded)
+{
+    struct mm_execution_core_state *core;
+    if (state == 0 || core_index >= 2u || raise_usage_fault == 0 ||
+        fetch == 0 || decoded == 0 || fetch->len == 0u ||
+        !decoded->undefined) {
+        return MM_EXECUTION_FAULT_INVALID;
+    }
+    core = &state->cores[core_index];
+    return raise_usage_fault(&core->cpu, &state->map, &core->scs,
+                             fetch->pc_fetch, core->cpu.xpsr,
+                             1u << 16) ?
+        MM_EXECUTION_FAULT_HANDLED : MM_EXECUTION_FAULT_UNHANDLED;
+}
+
 void mm_execution_state_init_memory_map(struct mm_execution_state *state)
 {
     if (state == 0) {

@@ -11,6 +11,10 @@ static size_t target_setup_count;
 static mm_u32 fetch_fault_handler_calls;
 static mm_bool fetch_fault_handler_result;
 static mm_u32 fetch_fault_handler_addr;
+static mm_bool usage_fault_handler_result;
+static mm_u32 usage_fault_handler_calls;
+static mm_u32 usage_fault_handler_addr;
+static mm_bool usage_fault_state_owned;
 static mm_bool irq_callback_state_owned;
 
 static mm_bool test_session_irq_enter(void *opaque,
@@ -52,6 +56,20 @@ static mm_bool test_fetch_fault_handler(struct mm_cpu *cpu,
     }
     fetch_fault_handler_calls++;
     return fetch_fault_handler_result;
+}
+
+static mm_bool test_usage_fault_handler(struct mm_cpu *cpu,
+                                       struct mm_memmap *map,
+                                       struct mm_scs *scs,
+                                       mm_u32 fault_pc,
+                                       mm_u32 fault_xpsr,
+                                       mm_u32 ufsr_bits)
+{
+    usage_fault_handler_calls++;
+    usage_fault_state_owned = cpu != 0 && map != 0 && scs != 0 &&
+        fault_pc == usage_fault_handler_addr && fault_xpsr == cpu->xpsr &&
+        ufsr_bits == (1u << 16);
+    return usage_fault_handler_result;
 }
 
 static void note_target_setup(char value)
@@ -653,6 +671,35 @@ static int test_session_bounded_elf_load(void)
             mm_execution_state_destroy(&state);
             return 1;
         }
+    }
+    memset(&decoded, 0, sizeof(decoded));
+    decoded.undefined = MM_TRUE;
+    fetch.pc_fetch = state.target.flash_base_s + 2u;
+    usage_fault_handler_calls = 0u;
+    usage_fault_handler_addr = fetch.pc_fetch;
+    usage_fault_handler_result = MM_FALSE;
+    usage_fault_state_owned = MM_FALSE;
+    if (mm_execution_state_raise_undefined(
+            &state, 0u, test_usage_fault_handler, &fetch, &decoded) !=
+            MM_EXECUTION_FAULT_UNHANDLED ||
+        usage_fault_handler_calls != 1u || !usage_fault_state_owned) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    usage_fault_handler_result = MM_TRUE;
+    if (mm_execution_state_raise_undefined(
+            &state, 0u, test_usage_fault_handler, &fetch, &decoded) !=
+            MM_EXECUTION_FAULT_HANDLED ||
+        usage_fault_handler_calls != 2u || !usage_fault_state_owned) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    decoded.undefined = MM_FALSE;
+    if (mm_execution_state_raise_undefined(
+            &state, 0u, test_usage_fault_handler, &fetch, &decoded) !=
+        MM_EXECUTION_FAULT_INVALID) {
+        mm_execution_state_destroy(&state);
+        return 1;
     }
     state.cores[0].cpu.r[15] = 0xdead0001u;
     fetch_fault_handler_calls = 0u;

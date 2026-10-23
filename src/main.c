@@ -7347,7 +7347,10 @@ handle_pending:
                                    (unsigned long)d.raw,
                                    (unsigned long)(d.raw & 0xffffu));
                         }
-                        if (!raise_usage_fault(&execution.cores[0].cpu, &execution.map, &execution.cores[0].scs, f.pc_fetch, execution.cores[0].cpu.xpsr, (1u << 16))) {
+                        if (mm_execution_state_raise_undefined(
+                                &execution, 0u, raise_usage_fault, &f,
+                                &d) !=
+                            MM_EXECUTION_FAULT_HANDLED) {
                             printf("Unimplemented opcode 0x%08lx at PC=0x%08lx\n", (unsigned long)d.raw, (unsigned long)(f.pc_fetch | 1u));
                             g_core_lockup = MM_TRUE;
                             g_core_lockup_sig = 4;
