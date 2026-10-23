@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const messages = [];
@@ -88,6 +90,13 @@ assert.equal(stepped.result.registers[0], 1);
 assert.equal(stepped.result.pc, 0x0c00000b);
 assert.equal(stepped.result.cycleTotal, '1');
 assert.equal(stepped.result.stacks.mspSecure, 0x30080000);
+
+const parity = JSON.parse(readFileSync(process.env.M33MU_CLI_PARITY, 'utf8'));
+const parityFirmware = h563Elf([0x2001, 0xbeab]);
+assert.equal(parity.sha256, createHash('sha256').update(parityFirmware).digest('hex'));
+assert.equal(parity.pc, stepped.result.pc);
+assert.equal(parity.r0, stepped.result.r0);
+assert.equal(parity.mspSecure, stepped.result.stacks.mspSecure);
 
 const runAck = await request('run');
 assert.equal(runAck.ok, true);

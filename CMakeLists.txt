@@ -644,6 +644,7 @@ if(M33MU_BUILD_TESTS)
         COMMAND "${CMAKE_COMMAND}" -E env
           "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
           "M33MU_NODE=${M33MU_NODE}"
+          "M33MU_CLI=$<TARGET_FILE:m33mu>"
           "${CMAKE_SOURCE_DIR}/scripts/test-web-worker.sh")
       set_tests_properties(wasm_worker_api_test PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

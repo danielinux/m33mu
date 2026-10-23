@@ -5,6 +5,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 ## Completed
 
 - [x] Re-run the current full serial CTest suite after live-coupling harness work: build succeeds; **106/106 enabled tests pass** (one disabled), including native session, Emscripten loader/session, worker API, flash/TZ parity and GDB harness tests.
+- [x] Compare CLI and public-worker execution on a byte-identical generated H563 ELF. The CLI is forced to single-instruction dispatch; after one MOV both paths report PC `0x0c00000b`, r0 `1`, and secure MSP `0x30080000`. `wasm_worker_api_test` performs the parity check and passes.
 
 - [x] Establish live shared-clock H563 firmware/analog feedback with an external solver evaluation harness. `scripts/run-web-live-coupling-probe.sh` builds the public WASM API and a toggling H563 EXTI fixture, then runs pinned Perun at 64 MHz / 15.625 ns per solver step. Four RC threshold crossings at cycles 557/678/799/920 schedule PA6 EXTI and produce PA5 feedback edges at cycles 569/690/811/932; WASM and solver finish at cycle 940 and firmware reaches its success BKPT. The reproducible trace is `web/fixtures/solver/perun-live-coupling.json`. No Perun code is imported or packaged. This completes the narrow live-causality proof only; worker yielding, rollback, solver accuracy tolerance, broader model parity and license packaging remain open.
 
