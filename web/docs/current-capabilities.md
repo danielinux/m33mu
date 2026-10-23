@@ -9,7 +9,7 @@ This is a development status page, not a claim that the browser workbench exists
 | Area | Current state | Browser consequence |
 |---|---|---|
 | CPU profiles | 15 SoC profiles listed in `docs/supported-cpus.md` | Profiles identify MCU models, not verified dev-board wiring. |
-| Firmware formats | CLI loads ELF, BIN, Intel HEX and UF2 through functions private to `src/main.c` | No in-memory browser loader API exists. Start with H563 ELF. |
+| Firmware formats | CLI loads ELF, BIN, Intel HEX and UF2. ELF32/ARM PT_LOAD parsing is now in shared `mm_elf_load_memory()`; other format dispatch remains in `src/main.c`. | A bounded in-memory ELF loader exists and compiles to WASM, but the browser session API and worker are not implemented. Start with H563 ELF. |
 | Production execution | Full dispatch, timers, sleep and exception scheduling are in the large CLI translation unit `src/main.c` | `src/runloop.c` is a NOP/branch placeholder; it is not a firmware backend. |
 | Native library | `m33mu_lib` is assembled from a broad source glob and links optional host libraries | A dedicated Emscripten source target and host-backend exclusions are needed. |
 | Emscripten | `emcc 6.0.5` and Node 24 are installed in the reviewed environment | Toolchain is present. A full CMake cross-build with optional integrations disabled currently fails compiling `src/m33mu/eth_backend.c` because Emscripten lacks `linux/if.h`. |

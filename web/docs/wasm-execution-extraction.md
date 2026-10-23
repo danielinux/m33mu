@@ -1,10 +1,11 @@
 # WASM execution extraction notes
 
-**Status:** investigation; no browser execution API implemented. Reviewed at local `master` HEAD `cf73f9e`.
+**Status:** in progress; shared in-memory ELF32/ARM loader implemented, production session/stepping API still absent. Reviewed at local `master` HEAD `cf73f9e`.
 
 ## Current paths
 
-- `src/main.c::load_elf_segments()` is private and accepts a path, uses `FILE*` and libelf (`elf_begin`/`gelf_getphdr`), and copies PT_LOAD bytes into private flash/RAM buffers. The loader is not an in-memory API and the Emscripten toolchain cannot use the system libelf installation.
+- `mm_elf_load_memory()` now accepts a byte buffer, validates ELF32 little-endian ARM program-header and segment bounds, maps PT_LOAD data into caller-owned flash/RAM/serial-flash buffers, and reports loaded address range. CLI path loading reads the image and delegates to this shared parser. It builds as a standalone Emscripten object without libelf.
+- Remaining loader gaps: session-owned target storage and reset lifecycle, configured input size limit, and browser worker integration. The new parser test currently covers a flash PT_LOAD, linked-at-zero flash offset, and rejection of a malformed later segment without partial writes.
 - `src/main.c::step_core_simple()` handles a limited subset of timing/exception logic for a secondary path. `src/runloop.c::mm_step()` executes only NOP and branch placeholders. Neither is the production H563 path.
 - The main execution loop assembles `mm_execute_ctx` and calls `mm_execute_decoded()`, but the surrounding fetch/decode, interrupt dispatch, cycle accounting, timers, SCS, signal hooks, TrustZone state, faults, WFI/WFE and core-system state are managed inline in `main.c`.
 - Startup also composes target MMIO, memory regions, flash/RAM aliases, code cache, SoC reset, timer, USART/SPI, protection, boot resolution, and peripheral reset. A thin wrapper around `mm_execute_decoded()` alone would omit these production behaviors.

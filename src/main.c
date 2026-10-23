@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include "m33mu/cpu_db.h"
 #include "m33mu/target.h"
+#include "m33mu/image_loader.h"
 #include "m33mu/cpu.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_ops.h"
@@ -668,22 +669,6 @@ enum mm_boot_mode {
     MM_BOOT_FLASH = 0,
     MM_BOOT_RAM,
     MM_BOOT_SPIFLASH
-};
-
-enum mm_load_target {
-    MM_LOAD_FLASH = 0,
-    MM_LOAD_RAM,
-    MM_LOAD_SPIFLASH
-};
-
-struct mm_load_targets {
-    mm_u8 *flash;
-    size_t flash_size;
-    mm_u8 *ram;
-    size_t ram_size;
-    mm_u8 *spiflash;
-    size_t spiflash_size;
-    mm_u32 spiflash_base;
 };
 
 static int load_image_autodetect(struct mm_image_spec *img,
@@ -2116,109 +2101,44 @@ static int load_elf_segments(const char *path,
                              mm_u32 *end_out,
                              size_t *loaded_out)
 {
-#ifdef M33MU_HAS_LIBELF
-    int fd = -1;
     FILE *f = NULL;
-    Elf *elf = NULL;
-    GElf_Ehdr ehdr;
-    size_t phnum = 0;
-    size_t i;
-    mm_bool any = MM_FALSE;
-    mm_u32 min_addr = 0xffffffffu;
-    mm_u32 max_addr = 0u;
-    size_t loaded = 0;
+    long file_size;
+    mm_u8 *image = NULL;
+    struct mm_image_load_result result;
+    int status;
 
     if (start_out) *start_out = 0u;
     if (end_out) *end_out = 0u;
     if (loaded_out) *loaded_out = 0u;
-    if (cfg == 0 || targets == 0) {
-        return -1;
-    }
-    if (elf_version(EV_CURRENT) == EV_NONE) {
-        return -1;
-    }
+    if (path == 0 || cfg == 0 || targets == 0) return -1;
     f = fopen(path, "rb");
-    if (f == NULL) {
+    if (f == NULL || fseek(f, 0L, SEEK_END) != 0) {
+        if (f != NULL) fclose(f);
         return -1;
     }
-    fd = fileno(f);
-    elf = elf_begin(fd, ELF_C_READ, NULL);
-    if (elf == NULL) {
+    file_size = ftell(f);
+    if (file_size <= 0L || fseek(f, 0L, SEEK_SET) != 0) {
         fclose(f);
         return -1;
     }
-    if (gelf_getehdr(elf, &ehdr) == NULL) {
-        elf_end(elf);
+    image = (mm_u8 *)malloc((size_t)file_size);
+    if (image == NULL) {
         fclose(f);
         return -1;
     }
-    if (elf_getphdrnum(elf, &phnum) != 0) {
-        elf_end(elf);
+    if (fread(image, 1u, (size_t)file_size, f) != (size_t)file_size) {
+        free(image);
         fclose(f);
         return -1;
     }
-    for (i = 0; i < phnum; ++i) {
-        GElf_Phdr phdr;
-        mm_u32 addr;
-        mm_u32 off;
-        size_t to_read;
-        enum mm_load_target target;
-        mm_u8 *dst;
-        if (gelf_getphdr(elf, (int)i, &phdr) == NULL) {
-            continue;
-        }
-        if (phdr.p_type != PT_LOAD || phdr.p_filesz == 0) {
-            continue;
-        }
-        addr = (mm_u32)phdr.p_paddr;
-        if (addr == 0u) {
-            addr = (mm_u32)phdr.p_vaddr;
-        }
-        if (!map_target_offset(cfg, targets, addr, &target, &off)) {
-            fprintf(stderr, "warning: ELF segment 0x%08lx out of range (file %s)\n",
-                    (unsigned long)addr, path);
-            continue;
-        }
-        if (target == MM_LOAD_FLASH && addr < cfg->flash_size_s && offset != 0u) {
-            off += offset;
-        }
-        to_read = (size_t)phdr.p_filesz;
-        dst = load_target_ptr(targets, target, off, to_read, 0);
-        if (dst == 0) {
-            fprintf(stderr, "warning: ELF segment 0x%08lx out of bounds (file %s)\n",
-                    (unsigned long)addr, path);
-            continue;
-        }
-        if (fseek(f, (long)phdr.p_offset, SEEK_SET) != 0) {
-            continue;
-        }
-        if (fread(dst, 1, to_read, f) != to_read) {
-            fprintf(stderr, "warning: short read for ELF segment (file %s)\n", path);
-        }
-        if (addr < min_addr) min_addr = addr;
-        if (addr + (mm_u32)to_read > max_addr) max_addr = addr + (mm_u32)to_read;
-        loaded += to_read;
-        any = MM_TRUE;
-    }
-    elf_end(elf);
     fclose(f);
-    if (!any) {
-        return -1;
-    }
-    if (start_out) *start_out = min_addr;
-    if (end_out) *end_out = max_addr;
-    if (loaded_out) *loaded_out = loaded;
+    status = mm_elf_load_memory(image, (size_t)file_size, cfg, targets, offset, &result);
+    free(image);
+    if (status != 0) return status;
+    if (start_out) *start_out = result.start;
+    if (end_out) *end_out = result.end;
+    if (loaded_out) *loaded_out = result.loaded;
     return 0;
-#else
-    (void)path;
-    (void)cfg;
-    (void)targets;
-    (void)offset;
-    if (start_out) *start_out = 0u;
-    if (end_out) *end_out = 0u;
-    if (loaded_out) *loaded_out = 0u;
-    return -1;
-#endif
 }
 
 static mm_bool parse_ihex_byte(const char *s, mm_u8 *out)
