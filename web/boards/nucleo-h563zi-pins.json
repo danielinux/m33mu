@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "boardId": "nucleo-h563zi",
+  "cpu": "stm32h563",
+  "boardRevision": "NUCLEO-H563ZI; schematic revision not yet recorded",
+  "electricalMapStatus": "signal-mapping-verified; artwork-anchor-pending",
+  "sources": [
+    {
+      "kind": "manufacturer-firmware-example",
+      "url": "https://github.com/STMicroelectronics/STM32CubeH5/blob/bac48badf93cb496f6445afba956082490d3f543/Projects/NUCLEO-H563ZI/Examples/SPI/SPI_FullDuplex_ComIT_Slave/README.md",
+      "revision": "bac48badf93cb496f6445afba956082490d3f543",
+      "evidence": "Board setup connects PA5 at CN7 pin 10 and PA6 at CN9 pin 1."
+    }
+  ],
+  "contacts": [
+    {
+      "connectorId": "CN7",
+      "physicalPadNumber": 10,
+      "socPad": "PA5",
+      "peripheralFunctions": ["GPIO"],
+      "signalMappingVerified": true,
+      "artworkAnchorVerified": false,
+      "electricalEnabled": false
+    },
+    {
+      "connectorId": "CN9",
+      "physicalPadNumber": 1,
+      "socPad": "PA6",
+      "peripheralFunctions": ["GPIO"],
+      "signalMappingVerified": true,
+      "artworkAnchorVerified": false,
+      "electricalEnabled": false
+    }
+  ],
+  "review": {
+    "reviewer": "Codex",
+    "reviewedAt": "2026-10-23",
+    "note": "The official firmware example verifies the signal-to-header mapping. The supplied board sprite uses provisional ZIO connector IDs and explicitly does not assert vendor numbering; resolve those geometry aliases before enabling a wire endpoint."
+  }
+}
