@@ -237,6 +237,29 @@ static int test_session_pending_dispatch(void)
     return 0;
 }
 
+static int test_session_cycle_advance(void)
+{
+    struct mm_execution_state state;
+    mm_execution_state_init(&state);
+    mm_execution_state_advance_cycles(&state, 0u, 7u, MM_FALSE, 0u);
+    mm_execution_state_advance_cycles(&state, 0u, 5u, MM_FALSE, 0u);
+    if (state.clock.cycle_total != 12u ||
+        state.clock.virtual_cycles != 12u ||
+        state.clock.cycles_since_poll != 12u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_advance_cycles(&state, 2u, 9u, MM_FALSE, 0u);
+    if (state.clock.cycle_total != 12u ||
+        state.clock.virtual_cycles != 12u ||
+        state.clock.cycles_since_poll != 12u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
 static int test_session_execute_decoded(void)
 {
     struct mm_execution_state state;
@@ -559,6 +582,10 @@ int main(void)
     }
     if (test_session_pending_dispatch() != 0) {
         fprintf(stderr, "execution_state_test: pending dispatch failed\n");
+        return 1;
+    }
+    if (test_session_cycle_advance() != 0) {
+        fprintf(stderr, "execution_state_test: cycle advancement failed\n");
         return 1;
     }
     if (test_session_execute_decoded() != 0) {

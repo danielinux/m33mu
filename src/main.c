@@ -6871,7 +6871,8 @@ int main(int argc, char **argv)
                                 step = left;
                             }
                         }
-                        mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, step, MM_FALSE, 0u, &execution.clock);
+                        mm_execution_state_advance_cycles(&execution, 0u,
+                                                          step, MM_FALSE, 0u);
                         mm_target_usart_poll(&execution.target);
                         if (mm_system_reset_pending() && allow_system_reset(&execution.target, cpu_name)) {
                             reset_again = MM_TRUE;
@@ -6921,7 +6922,8 @@ int main(int argc, char **argv)
                             if (idle_cycles == 0) {
                                 idle_cycles = 1;
                             }
-                            mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, idle_cycles, MM_FALSE, 0u, &execution.clock);
+                            mm_execution_state_advance_cycles(
+                                &execution, 0u, idle_cycles, MM_FALSE, 0u);
                             mm_target_usart_poll(&execution.target);
                             mm_target_spi_poll(&execution.target);
                             mm_target_eth_poll(&execution.target);
@@ -6943,7 +6945,8 @@ int main(int argc, char **argv)
                                 break;
                             }
                         } else {
-                            mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, delta, MM_FALSE, 0u, &execution.clock);
+                            mm_execution_state_advance_cycles(
+                                &execution, 0u, delta, MM_FALSE, 0u);
                             (void)mm_execution_state_wake_sleeping_core(&execution, 0u);
                             host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                             mm_target_usart_poll(&execution.target);
@@ -7081,12 +7084,15 @@ handle_pending:
                             mm_signal_check_trigger(execution.cores[0].cpu.r[15] & ~1u);
                             (void)mm_tb_run(tb, &exec_ctx, &done, &tb_bkpt_hit, &tb_bkpt_imm, &ops_executed);
                             if (ops_executed != 0u) {
-                                mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, (mm_u64)ops_executed, MM_FALSE, 0u, &execution.clock);
+                                mm_execution_state_advance_cycles(
+                                    &execution, 0u, (mm_u64)ops_executed,
+                                    MM_FALSE, 0u);
                             }
                             {
                                 mm_u64 stall = flash_stall_cycles(cpu_hz);
                                 if (stall != 0u) {
-                                    mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, stall, MM_FALSE, 0u, &execution.clock);
+                                    mm_execution_state_advance_cycles(
+                                        &execution, 0u, stall, MM_FALSE, 0u);
                                 }
                             }
                             if (mm_flash_ops_cut_fired(0)) {
@@ -7230,10 +7236,13 @@ handle_pending:
                         /* the previous instruction's flash operation, if any */
                         mm_u64 stall = flash_stall_cycles(cpu_hz);
                         if (stall != 0u) {
-                            mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, stall, MM_FALSE, 0u, &execution.clock);
+                            mm_execution_state_advance_cycles(
+                                &execution, 0u, stall, MM_FALSE, 0u);
                         }
                     }
-                    mm_execution_clock_advance(&execution.cores[0].scs, &execution.target, insn_cycles, MM_TRUE, execution.cores[0].cpu.r[15] & ~1u, &execution.clock);
+                    mm_execution_state_advance_cycles(
+                        &execution, 0u, insn_cycles, MM_TRUE,
+                        execution.cores[0].cpu.r[15] & ~1u);
                     if (opt_gdb || opt_tui) {
                         mm_u8 i;
                         fault_clock_count = gdb.fault_clock_count;

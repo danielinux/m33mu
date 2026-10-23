@@ -151,6 +151,12 @@ void mm_execution_state_reset_cores(struct mm_execution_state *state,
                                     mm_u32 core_count,
                                     mm_u32 vtor_s,
                                     mm_u32 vtor_ns);
+void mm_execution_state_advance_cycles(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    mm_u64 cycles,
+    mm_bool check_signal_trigger,
+    mm_u32 trigger_pc);
 mm_bool mm_execution_state_apply_reset_vector(
     struct mm_execution_state *state,
     enum mm_sec_state boot_security);
