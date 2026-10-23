@@ -503,6 +503,15 @@ export function attachM33muWorker(scope, createModule) {
         postResponse(requestId, { changed, timeNs: Math.round(bench.timeNs).toString() });
         return;
       }
+      case 'diagnostics': {
+        const wasm = modulePromise ? await modulePromise : null;
+        postResponse(requestId, {
+          wasmHeapBytes: wasm ? wasm.HEAPU8.length : 0,
+          sessionActive: session !== 0, firmwareLoaded, benchActive: bench !== null,
+          benchMcuCoupled: !!(bench && bench.mcu)
+        });
+        return;
+      }
       case 'destroyBench':
         ++runGeneration;
         bench = null;

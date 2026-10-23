@@ -15,3 +15,5 @@ fi
 "$task_node" "$repo_root/scripts/bundle-web-worker.mjs" "$task_build_dir"
 "$task_node" "$repo_root/scripts/test-web-demos.mjs" "$task_build_dir/worker.mjs" \
   "$examples/h563-blink.elf" "$examples/h563-button.elf" "$repo_root/web/fixtures/demos/golden.json"
+"$task_node" "$repo_root/scripts/test-web-worker-lifecycle.mjs" "$task_build_dir/worker.mjs" \
+  "$examples/h563-blink.elf"

@@ -187,6 +187,34 @@ try {
     await shot('05-divider-inspector');
   });
 
+  await check('worker destroy and recreate in the browser', async () => {
+    const r = await page.evaluate(async () => {
+      const bytes = new Uint8Array(await (await fetch('examples/h563-blink.elf')).arrayBuffer());
+      const call = (worker, requestId, operation, payload) => new Promise((resolve) => {
+        const prev = worker.onmessage;
+        worker.onmessage = ({ data }) => {
+          if (data.kind === 'response' && data.requestId === requestId) { worker.onmessage = prev; resolve(data); }
+        };
+        worker.postMessage({ schemaVersion: 1, kind: 'request', requestId, operation, payload });
+      });
+      const out = [];
+      for (let i = 0; i < 3; i++) {
+        const worker = new Worker('worker/worker.mjs', { type: 'module' });
+        out.push((await call(worker, 1, 'loadFirmware', { bytes: bytes.slice() })).ok);
+        out.push((await call(worker, 2, 'step', { instructionBudget: 100 })).result.instructions);
+        out.push((await call(worker, 3, 'diagnostics', {})).result.wasmHeapBytes);
+        worker.terminate();
+      }
+      return out;
+    });
+    assert.deepEqual([r[0], r[3], r[6]], [true, true, true]);
+    // The firmware reaches WFI within the budget; every instance must agree.
+    assert.ok(r[1] > 0);
+    assert.deepEqual([r[4], r[7]], [r[1], r[1]]);
+    assert.equal(r[2], r[5]);
+    assert.equal(r[5], r[8]);
+  });
+
   assert.deepEqual(external, [], 'no network requests outside the local origin');
   assert.deepEqual(consoleErrors.filter((e) => !/favicon/.test(e)), []);
   console.log(`browser: chromium ${browser.version()}; ${results.join('; ')}`);

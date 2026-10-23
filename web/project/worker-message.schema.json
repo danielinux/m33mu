@@ -47,7 +47,8 @@
             "createBench",
             "runUntil",
             "setSwitch",
-            "destroyBench"
+            "destroyBench",
+            "diagnostics"
           ]
         },
         "payload": {
