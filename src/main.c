@@ -7471,20 +7471,11 @@ handle_pending:
                         mm_bool exec_bkpt_hit = MM_FALSE;
                         mm_u32 exec_bkpt_imm = 0u;
                         calltrace_handle_decoded(&execution.cores[0].cpu, &f, &d);
-                        exec_ctx.cpu = &execution.cores[0].cpu;
-                        exec_ctx.map = &execution.map;
-                        exec_ctx.scs = &execution.cores[0].scs;
-                        exec_ctx.nvic = &execution.cores[0].nvic;
                         exec_ctx.gdb = &gdb;
-                        exec_ctx.fetch = &f;
-                        exec_ctx.dec = &d;
                         exec_ctx.opt_dump = opt_dump;
                         exec_ctx.opt_gdb = opt_gdb;
                         exec_ctx.opt_expect_bkpt = opt_expect_bkpt;
                         exec_ctx.expect_bkpt = expect_bkpt;
-                        exec_ctx.it_pattern = &execution.cores[0].it_pattern;
-                        exec_ctx.it_remaining = &execution.cores[0].it_remaining;
-                        exec_ctx.it_cond = &execution.cores[0].it_cond;
                         exec_ctx.done = &done;
                         exec_ctx.bkpt_hit = &exec_bkpt_hit;
                         exec_ctx.bkpt_imm = &exec_bkpt_imm;
@@ -7494,7 +7485,10 @@ handle_pending:
                         exec_ctx.exc_return_unstack = exc_return_unstack;
                         exec_ctx.enter_exception = enter_exception;
                         {
-                            int exec_res = mm_execute_decoded(&exec_ctx);
+                            enum mm_exec_status exec_res =
+                                mm_execution_state_execute_decoded(
+                                    &execution, 0u, &exec_ctx, &f, &d,
+                                    execute_it);
                             if (exec_bkpt_hit) {
                                 printf("[BKPT] imm=0x%02lx\n", (unsigned long)exec_bkpt_imm);
                                 if (opt_expect_bkpt) {
@@ -7513,10 +7507,6 @@ handle_pending:
                                  * or EXC_RETURN). For EXC_RETURN, ITSTATE was
                                  * just restored from the saved exception
                                  * frame and represents the resumed context. */
-                                if (execute_it && d.kind != MM_OP_IT) {
-                                    (void)mm_execution_state_advance_it_if_sequential(
-                                        &execution, 0u, &f, &d);
-                                }
                                 if (trace_started) {
                                     mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                                     mm_trace_end_step(&execution.cores[0].cpu);
@@ -7551,10 +7541,6 @@ handle_pending:
                         }
                     }
 
-                    {
-                        (void)mm_execution_state_advance_it_if_sequential(
-                            &execution, 0u, &f, &d);
-                    }
                 }
 
                 if (execution.clock.cycles_since_poll >= poll_granularity) {

@@ -173,6 +173,38 @@ mm_bool mm_execution_state_advance_it_if_sequential(
     return MM_TRUE;
 }
 
+enum mm_exec_status mm_execution_state_execute_decoded(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    struct mm_execute_ctx *context,
+    const struct mm_fetch_result *fetch,
+    const struct mm_decoded *decoded,
+    mm_bool execute_it)
+{
+    struct mm_execution_core_state *core;
+    enum mm_exec_status status;
+    if (state == 0 || core_index >= 2u || context == 0 || fetch == 0 ||
+        decoded == 0) {
+        return MM_EXEC_CONTINUE;
+    }
+    core = &state->cores[core_index];
+    context->cpu = &core->cpu;
+    context->map = &state->map;
+    context->scs = &core->scs;
+    context->nvic = &core->nvic;
+    context->fetch = fetch;
+    context->dec = decoded;
+    context->it_pattern = &core->it_pattern;
+    context->it_remaining = &core->it_remaining;
+    context->it_cond = &core->it_cond;
+    status = mm_execute_decoded(context);
+    if (status == MM_EXEC_OK || execute_it) {
+        (void)mm_execution_state_advance_it_if_sequential(state, core_index,
+                                                          fetch, decoded);
+    }
+    return status;
+}
+
 void mm_execution_state_init_memory_map(struct mm_execution_state *state)
 {
     if (state == 0) {

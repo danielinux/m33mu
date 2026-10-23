@@ -17,6 +17,7 @@
 #include "m33mu/image_loader.h"
 #include "m33mu/fetch.h"
 #include "m33mu/decode.h"
+#include "m33mu/execute.h"
 
 struct mm_execution_core_state {
     struct mm_cpu cpu;
@@ -92,6 +93,15 @@ mm_bool mm_execution_state_advance_it_if_sequential(
     mm_u32 core_index,
     const struct mm_fetch_result *fetch,
     const struct mm_decoded *decoded);
+/* Bind owned architectural pointers, execute through the shared production
+ * executor, and apply the same sequential IT update as the CLI loop. */
+enum mm_exec_status mm_execution_state_execute_decoded(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    struct mm_execute_ctx *context,
+    const struct mm_fetch_result *fetch,
+    const struct mm_decoded *decoded,
+    mm_bool execute_it);
 
 /* Reset CPU/IT state while preserving the staged SCS and NVIC initialization
  * order used by target and protection setup. */

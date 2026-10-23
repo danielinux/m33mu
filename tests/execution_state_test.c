@@ -116,6 +116,46 @@ static int test_session_it_state(void)
     return 0;
 }
 
+static int test_session_execute_decoded(void)
+{
+    struct mm_execution_state state;
+    struct mm_execute_ctx context;
+    struct mm_fetch_result fetch;
+    struct mm_decoded decoded;
+    mm_bool done = MM_FALSE;
+    enum mm_exec_status status;
+
+    mm_execution_state_init(&state);
+    memset(&context, 0, sizeof(context));
+    memset(&fetch, 0, sizeof(fetch));
+    memset(&decoded, 0, sizeof(decoded));
+    fetch.pc_fetch = 0x1000u;
+    fetch.len = 2u;
+    decoded.kind = MM_OP_NOP;
+    decoded.len = 2u;
+    context.done = &done;
+    context.opt_gdb = MM_FALSE;
+    context.gdb = 0;
+    state.cores[0].cpu.r[15] = 0x1003u;
+    state.cores[0].it_pattern = 1u;
+    state.cores[0].it_remaining = 1u;
+    state.cores[0].it_cond = MM_COND_EQ;
+    state.cores[0].cpu.xpsr = itstate_set(1u << 30, 0x08u);
+
+    status = mm_execution_state_execute_decoded(&state, 0u, &context,
+                                                 &fetch, &decoded, MM_TRUE);
+    if (status != MM_EXEC_OK || done || context.cpu != &state.cores[0].cpu ||
+        context.map != &state.map || context.scs != &state.cores[0].scs ||
+        context.nvic != &state.cores[0].nvic ||
+        context.it_remaining != &state.cores[0].it_remaining ||
+        state.cores[0].it_remaining != 0u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
 static int test_dual_core_reset_keeps_staged_peripheral_state(void)
 {
     struct mm_execution_state state;
@@ -289,6 +329,10 @@ int main(void)
     }
     if (test_session_it_state() != 0) {
         fprintf(stderr, "execution_state_test: IT state handling failed\n");
+        return 1;
+    }
+    if (test_session_execute_decoded() != 0) {
+        fprintf(stderr, "execution_state_test: decoded execution failed\n");
         return 1;
     }
     if (test_session_bounded_elf_load() != 0) {
