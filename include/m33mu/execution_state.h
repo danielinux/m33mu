@@ -9,6 +9,8 @@
 #include "m33mu/execution_clock.h"
 #include "m33mu/nvic.h"
 #include "m33mu/scs.h"
+#include "m33mu/memmap.h"
+#include "m33mu/code_cache.h"
 
 struct mm_execution_core_state {
     struct mm_cpu cpu;
@@ -19,10 +21,12 @@ struct mm_execution_core_state {
     mm_u8 it_cond;
 };
 
-/* Owned architectural and scheduler state for a single emulation session.
- * Memory maps, protection contexts, and peripheral instances are added as
- * their remaining process-global dependencies are extracted. */
+/* Owned architectural, memory and scheduler state for a single emulation
+ * session. Protection contexts and peripheral instances remain to be moved. */
 struct mm_execution_state {
+    struct mm_memmap map;
+    struct mmio_region regions[256];
+    struct mm_code_cache code_cache;
     struct mm_execution_core_state cores[2];
     struct mm_scs_mux scs_mux;
     struct mm_execution_clock clock;

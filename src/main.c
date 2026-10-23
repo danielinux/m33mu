@@ -4726,8 +4726,6 @@ int main(int argc, char **argv)
     int i;
     struct mm_target_cfg cfg;
     struct mm_execution_state execution = { 0 };
-    struct mm_memmap map;
-            struct mmio_region regions[256];
     struct mm_prot_ctx prot;
     struct mm_prot_ctx prot1;
     mm_u8 *flash;
@@ -6009,7 +6007,6 @@ int main(int argc, char **argv)
             mm_bool force_ns_boot = MM_FALSE;
             mm_u32 initial_sp = 0;
             struct mm_core_sys core_sys;
-            struct mm_code_cache code_cache;
             mm_u64 fault_clocks[16];
             mm_u8 fault_clock_count = opt_fault_clock_count;
             mm_u32 boot_offset_local = 0;
@@ -6044,8 +6041,8 @@ int main(int argc, char **argv)
                 boot_mode_local = (enum mm_boot_mode)g_boot_override_mode;
                 g_boot_override_pending = MM_FALSE;
             }
-            mm_memmap_init(&map, regions, sizeof(regions) / sizeof(regions[0]));
-            g_timeout_map = &map;
+            mm_memmap_init(&execution.map, execution.regions, sizeof(execution.regions) / sizeof(execution.regions[0]));
+            g_timeout_map = &execution.map;
 #ifdef M33MU_HAS_ONNXRUNTIME
             g_npu_out_dump = opt_npu_out_dump;
 #endif
@@ -6064,15 +6061,15 @@ int main(int argc, char **argv)
             mm_stsafe_reset_all();
             mm_tropic01_reset_all();
 #endif
-            mm_memmap_configure_flash(&map, &cfg, flash, MM_TRUE);
-            mm_memmap_configure_flash(&map, &cfg, flash, MM_FALSE);
-            mm_memmap_configure_ram(&map, &cfg, ram, MM_TRUE);
-            mm_memmap_configure_ram(&map, &cfg, ram, MM_FALSE);
+            mm_memmap_configure_flash(&execution.map, &cfg, flash, MM_TRUE);
+            mm_memmap_configure_flash(&execution.map, &cfg, flash, MM_FALSE);
+            mm_memmap_configure_ram(&execution.map, &cfg, ram, MM_TRUE);
+            mm_memmap_configure_ram(&execution.map, &cfg, ram, MM_FALSE);
 #ifdef M33MU_HAS_ONNXRUNTIME
             if (opt_npu_model != 0) {
                 struct npu_onnx_model *npu_model = 0;
                 if (npu_onnx_load(&npu_model, opt_npu_model) == 0) {
-                    mm_stm32n657_npu_set_model(&map, npu_onnx_process, npu_model);
+                    mm_stm32n657_npu_set_model(&execution.map, npu_onnx_process, npu_model);
                 }
             }
 #endif
@@ -6080,8 +6077,8 @@ int main(int argc, char **argv)
             core_sys.dwt.vcycles = &execution.clock.virtual_cycles;
             core_sys.dwt.ctrl = 0u;
             core_sys.dwt.cyccnt_base = 0u;
-            mm_code_cache_init(&code_cache, &map);
-            mm_memmap_set_code_cache(&map, &code_cache);
+            mm_code_cache_init(&execution.code_cache, &execution.map);
+            mm_memmap_set_code_cache(&execution.map, &execution.code_cache);
             {
                 if (opt_boot_offset) {
                     boot_offset_local = boot_offset;
@@ -6103,7 +6100,7 @@ int main(int argc, char **argv)
                 boot_resolved = MM_FALSE;
                 if (!opt_boot_offset && boot_mode_local == MM_BOOT_FLASH && cfg.boot_resolve != 0) {
                     mm_u32 vtor = 0;
-                    if (cfg.boot_resolve(&map, flash, cfg.flash_size_s, &vtor)) {
+                    if (cfg.boot_resolve(&execution.map, flash, cfg.flash_size_s, &vtor)) {
                         boot_base_s = vtor;
                         boot_base_ns = vtor;
                         boot_resolved = MM_TRUE;
@@ -6131,7 +6128,7 @@ int main(int argc, char **argv)
                     printf("[TZ] TrustZone disabled via --no-tz\n");
                 } else if (cfg.ram_base_s != cfg.ram_base_ns && boot_mode_local != MM_BOOT_SPIFLASH &&
                            (cfg.flags & MM_TARGET_FLAG_SECURE_BOOT) == 0u) {
-                    if (mm_vector_read(&map, MM_SECURE, boot_base_s, 0u, &initial_sp)) {
+                    if (mm_vector_read(&execution.map, MM_SECURE, boot_base_s, 0u, &initial_sp)) {
                         /* An initial SP inside the non-secure RAM alias means
                          * the image was linked for the non-secure world.  The
                          * alias is not always 0x2xxxxxxx: on M2354 the secure
@@ -6153,9 +6150,9 @@ int main(int argc, char **argv)
                     }
                 }
                 if (force_ns_boot) {
-                    map.flash.base = cfg.flash_base_ns;
-                    map.flash.length = cfg.flash_size_ns;
-                    map.ram.base = cfg.ram_base_ns;
+                    execution.map.flash.base = cfg.flash_base_ns;
+                    execution.map.flash.length = cfg.flash_size_ns;
+                    execution.map.ram.base = cfg.ram_base_ns;
                     if (boot_mode_local == MM_BOOT_FLASH && !boot_resolved) {
                         boot_base_s = cfg.flash_base_ns + boot_offset_local;
                         boot_base_ns = cfg.flash_base_ns + boot_offset_local;
@@ -6171,11 +6168,11 @@ int main(int argc, char **argv)
                         boot_base_ns = v;
                     }
                 } else {
-                    map.flash.base = cfg.flash_base_s;
-                    map.flash.length = cfg.flash_size_s;
-                    map.ram.base = cfg.ram_base_s;
+                    execution.map.flash.base = cfg.flash_base_s;
+                    execution.map.flash.length = cfg.flash_size_s;
+                    execution.map.ram.base = cfg.ram_base_s;
                 }
-                map.ram.length = target_storage.ram_size;
+                execution.map.ram.length = target_storage.ram_size;
             }
             if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
                 const struct rp2350_partition_table *pt = mm_rp2350_partition_table_get();
@@ -6208,7 +6205,7 @@ int main(int argc, char **argv)
                     stm32h5_flash_set_secwm(1, opt_secwm_strt[1], opt_secwm_end[1]);
                 }
             }
-            if (!mm_target_register_mmio(&cfg, &map.mmio)) {
+            if (!mm_target_register_mmio(&cfg, &execution.map.mmio)) {
                 fprintf(stderr, "Failed to register MMIO for CPU %s\n", (cpu_name != 0) ? cpu_name : "unknown");
                 rc = 1;
                 goto cleanup;
@@ -6253,15 +6250,15 @@ int main(int argc, char **argv)
                     }
                 }
             }
-            mm_spiflash_register_mmap_regions(&map.mmio);
-            mm_target_flash_bind(&cfg, &map, flash, cfg.flash_size_s, persist.enabled ? &persist : 0);
+            mm_spiflash_register_mmap_regions(&execution.map.mmio);
+            mm_target_flash_bind(&cfg, &execution.map, flash, cfg.flash_size_s, persist.enabled ? &persist : 0);
             mm_target_usart_reset(&cfg);
-            mm_target_usart_init(&cfg, &map.mmio, &execution.cores[0].nvic);
+            mm_target_usart_init(&cfg, &execution.map.mmio, &execution.cores[0].nvic);
             mm_target_spi_reset(&cfg);
-            mm_target_spi_init(&cfg, &map.mmio, &execution.cores[0].nvic);
+            mm_target_spi_init(&cfg, &execution.map.mmio, &execution.cores[0].nvic);
             mm_target_eth_reset(&cfg);
-            mm_target_eth_init(&cfg, &map.mmio, &execution.cores[0].nvic);
-            mm_timer_init(&cfg, &map.mmio, &execution.cores[0].nvic);
+            mm_target_eth_init(&cfg, &execution.map.mmio, &execution.cores[0].nvic);
+            mm_timer_init(&cfg, &execution.map.mmio, &execution.cores[0].nvic);
 
             mm_scs_init(&execution.cores[0].scs, 0x410fc241u);
             mm_scs_set_fpu_present(&execution.cores[0].scs, (cfg.flags & MM_TARGET_FLAG_FPU) != 0u);
@@ -6274,9 +6271,9 @@ int main(int argc, char **argv)
                 execution.scs_mux.nvic[1] = &execution.cores[1].nvic;
                 execution.scs_mux.core_count = cfg.core_count;
                 execution.scs_mux.active_core = &execution.active_core;
-                mm_scs_register_regions_multi(&execution.scs_mux, &map.mmio, 0xE000ED00u, 0xE002ED00u);
+                mm_scs_register_regions_multi(&execution.scs_mux, &execution.map.mmio, 0xE000ED00u, 0xE002ED00u);
             } else {
-                mm_scs_register_regions(&execution.cores[0].scs, &map.mmio, 0xE000ED00u, 0xE002ED00u, &execution.cores[0].nvic);
+                mm_scs_register_regions(&execution.cores[0].scs, &execution.map.mmio, 0xE000ED00u, 0xE002ED00u, &execution.cores[0].nvic);
             }
             if ((cfg.flags & MM_TARGET_FLAG_FPU) != 0u) {
                 execution.cores[0].scs.cpacr_s |= 0x00F00000u;
@@ -6288,14 +6285,14 @@ int main(int argc, char **argv)
                     execution.cores[1].scs.nsacr |= (1u << 10) | (1u << 11);
                 }
             }
-            mm_core_sys_register(&map.mmio, &core_sys);
+            mm_core_sys_register(&execution.map.mmio, &core_sys);
             mm_prot_init(&prot, &execution.cores[0].scs, &cfg, &execution.cores[0].cpu);
             if (cfg.core_count > 1u) {
                 mm_prot_init(&prot1, &execution.cores[1].scs, &cfg, &execution.cores[1].cpu);
             }
             g_active_prot_ctx = &prot;
-            mm_memmap_set_interceptor(&map, prot_mux_interceptor, 0);
-            mm_memmap_set_bus_attr(&map, prot_mux_bus_attr, 0);
+            mm_memmap_set_interceptor(&execution.map, prot_mux_interceptor, 0);
+            mm_memmap_set_bus_attr(&execution.map, prot_mux_bus_attr, 0);
             mm_prot_add_region(&prot, cfg.flash_base_s, cfg.flash_size_s, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
             mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns, MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_NONSECURE);
             /* Secure code may address the non-secure flash alias: on ARMv8-M a
@@ -6464,7 +6461,7 @@ int main(int argc, char **argv)
                 }
             }
             if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->bind != 0) {
-                cfg.mc_ops->bind(&execution.cores[0].cpu, &execution.cores[1].cpu, &execution.cores[0].nvic, &execution.cores[1].nvic, &execution.active_core, &map);
+                cfg.mc_ops->bind(&execution.cores[0].cpu, &execution.cores[1].cpu, &execution.cores[0].nvic, &execution.cores[1].nvic, &execution.active_core, &execution.map);
             }
 
             /* Reset CPU state */
@@ -6502,7 +6499,7 @@ int main(int argc, char **argv)
                 } else if (force_ns_boot) {
                     execution.cores[0].scs.sau_ctrl = 0x1u | 0x2u;
                 }
-                if (!mm_vector_apply_reset(&execution.cores[0].cpu, &map, boot_sec)) {
+                if (!mm_vector_apply_reset(&execution.cores[0].cpu, &execution.map, boot_sec)) {
                     fprintf(stderr, "failed to apply reset\n");
                     rc = 1;
                     goto cleanup;
@@ -6664,7 +6661,7 @@ int main(int argc, char **argv)
 
                 if (opt_gdb) {
                     if (mm_gdb_stub_poll(&gdb, 0)) {
-                        mm_gdb_stub_handle(&gdb, &execution.cores[0].cpu, &map);
+                        mm_gdb_stub_handle(&gdb, &execution.cores[0].cpu, &execution.map);
                     }
                     if (!gdb.connected && gdb.listen_fd >= 0) {
                         if (mm_gdb_stub_wait_client(&gdb)) {
@@ -6673,7 +6670,7 @@ int main(int argc, char **argv)
                         }
                     }
                     if (mm_gdb_stub_take_reset(&gdb)) {
-                        apply_reset_view(opt_tui ? &tui : 0, &execution.cores[0].cpu, &map, execution.clock.cycle_total,
+                        apply_reset_view(opt_tui ? &tui : 0, &execution.cores[0].cpu, &execution.map, execution.clock.cycle_total,
                                          opt_tui ? &tui_steps_offset : 0,
                                          opt_tui ? &tui_steps_latched : 0);
                     }
@@ -6689,7 +6686,7 @@ int main(int argc, char **argv)
                         (void)mm_flash_ops_take_stall_us();
                         mm_flash_ops_set_count(0u);
                         mm_flash_ops_clear_latches();
-                        apply_reset_view(opt_tui ? &tui : 0, &execution.cores[0].cpu, &map, execution.clock.cycle_total,
+                        apply_reset_view(opt_tui ? &tui : 0, &execution.cores[0].cpu, &execution.map, execution.clock.cycle_total,
                                          opt_tui ? &tui_steps_offset : 0,
                                          opt_tui ? &tui_steps_latched : 0);
                     }
@@ -6717,7 +6714,7 @@ int main(int argc, char **argv)
                 if (opt_tui) {
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
-                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &execution.map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                         done = MM_TRUE;
                         continue;
                     }
@@ -6783,7 +6780,7 @@ int main(int argc, char **argv)
                                 fault_clocks[i] = gdb.fault_clocks[i];
                             }
                         }
-                        if (!step_core_simple(&execution.cores[1].cpu, &execution.cores[1].scs, &execution.cores[1].nvic, &map, &cfg, fault_clocks, fault_clock_count,
+                        if (!step_core_simple(&execution.cores[1].cpu, &execution.cores[1].scs, &execution.cores[1].nvic, &execution.map, &cfg, fault_clocks, fault_clock_count,
                                               &execution.clock,
                                               &execution.cores[1].it_pattern, &execution.cores[1].it_remaining, &execution.cores[1].it_cond, &done)) {
                             break;
@@ -6807,12 +6804,12 @@ int main(int argc, char **argv)
                     mm_target_usart_poll(&cfg);
                     mm_target_spi_poll(&cfg);
                     mm_target_eth_poll(&cfg);
-                    rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                    rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                     mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                     mm_usbdev_poll();
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
-                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &execution.map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                         done = MM_TRUE;
                         continue;
                     }
@@ -6837,7 +6834,7 @@ int main(int argc, char **argv)
                     }
                 }
                 if (opt_tui && !opt_gdb && mm_tui_debug_has_slots(&tui) &&
-                    mm_tui_debug_check(&tui, &execution.cores[0].cpu, &map, &tui_debug_skip_break)) {
+                    mm_tui_debug_check(&tui, &execution.cores[0].cpu, &execution.map, &tui_debug_skip_break)) {
                     tui_paused = MM_TRUE;
                     tui_step = MM_FALSE;
                     tui.debugger_next_pending = MM_FALSE;
@@ -6965,12 +6962,12 @@ int main(int argc, char **argv)
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
                             mm_target_eth_poll(&cfg);
-                            rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                            rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                             mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
-                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &execution.map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                                 done = MM_TRUE;
                                 continue;
                             }
@@ -6998,12 +6995,12 @@ int main(int argc, char **argv)
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
                             mm_target_eth_poll(&cfg);
-                            rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                            rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                             mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
-                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &execution.map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                                 done = MM_TRUE;
                                 continue;
                             }
@@ -7030,7 +7027,7 @@ handle_pending:
                 {
                     enum mm_execution_irq_dispatch_result irq_result;
                     irq_result = mm_execution_irq_dispatch_pending(
-                        &execution.cores[0].cpu, &map, &execution.cores[0].scs, &execution.cores[0].nvic, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+                        &execution.cores[0].cpu, &execution.map, &execution.cores[0].scs, &execution.cores[0].nvic, MM_EXECUTION_IRQ_SKIP_BLOCKED,
                         execution_irq_enter, 0, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining,
                         &execution.cores[0].it_cond, &done);
                     if (irq_result == MM_EXECUTION_IRQ_DELIVERED) {
@@ -7040,7 +7037,7 @@ handle_pending:
                 }
 
                 if (opt_gdb && mm_gdb_stub_is_reverse(&gdb) && mm_gdb_stub_should_run(&gdb)) {
-                    if (!mm_trace_undo_step(&execution.cores[0].cpu, &map)) {
+                    if (!mm_trace_undo_step(&execution.cores[0].cpu, &execution.map)) {
                         mm_gdb_stub_notify_stop(&gdb, 5);
                         continue;
                     }
@@ -7084,11 +7081,11 @@ handle_pending:
                     if (fast_mode && !fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs)) {
                         fast_fpu_ok = MM_FALSE;
                     }
-                    code_cache.fpu_ok = fast_fpu_ok;
+                    execution.code_cache.fpu_ok = fast_fpu_ok;
                     if (fast_mode) {
-                    struct mm_tb *tb = mm_tb_lookup(&code_cache, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.sec_state);
+                    struct mm_tb *tb = mm_tb_lookup(&execution.code_cache, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.sec_state);
                         if (tb == 0) {
-                            tb = mm_tb_build(&code_cache, &execution.cores[0].cpu, &map, &execution.cores[0].scs, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.sec_state, opt_gdb);
+                            tb = mm_tb_build(&execution.code_cache, &execution.cores[0].cpu, &execution.map, &execution.cores[0].scs, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.sec_state, opt_gdb);
                         }
                         if (tb != 0) {
                             if (tb->fpu_ok != fast_fpu_ok) {
@@ -7096,7 +7093,7 @@ handle_pending:
                             }
                         }
                         exec_ctx.cpu = &execution.cores[0].cpu;
-                        exec_ctx.map = &map;
+                        exec_ctx.map = &execution.map;
                         exec_ctx.scs = &execution.cores[0].scs;
                         exec_ctx.nvic = &execution.cores[0].nvic;
                         exec_ctx.gdb = &gdb;
@@ -7184,7 +7181,7 @@ handle_pending:
                                 break;
                             }
                             fast_fpu_ok = fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs) ? MM_TRUE : MM_FALSE;
-                            code_cache.fpu_ok = fast_fpu_ok;
+                            execution.code_cache.fpu_ok = fast_fpu_ok;
                             pc_after = execution.cores[0].cpu.r[15];
                             /* Successor blocks must be resolved in the CURRENT
                              * security state, not the state the finished block
@@ -7195,7 +7192,7 @@ handle_pending:
                              * UNDEFINSTR/DACCVIOL in the guest). */
                             if (pc_after == tb->fallthrough_pc) {
                                 if (tb->fallthrough_idx < M33MU_TB_ENTRIES) {
-                                    candidate_tb = mm_tb_chain_lookup(&code_cache,
+                                    candidate_tb = mm_tb_chain_lookup(&execution.code_cache,
                                                                       tb->fallthrough_idx,
                                                                       tb->fallthrough_gen,
                                                                       tb->end_pc,
@@ -7206,17 +7203,17 @@ handle_pending:
                                     }
                                 }
                                 if (candidate_tb == 0) {
-                                    candidate_tb = mm_tb_lookup(&code_cache, tb->end_pc, execution.cores[0].cpu.sec_state);
+                                    candidate_tb = mm_tb_lookup(&execution.code_cache, tb->end_pc, execution.cores[0].cpu.sec_state);
                                     if (candidate_tb != 0) {
                                         target_idx = (tb->end_pc >> 1u) & (M33MU_TB_ENTRIES - 1u);
                                         tb->fallthrough_idx = target_idx;
-                                        tb->fallthrough_gen = code_cache.tb_cache_gen[target_idx];
+                                        tb->fallthrough_gen = execution.code_cache.tb_cache_gen[target_idx];
                                     }
                                 }
                                 next_tb = candidate_tb;
                             } else if (pc_after == tb->branch_pc) {
                                 if (tb->branch_idx < M33MU_TB_ENTRIES) {
-                                    candidate_tb = mm_tb_chain_lookup(&code_cache,
+                                    candidate_tb = mm_tb_chain_lookup(&execution.code_cache,
                                                                       tb->branch_idx,
                                                                       tb->branch_gen,
                                                                       tb->branch_pc & ~1u,
@@ -7227,11 +7224,11 @@ handle_pending:
                                     }
                                 }
                                 if (candidate_tb == 0) {
-                                    candidate_tb = mm_tb_lookup(&code_cache, tb->branch_pc & ~1u, execution.cores[0].cpu.sec_state);
+                                    candidate_tb = mm_tb_lookup(&execution.code_cache, tb->branch_pc & ~1u, execution.cores[0].cpu.sec_state);
                                     if (candidate_tb != 0) {
                                         target_idx = ((tb->branch_pc & ~1u) >> 1u) & (M33MU_TB_ENTRIES - 1u);
                                         tb->branch_idx = target_idx;
-                                        tb->branch_gen = code_cache.tb_cache_gen[target_idx];
+                                        tb->branch_gen = execution.code_cache.tb_cache_gen[target_idx];
                                     }
                                 }
                                 next_tb = candidate_tb;
@@ -7249,12 +7246,12 @@ handle_pending:
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
                             mm_target_eth_poll(&cfg);
-                            rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                            rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                             mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
                             update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
-                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &execution.map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                                 done = MM_TRUE;
                                 continue;
                             }
@@ -7310,14 +7307,14 @@ handle_pending:
                         mm_trace_reset();
                         g_record_started = MM_TRUE;
                         if (g_record_start_dump) {
-                            dump_record_start_context(&execution.cores[0].cpu, &map);
+                            dump_record_start_context(&execution.cores[0].cpu, &execution.map);
                         }
                     }
                     if (g_record_stop_set && ((execution.cores[0].cpu.r[15] & ~1u) == g_record_stop_pc)) {
                         fprintf(stderr, "[RECORD_STOP] pc=0x%08lx\n", (unsigned long)(execution.cores[0].cpu.r[15] & ~1u));
-                        dump_bytes(&map, execution.cores[0].cpu.sec_state, g_record_dump_addr, 64u, "record_r_after (r0)");
+                        dump_bytes(&execution.map, execution.cores[0].cpu.sec_state, g_record_dump_addr, 64u, "record_r_after (r0)");
                         if (g_record_dump_count > 0u && mm_trace_enabled() && g_record_started) {
-                            dump_trace_tail(&execution.cores[0].cpu, &map, g_record_dump_count);
+                            dump_trace_tail(&execution.cores[0].cpu, &execution.map, g_record_dump_count);
                         }
                         g_record_stop_set = MM_FALSE;
                         g_record_started = MM_FALSE;
@@ -7327,14 +7324,14 @@ handle_pending:
                         trace_started = MM_TRUE;
                     }
 
-                    if (mm_bootapi_handle(&execution.cores[0].cpu, &map)) {
-                        finish_trace_step_if_started(trace_started, &execution.cores[0].cpu, &map);
+                    if (mm_bootapi_handle(&execution.cores[0].cpu, &execution.map)) {
+                        finish_trace_step_if_started(trace_started, &execution.cores[0].cpu, &execution.map);
                         continue;
                     }
 
-                    f = mm_fetch_t32_memmap(&execution.cores[0].cpu, &map, execution.cores[0].cpu.sec_state);
+                    f = mm_fetch_t32_memmap(&execution.cores[0].cpu, &execution.map, execution.cores[0].cpu.sec_state);
                     if (f.fault) {
-                        if (!raise_mem_fault(&execution.cores[0].cpu, &map, &execution.cores[0].scs, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.xpsr, f.fault_addr, MM_TRUE)) {
+                        if (!raise_mem_fault(&execution.cores[0].cpu, &execution.map, &execution.cores[0].scs, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.xpsr, f.fault_addr, MM_TRUE)) {
                             printf("Fault on fetch at 0x%08lx (PC=0x%08lx SP=0x%08lx LR=0x%08lx xPSR=0x%08lx)\n",
                                     (unsigned long)f.fault_addr,
                                     (unsigned long)execution.cores[0].cpu.r[15],
@@ -7344,26 +7341,26 @@ handle_pending:
                             g_core_lockup = MM_TRUE;
                             g_core_lockup_sig = 11;
                             if (trace_started) {
-                                mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
+                                mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                                 mm_trace_end_step(&execution.cores[0].cpu);
-                                record_window_step(&execution.cores[0].cpu, &map);
+                                record_window_step(&execution.cores[0].cpu, &execution.map);
                             }
                             done = MM_TRUE;     /* or locked up, see hold_lockup() */
                             continue;
                         }
                         if (trace_started) {
-                            mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
+                            mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                             mm_trace_end_step(&execution.cores[0].cpu);
-                            record_window_step(&execution.cores[0].cpu, &map);
+                            record_window_step(&execution.cores[0].cpu, &execution.map);
                         }
                         continue;
                     }
                     if (f.len == 4u && !fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs) && mm_is_vfp_insn_fast(f.insn)) {
                         fpu_ok = MM_FALSE;
                     }
-                    if (!mm_icache_lookup(&code_cache, &f, execution.cores[0].cpu.sec_state, fpu_ok, &d)) {
+                    if (!mm_icache_lookup(&execution.code_cache, &f, execution.cores[0].cpu.sec_state, fpu_ok, &d)) {
                         d = decode_t32_fast(&f, &execution.cores[0].cpu, &execution.cores[0].scs);
-                        mm_icache_store(&code_cache, &f, execution.cores[0].cpu.sec_state, fpu_ok, &d);
+                        mm_icache_store(&execution.code_cache, &f, execution.cores[0].cpu.sec_state, fpu_ok, &d);
                     }
                     mm_memmap_set_last_pc(f.pc_fetch);
                     if (opt_capstone) {
@@ -7396,22 +7393,22 @@ handle_pending:
                                    (unsigned long)d.raw,
                                    (unsigned long)(d.raw & 0xffffu));
                         }
-                        if (!raise_usage_fault(&execution.cores[0].cpu, &map, &execution.cores[0].scs, f.pc_fetch, execution.cores[0].cpu.xpsr, (1u << 16))) {
+                        if (!raise_usage_fault(&execution.cores[0].cpu, &execution.map, &execution.cores[0].scs, f.pc_fetch, execution.cores[0].cpu.xpsr, (1u << 16))) {
                             printf("Unimplemented opcode 0x%08lx at PC=0x%08lx\n", (unsigned long)d.raw, (unsigned long)(f.pc_fetch | 1u));
                             g_core_lockup = MM_TRUE;
                             g_core_lockup_sig = 4;
                             if (trace_started) {
-                                mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
+                                mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                                 mm_trace_end_step(&execution.cores[0].cpu);
-                                record_window_step(&execution.cores[0].cpu, &map);
+                                record_window_step(&execution.cores[0].cpu, &execution.map);
                             }
                             done = MM_TRUE;     /* or locked up, see hold_lockup() */
                             continue;
                         }
                         if (trace_started) {
-                            mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
+                            mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                             mm_trace_end_step(&execution.cores[0].cpu);
-                            record_window_step(&execution.cores[0].cpu, &map);
+                            record_window_step(&execution.cores[0].cpu, &execution.map);
                         }
                         continue;
                     }
@@ -7457,12 +7454,12 @@ handle_pending:
                     if (!execute_it && d.kind != MM_OP_IT) {
                         mm_it_advance(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
                         if (trace_started) {
-                            mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
+                            mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                             mm_trace_end_step(&execution.cores[0].cpu);
-                            record_window_step(&execution.cores[0].cpu, &map);
+                            record_window_step(&execution.cores[0].cpu, &execution.map);
                         }
                         if (opt_gdb) {
-                            mm_gdb_stub_maybe_rearm(&gdb, &map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
+                            mm_gdb_stub_maybe_rearm(&gdb, &execution.map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
                             if (mm_gdb_stub_should_step(&gdb)) {
                                 mm_gdb_stub_notify_stop(&gdb, 5);
                             }
@@ -7482,12 +7479,12 @@ handle_pending:
                             execution.cores[0].cpu.xpsr = itstate_set(execution.cores[0].cpu.xpsr, raw);
                         }
                         if (trace_started) {
-                            mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
+                            mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                             mm_trace_end_step(&execution.cores[0].cpu);
-                            record_window_step(&execution.cores[0].cpu, &map);
+                            record_window_step(&execution.cores[0].cpu, &execution.map);
                         }
                         if (opt_gdb) {
-                            mm_gdb_stub_maybe_rearm(&gdb, &map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
+                            mm_gdb_stub_maybe_rearm(&gdb, &execution.map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
                             if (mm_gdb_stub_should_step(&gdb)) {
                                 mm_gdb_stub_notify_stop(&gdb, 5);
                             }
@@ -7501,7 +7498,7 @@ handle_pending:
                         mm_u32 exec_bkpt_imm = 0u;
                         calltrace_handle_decoded(&execution.cores[0].cpu, &f, &d);
                         exec_ctx.cpu = &execution.cores[0].cpu;
-                        exec_ctx.map = &map;
+                        exec_ctx.map = &execution.map;
                         exec_ctx.scs = &execution.cores[0].scs;
                         exec_ctx.nvic = &execution.cores[0].nvic;
                         exec_ctx.gdb = &gdb;
@@ -7548,12 +7545,12 @@ handle_pending:
                                     mm_it_advance(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
                                 }
                                 if (trace_started) {
-                                    mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
+                                    mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                                     mm_trace_end_step(&execution.cores[0].cpu);
-                                    record_window_step(&execution.cores[0].cpu, &map);
+                                    record_window_step(&execution.cores[0].cpu, &execution.map);
                                 }
                                 if (opt_gdb) {
-                                    mm_gdb_stub_maybe_rearm(&gdb, &map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
+                                    mm_gdb_stub_maybe_rearm(&gdb, &execution.map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
                                     if (mm_gdb_stub_should_step(&gdb)) {
                                         mm_gdb_stub_notify_stop(&gdb, 5);
                                     }
@@ -7569,9 +7566,9 @@ handle_pending:
                         }
                     }
                     if (trace_started) {
-                        mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
+                        mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                         mm_trace_end_step(&execution.cores[0].cpu);
-                        record_window_step(&execution.cores[0].cpu, &map);
+                        record_window_step(&execution.cores[0].cpu, &execution.map);
                     }
 
                     if (opt_capstone) {
@@ -7593,12 +7590,12 @@ handle_pending:
                     mm_target_usart_poll(&cfg);
                     mm_target_spi_poll(&cfg);
                     mm_target_eth_poll(&cfg);
-                    rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                    rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &execution.map);
                     mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                     mm_usbdev_poll();
                     update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
-                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &execution.map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                         done = MM_TRUE;
                         continue;
                     }
@@ -7613,7 +7610,7 @@ handle_pending:
                     break;
                 }
                 if (opt_gdb) {
-                    mm_gdb_stub_maybe_rearm(&gdb, &map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
+                    mm_gdb_stub_maybe_rearm(&gdb, &execution.map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
                     if (mm_gdb_stub_should_step(&gdb)) {
                         mm_gdb_stub_notify_stop(&gdb, 5);
                         continue;
@@ -7627,7 +7624,7 @@ handle_pending:
             if (reset_again) {
                 gdb.vtime_base += execution.clock.virtual_cycles;
                 gdb.vcycles = 0;
-                mm_code_cache_release(&code_cache);
+                mm_code_cache_release(&execution.code_cache);
                 continue;
             }
             if (!opt_gdb) {
@@ -7644,10 +7641,10 @@ handle_pending:
                 }
             }
             if (opt_record_dump > 0u && mm_trace_enabled() && g_record_started) {
-                dump_trace_tail(&execution.cores[0].cpu, &map, opt_record_dump);
+                dump_trace_tail(&execution.cores[0].cpu, &execution.map, opt_record_dump);
             }
             covdump_cycles = execution.clock.cycle_total;
-            mm_code_cache_release(&code_cache);
+            mm_code_cache_release(&execution.code_cache);
             break;
         }
     }
@@ -7706,7 +7703,7 @@ cleanup:
                                        sizeof(coverr))) {
             fprintf(stderr, "--covdump: %s\n", coverr);
             rc = 1;
-        } else if (!mm_covdump_write(&map, execution.cores[0].cpu.sec_state, &covinfo, cov_elf,
+        } else if (!mm_covdump_write(&execution.map, execution.cores[0].cpu.sec_state, &covinfo, cov_elf,
                                      opt_covdump, reason, covdump_cycles,
                                      coverr, sizeof(coverr))) {
             fprintf(stderr, "--covdump: %s\n", coverr);

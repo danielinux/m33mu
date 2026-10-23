@@ -37,6 +37,7 @@ static int test_dual_core_reset_keeps_staged_peripheral_state(void)
 int main(void)
 {
     struct mm_execution_state state;
+    struct mmio_region external_regions[2];
     if (test_dual_core_reset_keeps_staged_peripheral_state() != 0) {
         fprintf(stderr, "execution_state_test: dual-core reset failed\n");
         return 1;
@@ -48,6 +49,21 @@ int main(void)
         state.cores[0].cpu.vtor_ns != 0x4000u ||
         state.cores[1].cpu.sleeping || state.active_core != 0u) {
         fprintf(stderr, "execution_state_test: single-core reset failed\n");
+        return 1;
+    }
+    mm_memmap_init(&state.map, state.regions,
+                   sizeof(state.regions) / sizeof(state.regions[0]));
+    if (state.map.mmio.regions != state.regions ||
+        state.map.mmio.region_capacity !=
+            sizeof(state.regions) / sizeof(state.regions[0])) {
+        fprintf(stderr, "execution_state_test: owned MMIO storage binding failed\n");
+        return 1;
+    }
+    mm_memmap_init(&state.map, external_regions,
+                   sizeof(external_regions) / sizeof(external_regions[0]));
+    if (state.map.mmio.regions != external_regions ||
+        state.map.mmio.region_capacity != 2u) {
+        fprintf(stderr, "execution_state_test: external MMIO storage binding failed\n");
         return 1;
     }
     puts("execution_state_test: ok");
