@@ -35,6 +35,8 @@ The signal hooks provide digital `0/1/Z` output observation and digital level in
 - CPU, TrustZone and UART state are available through native emulator internals, but there is no supported typed browser API.
 - No production C session API, WASM firmware smoke test, project schema implementation, web canvas, analog solver, circuit instrument, or browser regression fixture exists yet.
 - No ngspice executable or development headers are installed. A system `libngspice.so.0` runtime is present, but it is native Linux only and cannot establish a WASM build path.
+- The public EEcircuit `eecircuit-engine` API inspected at upstream `eelab-dev/EEcircuit-engine` exposes `setNetList()` and whole-run `runSim()`. Its implementation runs `source test.cir`, `destroy all`, `run`, then exports the completed `out.raw`; that interface does not expose incremental transient stepping or mid-run source updates. It is not suitable as-is for a coupled live worker. The package is MIT, but its ngspice WASM build and bundled model licenses still need separate audit before reuse.
+- CircuitJS1 TypeScript is GPL-2.0-or-later. Its `CircuitMatrix` is a promising computational component, while `CirSim` imports menus, mouse handling, scopes, serializers, and model/UI classes. No standalone interactive kernel extraction or license combination review has passed.
 - Board artwork in `../m33mu-ui-plan/m33mu_board_sprites.zip` is provisional original CC0 geometry. Import it when implementing the catalog; preserve disabled electrical mappings until vendor sources are checked.
 
 ## Immediate gates
