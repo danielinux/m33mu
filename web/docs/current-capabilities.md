@@ -1,6 +1,6 @@
 # Web workbench: current capabilities
 
-Reviewed against `master` `34cc86d550b4a471be9bde3f397f56507bdb1d3b` plus local test fix `7188fb945b7c91963499931aa124a40bbc3c9823`, and PR #15 head `012eaf51e57c4803956952ee5dc1f38ddfd54699` merged locally as `5799dd587dcba1768367ad6dd29af64ac36eff3a`.
+Reviewed through local HEAD `d014135` on 2026-10-23. The upstream base was `34cc86d550b4a471be9bde3f397f56507bdb1d3b`; PR #15 head `012eaf51e57c4803956952ee5dc1f38ddfd54699` was merged locally as `5799dd587dcba1768367ad6dd29af64ac36eff3a`.
 
 This is a development status page, not a claim that the browser workbench exists yet.
 
@@ -9,12 +9,12 @@ This is a development status page, not a claim that the browser workbench exists
 | Area | Current state | Browser consequence |
 |---|---|---|
 | CPU profiles | 15 SoC profiles listed in `docs/supported-cpus.md` | Profiles identify MCU models, not verified dev-board wiring. |
-| Firmware formats | CLI loads ELF, BIN, Intel HEX and UF2. ELF32/ARM PT_LOAD parsing is now in shared `mm_elf_load_memory()`; other format dispatch remains in `src/main.c`. | A bounded in-memory ELF loader runs its native and Node-hosted WASM fixtures; the browser session API and worker are not implemented. Start with H563 ELF. |
-| Production execution | Full dispatch, timers, sleep and exception scheduling are in the large CLI translation unit `src/main.c` | `src/runloop.c` is a NOP/branch placeholder; it is not a firmware backend. |
-| Native library | `m33mu_lib` is assembled from a broad source glob and links optional host libraries | A dedicated Emscripten source target and host-backend exclusions are needed. |
-| Emscripten | `emcc 6.0.5` and Node 24 are installed in the reviewed environment | The broad root build still fails compiling Linux-only `src/m33mu/eth_backend.c`. Dedicated `cmake/wasm` static core excludes host-only modules and builds; no firmware session/stepping API or browser app is linked yet. |
+| Firmware formats | CLI loads ELF, BIN, Intel HEX and UF2. ELF32/ARM PT_LOAD parsing is shared and has a caller-limited memory API. | Native and Node/WASM parser fixtures pass. Session-level loader targets and browser worker integration remain open. Start with H563 ELF. |
+| Production execution | `mm_execution_state` owns much of production target, memory, per-core CPU/SCS/NVIC/IT, core-system and clock state; CLI delegates many startup, fetch/decode, execution, wake and interrupt operations. | `src/runloop.c` is a NOP/branch placeholder and is not used. Whole production scheduling, exception entry/unstack, and a browser session API remain incomplete. |
+| Native library | `m33mu_lib` is assembled from a broad source glob and links optional host libraries | The dedicated Emscripten target excludes host modules and builds a static core. |
+| Emscripten | `emcc` 6.0.5 and Node 24 are installed in the reviewed environment | `cmake/wasm` builds; Node/WASM loader and session smokes pass. This is not yet a worker API or browser app. |
 | Session isolation | GPIO readers, memory-map lookup and multiple peripheral models use global/static state | First browser version supports one active emulator session per worker. Parallel sessions require a later state-ownership refactor. |
-| Native regression | PUF zeroize expectation was updated in local commit `7188fb9`; current serial CTest passes 97/97 enabled tests (one disabled), including native loader and WASM smoke coverage | The update tests START reactivation after zeroize and confirms recovery survives reboot. |
+| Native regression | PUF zeroize expectation was updated in `7188fb9`; current serial CTest passes 104 enabled tests (one disabled) | Includes native session coverage, CLI ELF boot, WASM core build, and Node/WASM loader/session smokes. |
 
 ## GPIO and board connectivity
 
@@ -33,7 +33,7 @@ The signal hooks provide digital `0/1/Z` output observation and digital level in
 ## Other browser-facing capabilities
 
 - CPU, TrustZone and UART state are available through native emulator internals, but there is no supported typed browser API.
-- No production C session API, WASM firmware smoke test, project schema implementation, web canvas, analog solver, circuit instrument, or browser regression fixture exists yet.
+- No public `web.h` session API, worker messaging, web canvas, adopted analog solver, circuit instrument, or browser regression fixture exists yet. Internal production session primitives do have a Node/WASM smoke test.
 - No ngspice executable or development headers are installed. A system `libngspice.so.0` runtime is present, but it is native Linux only and cannot establish a WASM build path.
 - The public EEcircuit `eecircuit-engine` API inspected at upstream `eelab-dev/EEcircuit-engine` exposes `setNetList()` and whole-run `runSim()`. Its implementation runs `source test.cir`, `destroy all`, `run`, then exports the completed `out.raw`; that interface does not expose incremental transient stepping or mid-run source updates. It is not suitable as-is for a coupled live worker. The package is MIT, but its ngspice WASM build and bundled model licenses still need separate audit before reuse.
 - CircuitJS1 TypeScript is GPL-2.0-or-later. Its `CircuitMatrix` is a promising computational component, while `CirSim` imports menus, mouse handling, scopes, serializers, and model/UI classes. No standalone interactive kernel extraction or license combination review has passed.
@@ -41,7 +41,7 @@ The signal hooks provide digital `0/1/Z` output observation and digital level in
 
 ## Immediate gates
 
-1. Create an explicit Emscripten core target that excludes Linux networking and optional host integrations, then extract production H563 stepping and an in-memory ELF loader.
+1. Expose production H563 startup, bounded ELF loading, instruction stepping, and CPU/pad inspection through a one-session C API and headless worker; preserve CLI behavior and reject unsupported operations explicitly.
 2. Verify the actual H563 pins selected for LED and RC/EXTI demos against the exact NUCLEO-H563ZI schematic and SoC pin table.
 3. Benchmark controllable incremental stepping for ngspice WASM and CircuitJS TypeScript. Neither candidate has passed the required coordinated firmware/analog timing spike yet.
 4. Document timing error and event ordering before making the RC/EXTI demo a correctness claim.
