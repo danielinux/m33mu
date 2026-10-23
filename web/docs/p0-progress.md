@@ -25,6 +25,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [ ] Run ngspice WASM and CircuitJS TypeScript incremental transient spikes, or record a concrete toolchain/license blocker. Test changes during a transient, pause/resume, state preservation, reproducibility and worker yielding.
 - [ ] Demonstrate causal firmware-output changes and analog threshold crossings with stated time tolerance. The PR #15 block-delivery timing alone does not meet the analog coupling contract.
 - [x] Define versioned board-pad, capability and worker-message JSON Schemas. The H563 board override follows the board-pad contract; full schema-level valid/invalid fixture validation remains open because no JSON Schema validator is installed in the environment.
+- [x] Inventory currently supplied artwork and upstream pin evidence in `THIRD_PARTY.md`; no solver code, device models, artwork files, or runtime packages have been imported. License audit at actual solver adoption remains a gate.
 - [ ] Run project-schema positive/negative fixture validation and finish the third-party license audit.
 
 ## Not started
