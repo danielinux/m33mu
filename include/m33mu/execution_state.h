@@ -14,6 +14,7 @@
 #include "m33mu/mem_prot.h"
 #include "m33mu/core_sys.h"
 #include "m33mu/target_storage.h"
+#include "m33mu/image_loader.h"
 
 struct mm_execution_core_state {
     struct mm_cpu cpu;
@@ -34,6 +35,7 @@ struct mm_execution_state {
     struct mm_prot_ctx protection[2];
     struct mm_core_sys core_sys;
     struct mm_target_storage storage;
+    struct mm_load_targets load_targets;
     struct mm_execution_core_state cores[2];
     struct mm_scs_mux scs_mux;
     struct mm_execution_clock clock;
@@ -43,6 +45,17 @@ struct mm_execution_state {
 void mm_execution_state_init(struct mm_execution_state *state);
 void mm_execution_state_end_run(struct mm_execution_state *state);
 void mm_execution_state_destroy(struct mm_execution_state *state);
+/* Select one supported SoC before allocating its owned flash/RAM storage. */
+mm_bool mm_execution_state_select_target(struct mm_execution_state *state,
+                                         const char *cpu_name);
+mm_bool mm_execution_state_allocate_storage(struct mm_execution_state *state);
+/* Load bounded ELF32/ARM PT_LOAD records into the state's owned buffers. */
+int mm_execution_state_load_elf(struct mm_execution_state *state,
+                                const mm_u8 *image,
+                                size_t image_size,
+                                size_t max_image_size,
+                                mm_u32 flash_offset,
+                                struct mm_image_load_result *result);
 
 /* Reset CPU/IT state while preserving the staged SCS and NVIC initialization
  * order used by target and protection setup. */

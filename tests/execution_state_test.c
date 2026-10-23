@@ -63,12 +63,78 @@ static int test_session_resource_lifecycle(void)
     return 0;
 }
 
+static void write_le16(mm_u8 *p, mm_u16 value)
+{
+    p[0] = (mm_u8)value;
+    p[1] = (mm_u8)(value >> 8);
+}
+
+static void write_le32(mm_u8 *p, mm_u32 value)
+{
+    p[0] = (mm_u8)value;
+    p[1] = (mm_u8)(value >> 8);
+    p[2] = (mm_u8)(value >> 16);
+    p[3] = (mm_u8)(value >> 24);
+}
+
+static int test_session_bounded_elf_load(void)
+{
+    struct mm_execution_state state;
+    struct mm_image_load_result result;
+    mm_u8 image[88] = { 0 };
+    mm_execution_state_init(&state);
+    if (!mm_execution_state_select_target(&state, "stm32h563") ||
+        !mm_execution_state_allocate_storage(&state)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    if (state.storage.flash[0] != 0xffu || state.storage.ram[0] != 0u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    image[0] = 0x7fu; image[1] = 'E'; image[2] = 'L'; image[3] = 'F';
+    image[4] = 1u; image[5] = 1u; image[6] = 1u;
+    write_le16(image + 18u, 40u);
+    write_le32(image + 28u, 52u);
+    write_le16(image + 40u, 52u);
+    write_le16(image + 42u, 32u);
+    write_le16(image + 44u, 1u);
+    write_le32(image + 52u, 1u);
+    write_le32(image + 56u, 84u);
+    write_le32(image + 60u, state.target.flash_base_s);
+    write_le32(image + 64u, state.target.flash_base_s);
+    write_le32(image + 68u, 4u);
+    write_le32(image + 72u, 4u);
+    image[84] = 0x01u; image[85] = 0x20u;
+    image[86] = 0x70u; image[87] = 0x47u;
+    if (mm_execution_state_load_elf(&state, image, sizeof(image),
+                                    sizeof(image), 0u, &result) != 0 ||
+        result.start != state.target.flash_base_s || result.loaded != 4u ||
+        memcmp(state.storage.flash, image + 84u, 4u) != 0) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    memset(&result, 0xA5, sizeof(result));
+    if (mm_execution_state_load_elf(&state, image, sizeof(image),
+                                    sizeof(image) - 1u, 0u, &result) == 0 ||
+        result.start != 0u || result.end != 0u || result.loaded != 0u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
 int main(void)
 {
     struct mm_execution_state state;
     struct mmio_region external_regions[2];
     if (test_session_resource_lifecycle() != 0) {
         fprintf(stderr, "execution_state_test: session resource lifecycle failed\n");
+        return 1;
+    }
+    if (test_session_bounded_elf_load() != 0) {
+        fprintf(stderr, "execution_state_test: bounded session ELF load failed\n");
         return 1;
     }
     if (test_dual_core_reset_keeps_staged_peripheral_state() != 0) {

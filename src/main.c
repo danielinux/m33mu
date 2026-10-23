@@ -4732,7 +4732,6 @@ int main(int argc, char **argv)
     struct mm_flash_persist persist;
     mm_bool tui_active = MM_FALSE;
     int rc = 0;
-    struct mm_load_targets targets;
     /* IT block tracking: pattern encodes THEN(1)/ELSE(0) for remaining instructions. */
     mm_bool tui_paused = MM_FALSE;
     mm_bool tui_step = MM_FALSE;
@@ -5566,7 +5565,7 @@ int main(int argc, char **argv)
     mm_stm32_saes_set_key_material(opt_puf_seed_set, opt_puf_seed,
                                    (opt_sbkload_key_len != 0u) ? opt_sbkload_key : 0,
                                    opt_sbkload_key_len);
-    if (!mm_cpu_lookup(cpu_name, &execution.target)) {
+    if (!mm_execution_state_select_target(&execution, cpu_name)) {
         size_t ci;
         fprintf(stderr, "unknown CPU: %s\n", cpu_name);
         fprintf(stderr, "valid cpus:");
@@ -5829,7 +5828,7 @@ int main(int argc, char **argv)
         }
     }
 
-    if (!mm_target_storage_init(&execution.storage, &execution.target)) {
+    if (!mm_execution_state_allocate_storage(&execution)) {
         fprintf(stderr, "out of memory\n");
         rc = 1;
         goto cleanup;
@@ -5858,19 +5857,19 @@ int main(int argc, char **argv)
         }
     }
 
-    targets.flash = flash;
-    targets.flash_size = execution.storage.flash_size;
-    targets.ram = ram;
-    targets.ram_size = execution.storage.ram_size;
-    targets.spiflash = spiflash_boot_data;
-    targets.spiflash_size = spiflash_boot_size;
-    targets.spiflash_base = spiflash_boot_base;
+    execution.load_targets.flash = flash;
+    execution.load_targets.flash_size = execution.storage.flash_size;
+    execution.load_targets.ram = ram;
+    execution.load_targets.ram_size = execution.storage.ram_size;
+    execution.load_targets.spiflash = spiflash_boot_data;
+    execution.load_targets.spiflash_size = spiflash_boot_size;
+    execution.load_targets.spiflash_base = spiflash_boot_base;
 
     for (i = 0; i < image_count; ++i) {
         int j;
         mm_u32 b0;
         mm_u32 b1;
-        if (load_image_autodetect(&images[i], &execution.target, &targets, boot_mode, cpu_name) != 0) {
+        if (load_image_autodetect(&images[i], &execution.target, &execution.load_targets, boot_mode, cpu_name) != 0) {
             fprintf(stderr, "failed to load image %s\n", images[i].path);
             rc = 1;
             goto cleanup;
@@ -6838,7 +6837,7 @@ int main(int argc, char **argv)
                 }
 
                 if (!opt_gdb && reload_pending && tui_paused) {
-                    if (reload_images(images, image_count, &targets, &execution.target, boot_mode, cpu_name, &loaded_total, &loaded_max_end)) {
+                    if (reload_images(images, image_count, &execution.load_targets, &execution.target, boot_mode, cpu_name, &loaded_total, &loaded_max_end)) {
                         if (opt_persist) {
                             const char *paths[16];
                             mm_u32 offsets[16];
