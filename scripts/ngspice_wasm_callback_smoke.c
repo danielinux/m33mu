@@ -121,5 +121,36 @@ int main(void)
            "RC output %.9g -> %.9g -> %.9g V (%d samples)\n",
            sync_calls, source_change_time, out[before], out[after],
            out[count - 1], count);
+
+    if (ngSpice_Reset() != 0 || ngGet_Vec_Info(out_name) != NULL)
+        return 8;
+    sync_calls = 0;
+    source_changed = false;
+    source_voltage = 1.0;
+    source_change_time = 0.0;
+    ngSpice_nospinit();
+    ngSpice_nospiceinit();
+    if (ngSpice_Init(no_output, no_output, controlled_exit,
+                     NULL, NULL, NULL, NULL) != 0)
+        return 9;
+    ngSpice_Command("set no_mem_check");
+    if (ngSpice_Init_Sync(external_voltage, NULL, synchronize,
+                          NULL, NULL) != 0 ||
+        ngSpice_Circ(circuit) != 0 || ngSpice_Command("run") != 0)
+        return 10;
+    out_vector = ngGet_Vec_Info(out_name);
+    if (!out_vector || !out_vector->v_realdata || out_vector->v_length < 700 ||
+        sync_calls < 100 || !source_changed)
+        return 11;
+    count = out_vector->v_length;
+    out = out_vector->v_realdata;
+    time_vector = ngGet_Vec_Info(time_name);
+    if (!time_vector || !time_vector->v_realdata ||
+        time_vector->v_length != count)
+        return 12;
+    if (ngSpice_Reset() != 0 || ngGet_Vec_Info(out_name) != NULL)
+        return 13;
+    printf("PASS: reset released transient vectors and a second init/run/reset succeeded "
+           "(sync calls=%d, samples=%d)\n", sync_calls, count);
     return 0;
 }
