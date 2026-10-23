@@ -381,6 +381,33 @@ static int test_exception_active_state_helpers(void)
     return 0;
 }
 
+/* RELOAD = N-1 gives an N-cycle period; the exception pends on the 1 -> 0
+ * transition and a counter written to 0 reloads on the next cycle. */
+static int test_systick_period(void)
+{
+    struct mm_scs scs;
+    mm_u32 wraps;
+    mm_scs_init(&scs, 0u);
+    scs.systick_load_s = 99u;
+    scs.systick_val_s = 0u;
+    scs.systick_ctrl_s = 0x3u;
+    if (mm_scs_systick_cycles_until_fire(&scs) != 100u) return 1;
+    if (mm_scs_systick_advance(&scs, 99u) != 0u || scs.pend_st_s ||
+        scs.systick_val_s != 1u) {
+        return 1;
+    }
+    if (mm_scs_systick_advance(&scs, 1u) != 1u || !scs.pend_st_s ||
+        scs.systick_val_s != 0u) {
+        return 1;
+    }
+    scs.pend_st_s = MM_FALSE;
+    if (mm_scs_systick_cycles_until_fire(&scs) != 100u) return 1;
+    wraps = mm_scs_systick_advance(&scs, 1000u);
+    if (wraps != 10u || scs.systick_val_s != 0u) return 1;
+    if (mm_scs_systick_advance(&scs, 1u) != 0u || scs.systick_val_s != 99u) return 1;
+    return 0;
+}
+
 int main(void)
 {
     struct { const char *name; int (*fn)(void); } tests[] = {
@@ -397,6 +424,7 @@ int main(void)
         { "nvic_high_ipr", test_nvic_high_ipr },
         { "nvic_out_of_range", test_nvic_out_of_range },
         { "exception_active_state_helpers", test_exception_active_state_helpers },
+        { "systick_period", test_systick_period },
     };
     int failures = 0;
     int i;

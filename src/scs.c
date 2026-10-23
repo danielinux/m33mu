@@ -1305,22 +1305,22 @@ mm_u32 mm_scs_systick_advance(struct mm_scs *scs, mm_u64 cycles)
             continue;
         }
 
+        /* The counter runs LOAD..0, so the period is LOAD+1 cycles. It
+         * pends on the 1 -> 0 transition; from 0 the next cycle reloads. */
         cur = *val & SYST_LOAD_MASK;
-        if (cur == 0u) {
-            cur = load_val;
-        }
-
-        remaining = cycles;
-        if (remaining < (mm_u64)cur) {
-            cur = (mm_u32)(cur - remaining);
-            remaining = 0;
-        } else {
-            remaining -= (mm_u64)cur;
-            wraps += 1u;
-            wraps += remaining / (mm_u64)load_val;
-            {
-                mm_u32 rem = (mm_u32)(remaining % (mm_u64)load_val);
-                cur = (rem == 0u) ? load_val : (load_val - rem);
+        {
+            mm_u64 to_event = (cur == 0u) ? (mm_u64)load_val + 1u : (mm_u64)cur;
+            mm_u64 period = (mm_u64)load_val + 1u;
+            remaining = cycles;
+            if (remaining < to_event) {
+                cur = (cur == 0u) ? (mm_u32)(load_val - (remaining - 1u)) :
+                                    (mm_u32)(cur - remaining);
+            } else {
+                mm_u64 rem;
+                remaining -= to_event;
+                wraps = 1u + remaining / period;
+                rem = remaining % period;
+                cur = (rem == 0u) ? 0u : (mm_u32)(load_val - (rem - 1u));
             }
         }
 
@@ -1379,11 +1379,8 @@ mm_u64 mm_scs_systick_cycles_until_fire(const struct mm_scs *scs)
             continue;
         }
         cur = *val & SYST_LOAD_MASK;
-        if (cur == 0u) {
-            cur = load_val;
-        }
-        if ((mm_u64)cur < best) {
-            best = (mm_u64)cur;
+        if ((cur == 0u ? (mm_u64)load_val + 1u : (mm_u64)cur) < best) {
+            best = cur == 0u ? (mm_u64)load_val + 1u : (mm_u64)cur;
         }
     }
     return best;
