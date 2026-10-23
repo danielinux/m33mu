@@ -18,7 +18,6 @@ file(GLOB M33MU_WASM_SOURCES CONFIGURE_DEPENDS
 set(M33MU_WASM_HOST_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/../../src/main.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/gdbstub.c"
-  "${CMAKE_CURRENT_LIST_DIR}/../../src/target_hal.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/covdump.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/m33mu/capstone.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/m33mu/eth_backend.c"

@@ -1,10 +1,11 @@
 # WASM execution extraction notes
 
-**Status:** in progress; shared in-memory ELF32/ARM loader implemented, production session/stepping API still absent. Reviewed at local `master` HEAD `278b14e`.
+**Status:** in progress; shared in-memory ELF32/ARM loader and host-independent target dispatch wrappers are buildable, production session/stepping API still absent. Reviewed after local target-runtime extraction.
 
 ## Current paths
 
-- `cmake/wasm` now builds a static core library with `scripts/build-web-core.sh`, excluding `main.c`, GDB sockets, POSIX target HAL, Linux Ethernet/USB host modules, optional TPM/capstone sources and TUI. CTest runs this compile smoke when `emcmake` is found. Static archive creation does not yet prove a linked/runnable session because host-facing callbacks and a session entry point are still absent.
+- `cmake/wasm` now builds a static core library with `scripts/build-web-core.sh`, excluding `main.c`, GDB sockets, POSIX UART/PTY HAL, Linux Ethernet/USB host modules, optional TPM/capstone sources and TUI. Host-independent target callback dispatch is in `src/target_runtime.c` and is compiled into the WASM core. CTest runs this compile smoke when `emcmake` is found. Static archive creation does not yet prove a linked/runnable session because session-owned storage and an entry point are still absent.
+- `target_runtime_test` checks dispatch of the extracted target callbacks; its single static current-target pointer also makes the one-live-session constraint explicit. This is a boundary extraction, not a session API.
 - `mm_elf_load_memory()` accepts a byte buffer, validates ELF32 little-endian ARM program-header and segment bounds, maps PT_LOAD data into caller-owned flash/RAM/serial-flash buffers, and reports loaded address range. CLI path loading reads the image and delegates to this shared parser. `scripts/test-web-elf-loader.sh` links the loader test as WASM and runs it in Node; CTest registers this smoke when `emcc` and Node are found.
 - `scripts/test_cli_elf_loader.py` generates a minimal H563 ELF with a reset vector and BKPT, then verifies normal CLI loading, reset, and instruction execution. This confirms the path wrapper and in-memory parser work together.
 - Remaining loader gaps: session-owned target storage and reset lifecycle, configured input size limit, and browser worker integration. The new parser test currently covers a flash PT_LOAD, linked-at-zero flash offset, and rejection of a malformed later segment without partial writes.

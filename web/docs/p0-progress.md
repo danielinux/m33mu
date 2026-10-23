@@ -32,6 +32,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [x] Inspect the public EEcircuit engine API and source: it runs the full netlist (`destroy all`, `run`, export raw data) with no public incremental stepping/source-update API, so it fails the interactive co-simulation contract as-is. CircuitJS1's `SimulationManager.runCircuit()` exposes iteration internals but is governed by wall clock, speed controls and frame limits, and calls UI/CirSim hooks; a bounded headless quantum still needs extraction and testing.
 - [x] Record the solver decision as open in `adr-001-solver.md`; pin reviewed candidate revisions and state the required evidence. No solver is selected yet.
 - [x] Map the production firmware execution and loader extraction requirements in `wasm-execution-extraction.md`; no approximate runloop was introduced.
+- [x] Separate host-independent target callback dispatch from POSIX UART/PTY HAL code; validate callback forwarding natively and compile the runtime into the Emscripten core. This does not yet create the production session or scheduler API.
 - [ ] Finish the third-party license audit when selecting/importing a solver and adding runtime dependencies or models.
 
 ## Not started
