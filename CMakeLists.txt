@@ -664,6 +664,17 @@ if(M33MU_BUILD_TESTS)
     set_tests_properties(web_sim_unit_test PROPERTIES
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
+    find_program(M33MU_CHROMIUM NAMES chromium chromium-browser google-chrome)
+    if(M33MU_CHROMIUM)
+      add_test(NAME web_browser_chromium_test
+        COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
+          "M33MU_CHROMIUM=${M33MU_CHROMIUM}"
+          "${CMAKE_SOURCE_DIR}/scripts/test-web-browser.sh")
+      set_tests_properties(web_browser_chromium_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        RUN_SERIAL TRUE
+      )
+    endif()
     add_test(NAME wasm_core_build_test
       COMMAND "${CMAKE_COMMAND}" -E env
         "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
@@ -717,6 +728,12 @@ if(M33MU_BUILD_TESTS)
           "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
           "${CMAKE_SOURCE_DIR}/scripts/test-web-worker-active-exti.sh")
       set_tests_properties(wasm_worker_active_exti_boundary_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      )
+      add_test(NAME wasm_worker_demos_test
+        COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
+          "${CMAKE_SOURCE_DIR}/scripts/test-web-demos.sh")
+      set_tests_properties(wasm_worker_demos_test PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
       )
       add_test(NAME wasm_worker_bench_rc_exti_test

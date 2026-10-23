@@ -57,11 +57,14 @@ export type BenchOptions = {
   maxSamples: number;
   mcuInstructionSlice: number;
   mcuWorkSlice: number;
+  /** 'dc': start from the DC operating point; 'zero': every node and
+   * capacitor at 0 V, as at power-on. */
+  initial: 'dc' | 'zero';
 };
 
 export const DEFAULT_BENCH: BenchOptions = {
   lookaheadNs: 50_000, maxCrossingsPerWindow: 32, sampleNs: 1000, maxSamples: 200_000,
-  mcuInstructionSlice: 4096, mcuWorkSlice: 4096
+  mcuInstructionSlice: 4096, mcuWorkSlice: 4096, initial: 'dc'
 };
 
 export type BenchEvent =
@@ -70,6 +73,13 @@ export type BenchEvent =
   | { kind: 'unsupported'; socPad: string; timeNs: number; message: string }
   | { kind: 'gpio'; socPad: string; level: 0 | 1 | 2; mode: number; pull: number; timeNs: number }
   | { kind: 'switch'; device: string; closed: boolean; timeNs: number };
+
+export type Observation = {
+  timeNs: number;
+  nets: Record<string, number>;
+  currents: Record<string, number>;
+  pads: Record<string, { volts: number; digital: 0 | 1; drive: PadDrive; pull: PadPull }>;
+};
 
 export type SliceReport = {
   timeNs: number;
@@ -113,7 +123,7 @@ export class Bench {
     this.probes = probes;
     this.opts = { ...DEFAULT_BENCH, ...options };
     for (const p of probes) {
-      if (p.kind === 'voltage' && !circuit.netIndex.has(p.net) && !['0', 'gnd', 'GND'].includes(p.net)) {
+      if (p.kind === 'voltage' && !circuit.netIndex.has(p.net) && !circuit.groundNets.has(p.net)) {
         throw new Error(`Probe ${p.id}: unknown net ${p.net}`);
       }
       if (p.kind === 'current' && !circuit.byId.has(p.device)) {
@@ -130,7 +140,7 @@ export class Bench {
       }
     }
     circuit.t = t0 * 1e-9;
-    circuit.operatingPoint();
+    if (this.opts.initial === 'zero') circuit.zeroState(); else circuit.operatingPoint();
     circuit.onCommit = (c) => this.record(c);
     this.nextSampleNs = t0;
     this.record(circuit);
@@ -179,11 +189,13 @@ export class Bench {
       for (let k = 0; k < this.probes.length; k++) {
         row[k + 1] = a.values[k] + (b.values[k] - a.values[k]) * f;
       }
-      if (this.samples.length >= this.opts.maxSamples) {
-        this.samples.shift();
-        this.sampleOverflow++;
-      }
       this.samples.push(row);
+      if (this.samples.length > this.opts.maxSamples * 2) {
+        // Amortized drop of the oldest half beyond the bound.
+        const drop = this.samples.length - this.opts.maxSamples;
+        this.samples.splice(0, drop);
+        this.sampleOverflow += drop;
+      }
       this.nextSampleNs += this.opts.sampleNs;
     }
     // Keep the last entry at or before the next sample as the interpolation base.
@@ -202,6 +214,27 @@ export class Bench {
       this.events.push({ kind: 'crossing', socPad: c.watch, level: c.level, timeNs: c.t * 1e9, volts: c.volts });
       this.mcu?.scheduleInput(c.watch, c.level, t);
     }
+  }
+
+  /** Node voltages, device currents and pad states at the last synchronized
+   * time (never speculative). */
+  observe(): Observation {
+    const c = this.circuit;
+    const live = c.snapshot();
+    const synced = this.mcu && !this.stopped;
+    if (synced) c.restore(this.sync);
+    const nets: Record<string, number> = {};
+    for (const name of c.netNames) nets[name] = c.nodeVoltage(name);
+    const currents: Record<string, number> = {};
+    for (const d of c.devices) currents[d.spec.id] = c.deviceCurrent(d.spec.id);
+    const pads: Observation['pads'] = {};
+    for (const socPad of c.padSocPads()) {
+      pads[socPad] = { volts: c.padNodeVoltage(socPad), digital: c.padDigital(socPad),
+        ...c.padDrive(socPad) };
+    }
+    const timeNs = c.t * 1e9;
+    if (synced) c.restore(live);
+    return { timeNs, nets, currents, pads };
   }
 
   takeSamples(): Float64Array[] {
@@ -226,8 +259,10 @@ export class Bench {
     const steps0 = c.stepCount;
     const mcu = this.mcu;
     if (!mcu || this.stopped) {
-      // Analog-only: no consumer for crossings beyond the event log.
-      const crossings = c.advanceTo(targetNs * 1e-9);
+      // Analog-only: no consumer for crossings beyond the event log. Each
+      // window is bounded by the lookahead so a slice stays short.
+      const end = Math.min(targetNs, c.t * 1e9 + this.opts.lookaheadNs * windows);
+      const crossings = c.advanceTo(end * 1e-9);
       for (const x of crossings) {
         this.events.push({ kind: 'crossing', socPad: x.watch, level: x.level, timeNs: x.t * 1e9, volts: x.volts });
       }

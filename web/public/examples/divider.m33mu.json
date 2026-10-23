@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 2,
+  "projectId": "example-divider",
+  "name": "DC divider",
+  "simulator": {
+    "cpu": "stm32h563",
+    "firmwareFormat": "elf",
+    "firmwareSha256": null,
+    "firmwareName": ""
+  },
+  "boards": [
+    {
+      "id": "board1",
+      "cpu": "stm32h563",
+      "layoutRevision": "MB1404 H563ZI-C01",
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "parts": [
+    {
+      "id": "v1",
+      "kind": "supply",
+      "x": 900,
+      "y": 400,
+      "rotation": 0,
+      "params": {
+        "volts": "5"
+      }
+    },
+    {
+      "id": "r1",
+      "kind": "resistor",
+      "x": 1000,
+      "y": 300,
+      "rotation": 0,
+      "params": {
+        "ohms": 2000
+      }
+    },
+    {
+      "id": "r2",
+      "kind": "resistor",
+      "x": 1200,
+      "y": 300,
+      "rotation": 90,
+      "params": {
+        "ohms": 3000
+      }
+    },
+    {
+      "id": "gnd1",
+      "kind": "ground",
+      "x": 1100,
+      "y": 600,
+      "rotation": 0,
+      "params": {}
+    }
+  ],
+  "wires": [
+    {
+      "id": "w1",
+      "from": {
+        "kind": "part",
+        "part": "v1",
+        "terminal": "p"
+      },
+      "to": {
+        "kind": "part",
+        "part": "r1",
+        "terminal": "a"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w2",
+      "from": {
+        "kind": "part",
+        "part": "r1",
+        "terminal": "b"
+      },
+      "to": {
+        "kind": "part",
+        "part": "r2",
+        "terminal": "a"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w3",
+      "from": {
+        "kind": "part",
+        "part": "r2",
+        "terminal": "b"
+      },
+      "to": {
+        "kind": "part",
+        "part": "gnd1",
+        "terminal": "g"
+      },
+      "color": "#333333"
+    },
+    {
+      "id": "w4",
+      "from": {
+        "kind": "part",
+        "part": "v1",
+        "terminal": "n"
+      },
+      "to": {
+        "kind": "part",
+        "part": "gnd1",
+        "terminal": "g"
+      },
+      "color": "#333333"
+    }
+  ],
+  "instruments": {
+    "scope": {
+      "channels": [
+        {
+          "kind": "voltage",
+          "at": {
+            "kind": "part",
+            "part": "r2",
+            "terminal": "a"
+          }
+        },
+        null
+      ],
+      "windowNs": 1000000
+    }
+  },
+  "solver": {
+    "lookaheadNs": 50000,
+    "sampleNs": 1000
+  },
+  "ui": {
+    "zoom": 0.5,
+    "panX": -300,
+    "panY": 40
+  }
+}

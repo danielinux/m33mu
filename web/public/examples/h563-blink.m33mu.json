@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 2,
+  "projectId": "example-h563-blink",
+  "name": "H563 LED blink (PA5, CN7 pin 10)",
+  "simulator": {
+    "cpu": "stm32h563",
+    "firmwareFormat": "elf",
+    "firmwareSha256": "f8dd2457a0f43d2063ea32ddfab49f2fce46ca3d41006dd1405bca3adbde1291",
+    "firmwareName": "h563-blink.elf"
+  },
+  "boards": [
+    {
+      "id": "board1",
+      "cpu": "stm32h563",
+      "layoutRevision": "MB1404 H563ZI-C01",
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "parts": [
+    {
+      "id": "r1",
+      "kind": "resistor",
+      "x": 800,
+      "y": 300,
+      "rotation": 0,
+      "params": {
+        "ohms": 330
+      }
+    },
+    {
+      "id": "led1",
+      "kind": "led",
+      "x": 1000,
+      "y": 300,
+      "rotation": 0,
+      "params": {
+        "color": "red"
+      }
+    },
+    {
+      "id": "gnd1",
+      "kind": "ground",
+      "x": 1100,
+      "y": 400,
+      "rotation": 0,
+      "params": {}
+    }
+  ],
+  "wires": [
+    {
+      "id": "w1",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-10"
+      },
+      "to": {
+        "kind": "part",
+        "part": "r1",
+        "terminal": "a"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w2",
+      "from": {
+        "kind": "part",
+        "part": "r1",
+        "terminal": "b"
+      },
+      "to": {
+        "kind": "part",
+        "part": "led1",
+        "terminal": "a"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w3",
+      "from": {
+        "kind": "part",
+        "part": "led1",
+        "terminal": "k"
+      },
+      "to": {
+        "kind": "part",
+        "part": "gnd1",
+        "terminal": "g"
+      },
+      "color": "#333333"
+    }
+  ],
+  "instruments": {
+    "scope": {
+      "channels": [
+        {
+          "kind": "voltage",
+          "at": {
+            "kind": "board",
+            "board": "board1",
+            "contact": "CN7-10"
+          }
+        },
+        {
+          "kind": "current",
+          "part": "led1"
+        }
+      ],
+      "windowNs": 1000000000
+    }
+  },
+  "solver": {
+    "lookaheadNs": 1000000,
+    "sampleNs": 100000
+  },
+  "ui": {
+    "zoom": 0.5,
+    "panX": 40,
+    "panY": 20
+  }
+}

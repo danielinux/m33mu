@@ -268,11 +268,32 @@
                       "maxSamples": {
                         "type": "number",
                         "exclusiveMinimum": 0
+                      },
+                      "initial": {
+                        "enum": [
+                          "dc",
+                          "zero"
+                        ]
                       }
                     }
                   },
                   "solver": {
-                    "type": "object"
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "hMax": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "reltol": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "eventTol": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    }
                   }
                 }
               }
@@ -298,6 +319,10 @@
                   "targetNs": {
                     "type": "string",
                     "pattern": "^[0-9]{1,16}$"
+                  },
+                  "maxRatio": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
                   }
                 }
               }

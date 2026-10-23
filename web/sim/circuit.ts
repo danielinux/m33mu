@@ -124,6 +124,8 @@ function limvds(vnew: number, vold: number): number {
 export class Circuit {
   readonly netNames: string[];          // unknown index -> net name
   readonly netIndex: Map<string, number>;
+  /** Net names merged into ground by `ground` devices. */
+  readonly groundNets: Set<string>;
   readonly devices: Compiled[];
   readonly byId: Map<string, Compiled>;
   readonly size: number;
@@ -156,6 +158,7 @@ export class Circuit {
     this.opts = { ...DEFAULT_OPTIONS, ...options };
     const ground = new Set<string>(GROUND_NAMES);
     for (const d of netlist.devices) if (d.kind === 'ground') ground.add(d.node);
+    this.groundNets = ground;
     this.netIndex = new Map();
     this.netNames = [];
     const net = (name: string) => {
@@ -221,7 +224,7 @@ export class Circuit {
   // ---------------------------------------------------------------- access
 
   nodeVoltage(name: string): number {
-    if (GROUND_NAMES.has(name)) return 0;
+    if (this.groundNets.has(name)) return 0;
     const i = this.netIndex.get(name);
     if (i === undefined) return 0;
     return this.x[i];
@@ -284,6 +287,14 @@ export class Circuit {
   padDigital(socPad: string): 0 | 1 {
     const d = this.padByName.get(socPad);
     return d && this.state[d.state + 4] ? 1 : 0;
+  }
+
+  padDrive(socPad: string): { drive: PadDrive; pull: PadPull } {
+    const d = this.padByName.get(socPad);
+    const drive = d ? this.state[d.state + 2] : 0;
+    const pull = d ? this.state[d.state + 3] : 0;
+    return { drive: drive === 2 ? 'high' : drive === 1 ? 'low' : 'z',
+      pull: pull === 1 ? 'up' : pull === 2 ? 'down' : 'none' };
   }
 
   padSpec(socPad: string): PadElectrical | null {

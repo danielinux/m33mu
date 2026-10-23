@@ -1,0 +1,196 @@
+// Browser interaction tests for the built workbench (web/dist) in Chromium.
+// Usage: node web/tests/browser/workbench.browser.mjs [screenshot-dir]
+// Env: M33MU_CHROMIUM (default /usr/bin/chromium).
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { extname, join, normalize } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright-core';
+
+const webRoot = fileURLToPath(new URL('../..', import.meta.url));
+const dist = join(webRoot, 'dist');
+const shots = process.argv[2] ?? null;
+if (shots) mkdirSync(shots, { recursive: true });
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.elf': 'application/octet-stream' };
+
+const server = createServer((req, res) => {
+  const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^\/+/, '');
+  let file = join(dist, path || 'index.html');
+  try { if (statSync(file).isDirectory()) file = join(file, 'index.html'); } catch { /* 404 below */ }
+  try {
+    const body = readFileSync(file);
+    res.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream' });
+    res.end(body);
+  } catch {
+    res.writeHead(404); res.end();
+  }
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const origin = `http://127.0.0.1:${server.address().port}`;
+
+const browser = await chromium.launch({ executablePath: process.env.M33MU_CHROMIUM ?? '/usr/bin/chromium',
+  args: ['--no-sandbox'] });
+const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+const external = [];
+await context.route('**/*', (route) => {
+  const url = route.request().url();
+  if (url.startsWith(origin) || url.startsWith('blob:') || url.startsWith('data:')) return route.continue();
+  external.push(url);
+  return route.abort();
+});
+const page = await context.newPage();
+const consoleErrors = [];
+page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
+page.on('pageerror', (e) => consoleErrors.push(String(e)));
+const results = [];
+async function check(name, fn) {
+  const t0 = Date.now();
+  await fn();
+  results.push(`${name} (${Date.now() - t0} ms)`);
+  console.log(`ok - ${name}`);
+}
+const center = async (locator) => {
+  const b = await locator.boundingBox();
+  assert.ok(b, 'element is visible');
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+};
+const status = () => page.getByTestId('status-message').textContent();
+const shot = async (name) => { if (shots) await page.screenshot({ path: join(shots, `${name}.png`) }); };
+
+try {
+  await check('loads offline with board artwork', async () => {
+    await page.goto(origin + '/');
+    await page.waitForSelector('circle[data-contact="CN7-10"]');
+    const enabled = await page.locator('circle.contact.enabled').count();
+    assert.equal(enabled, 2, 'exactly two electrical contacts');
+    assert.equal(await page.locator('circle[data-contact="CN9-1"].enabled').count(), 1);
+    await shot('01-empty-bench');
+  });
+
+  await check('place a resistor', async () => {
+    await page.getByTestId('place-resistor').click();
+    const canvas = await page.getByTestId('bench-canvas').boundingBox();
+    await page.mouse.click(canvas.x + canvas.width * 0.72, canvas.y + 160);
+    await page.waitForSelector('g[data-part="r1"]');
+    await page.keyboard.press('Escape');
+  });
+
+  await check('wire CN7-10 to the resistor at several zoom levels', async () => {
+    await page.getByTestId('wire-tool').click();
+    for (const steps of [0, -3, 4]) {
+      const canvas = await page.getByTestId('bench-canvas').boundingBox();
+      await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2);
+      for (let i = 0; i < Math.abs(steps); i++) await page.mouse.wheel(0, steps < 0 ? 120 : -120);
+      await page.waitForTimeout(150);
+      const from = await center(page.locator('circle[data-contact="CN7-10"]'));
+      await page.mouse.move(from.x, from.y);
+      assert.match(await page.locator('.canvas-status').textContent(), /CN7-10 \(PA5\)/);
+    }
+    // Visual-only neighbours are not wiring targets.
+    const neighbour = await center(page.locator('circle[data-contact="CN7-9"]'));
+    await page.mouse.move(neighbour.x, neighbour.y);
+    assert.doesNotMatch(await page.locator('.canvas-status').textContent(), /CN7-9/);
+    const from = await center(page.locator('circle[data-contact="CN7-10"]'));
+    const to = await center(page.locator('g[data-part="r1"] circle.lead').first());
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move((from.x + to.x) / 2, to.y, { steps: 5 });
+    await page.mouse.move(to.x, to.y, { steps: 5 });
+    await page.mouse.up();
+    assert.equal(await page.locator('g[data-wire]').count(), 1);
+    await shot('02-wired');
+  });
+
+  await check('undo and redo the wire', async () => {
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+z');
+    assert.equal(await page.locator('g[data-wire]').count(), 0);
+    await page.keyboard.press('Control+y');
+    assert.equal(await page.locator('g[data-wire]').count(), 1);
+  });
+
+  await check('a wire to a visual-only contact is refused', async () => {
+    await page.getByTestId('wire-tool').click();
+    const bad = await center(page.locator('circle[data-contact="CN7-9"]'));
+    const to = await center(page.locator('g[data-part="r1"] circle.lead').nth(1));
+    await page.mouse.move(bad.x, bad.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 5 });
+    await page.mouse.up();
+    assert.equal(await page.locator('g[data-wire]').count(), 1);
+    await page.keyboard.press('Escape');
+  });
+
+  await check('save and reopen the project', async () => {
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save' }).click()]);
+    const file = await download.path();
+    const saved = JSON.parse(readFileSync(file, 'utf8'));
+    assert.equal(saved.schemaVersion, 2);
+    assert.equal(saved.wires.length, 1);
+    assert.deepEqual(saved.wires[0].from, { kind: 'board', board: 'board1', contact: 'CN7-10' });
+    await page.keyboard.press('Control+z');
+    await page.keyboard.press('Control+z');
+    assert.equal(await page.locator('g[data-part="r1"]').count(), 0);
+    await page.getByTestId('open-input').setInputFiles(file);
+    await page.waitForSelector('g[data-part="r1"]');
+    assert.equal(await page.locator('g[data-wire]').count(), 1);
+    const bad = join(tmpdir(), `m33mu-bad-project-${process.pid}.json`);
+    writeFileSync(bad, JSON.stringify({ ...saved, parts: [{ ...saved.parts[0], kind: 'opamp' }] }));
+    await page.getByTestId('open-input').setInputFiles(bad);
+    await page.waitForFunction(() => /unsupported component/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
+    assert.equal(await page.locator('g[data-part="r1"]').count(), 1, 'rejected project leaves the bench untouched');
+  });
+
+  await check('H563 blink example runs with a glowing LED and scope trace', async () => {
+    await page.getByTestId('examples').selectOption('h563-blink');
+    await page.waitForFunction(() => /H563 LED blink/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
+    await page.getByTestId('real-time').uncheck();
+    await page.getByTestId('run').click();
+    const t0 = Date.now();
+    await page.waitForFunction(() => {
+      const t = document.querySelector('[data-testid=virtual-time]')?.textContent ?? '';
+      const m = /([\d.]+) (m?)s/.exec(t);
+      return m && (m[2] === '' ? Number(m[1]) * 1000 : Number(m[1])) > 150;
+    }, null, { timeout: 120000 });
+    const wall = Date.now() - t0;
+    await page.waitForSelector('g[data-part="led1"] circle.glow', { timeout: 60000 });
+    assert.ok(await page.getByRole('button', { name: 'Export CSV' }).isEnabled());
+    await shot('03-blink-running');
+    await page.getByRole('button', { name: 'Pause' }).click();
+    await page.getByTestId('real-time').check();
+    results.push(`blink: 150 ms simulated in ${wall} ms wall (unpaced)`);
+  });
+
+  await check('RC button example: pressing the switch lights the LED through EXTI', async () => {
+    await page.getByTestId('examples').selectOption('h563-button');
+    await page.waitForFunction(() => /RC button/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
+    await page.getByTestId('run').click();
+    await page.waitForFunction(() => /coupled/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
+    const sw = await center(page.locator('g[data-part="sw1"]'));
+    await page.mouse.move(sw.x, sw.y);
+    await page.mouse.down();
+    await page.waitForSelector('g[data-part="led1"] circle.glow', { timeout: 60000 });
+    await shot('04-button-pressed');
+    await page.mouse.up();
+    await page.waitForSelector('g[data-part="led1"] circle.glow', { state: 'detached', timeout: 60000 });
+    await page.getByRole('button', { name: 'Pause' }).click();
+  });
+
+  await check('analog-only divider example and inspector readout', async () => {
+    await page.getByTestId('examples').selectOption('divider');
+    await page.getByTestId('run').click();
+    await page.locator('g[data-part="r2"]').click();
+    await page.waitForFunction(() => /3 V/.test(document.querySelector('.inspector')?.textContent ?? ''));
+    await shot('05-divider-inspector');
+  });
+
+  assert.deepEqual(external, [], 'no network requests outside the local origin');
+  assert.deepEqual(consoleErrors.filter((e) => !/favicon/.test(e)), []);
+  console.log(`browser: chromium ${browser.version()}; ${results.join('; ')}`);
+} finally {
+  await browser.close();
+  server.close();
+}

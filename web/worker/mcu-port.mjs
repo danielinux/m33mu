@@ -8,8 +8,8 @@ function split64(value) {
 }
 
 export function createMcuPort(api, session, onError) {
-  const nowNs = () => Number((BigInt(api.virtualTimeHigh(session)) << 32n) |
-    BigInt(api.virtualTimeLow(session)));
+  const nowNs = () => Number((BigInt(api.virtualTimeHigh(session) >>> 0) << 32n) |
+    BigInt(api.virtualTimeLow(session) >>> 0));
   return {
     nowNs,
     runUntil(deadlineNs, instructionBudget, workBudget) {
@@ -36,8 +36,8 @@ export function createMcuPort(api, session, onError) {
           socPad: api.gpioOutputPad(), level: api.gpioOutputLevel(),
           mode: config & 0xff, openDrain: ((config >> 8) & 0xff) !== 0,
           pull: (config >> 16) & 0xff,
-          timeNs: Number((BigInt(api.gpioOutputTimeHigh()) << 32n) |
-            BigInt(api.gpioOutputTimeLow()))
+          timeNs: Number((BigInt(api.gpioOutputTimeHigh() >>> 0) << 32n) |
+            BigInt(api.gpioOutputTimeLow() >>> 0))
         });
       }
       return out;

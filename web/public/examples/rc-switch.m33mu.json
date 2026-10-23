@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 2,
+  "projectId": "example-rc-switch",
+  "name": "RC charge through a switch",
+  "simulator": {
+    "cpu": "stm32h563",
+    "firmwareFormat": "elf",
+    "firmwareSha256": null,
+    "firmwareName": ""
+  },
+  "boards": [
+    {
+      "id": "board1",
+      "cpu": "stm32h563",
+      "layoutRevision": "MB1404 H563ZI-C01",
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "parts": [
+    {
+      "id": "v1",
+      "kind": "supply",
+      "x": 900,
+      "y": 400,
+      "rotation": 0,
+      "params": {
+        "volts": "5"
+      }
+    },
+    {
+      "id": "sw1",
+      "kind": "switch",
+      "x": 1000,
+      "y": 300,
+      "rotation": 0,
+      "params": {}
+    },
+    {
+      "id": "r1",
+      "kind": "resistor",
+      "x": 1100,
+      "y": 300,
+      "rotation": 0,
+      "params": {
+        "ohms": 1000
+      }
+    },
+    {
+      "id": "c1",
+      "kind": "capacitor",
+      "x": 1250,
+      "y": 300,
+      "rotation": 90,
+      "params": {
+        "farads": 1e-05
+      }
+    },
+    {
+      "id": "gnd1",
+      "kind": "ground",
+      "x": 1150,
+      "y": 500,
+      "rotation": 0,
+      "params": {}
+    }
+  ],
+  "wires": [
+    {
+      "id": "w1",
+      "from": {
+        "kind": "part",
+        "part": "v1",
+        "terminal": "p"
+      },
+      "to": {
+        "kind": "part",
+        "part": "sw1",
+        "terminal": "a"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w2",
+      "from": {
+        "kind": "part",
+        "part": "sw1",
+        "terminal": "b"
+      },
+      "to": {
+        "kind": "part",
+        "part": "r1",
+        "terminal": "a"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w3",
+      "from": {
+        "kind": "part",
+        "part": "r1",
+        "terminal": "b"
+      },
+      "to": {
+        "kind": "part",
+        "part": "c1",
+        "terminal": "a"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w4",
+      "from": {
+        "kind": "part",
+        "part": "c1",
+        "terminal": "b"
+      },
+      "to": {
+        "kind": "part",
+        "part": "gnd1",
+        "terminal": "g"
+      },
+      "color": "#333333"
+    },
+    {
+      "id": "w5",
+      "from": {
+        "kind": "part",
+        "part": "v1",
+        "terminal": "n"
+      },
+      "to": {
+        "kind": "part",
+        "part": "gnd1",
+        "terminal": "g"
+      },
+      "color": "#333333"
+    }
+  ],
+  "instruments": {
+    "scope": {
+      "channels": [
+        {
+          "kind": "voltage",
+          "at": {
+            "kind": "part",
+            "part": "c1",
+            "terminal": "a"
+          }
+        },
+        {
+          "kind": "current",
+          "part": "r1"
+        }
+      ],
+      "windowNs": 50000000
+    }
+  },
+  "solver": {
+    "lookaheadNs": 50000,
+    "sampleNs": 10000
+  },
+  "ui": {
+    "zoom": 0.5,
+    "panX": -300,
+    "panY": 40
+  }
+}
