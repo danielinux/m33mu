@@ -7,11 +7,37 @@
 static char observed_pad[16];
 static mm_u8 observed_level;
 
+struct input_capture {
+    struct mm_web_session *session;
+    mm_u32 count;
+    mm_u32 levels[8];
+    mm_u64 cycles[8];
+};
+
 static void on_pad(void *opaque, const char *pad, mm_u8 level)
 {
     (void)opaque;
     (void)snprintf(observed_pad, sizeof(observed_pad), "%s", pad);
     observed_level = level;
+}
+
+static mm_bool capture_gpio_input(void *opaque,
+                                  int bank,
+                                  int pin,
+                                  mm_bool level,
+                                  mm_u64 late_cycles)
+{
+    struct input_capture *capture = (struct input_capture *)opaque;
+    struct mm_web_cpu_state cpu;
+    if (capture == 0 || bank != 0 || pin != 5 || late_cycles != 0u ||
+        capture->count >= 8u ||
+        mm_web_cpu_snapshot(capture->session, &cpu) != MM_WEB_OK) {
+        return MM_FALSE;
+    }
+    capture->levels[capture->count] = level ? 1u : 0u;
+    capture->cycles[capture->count] = cpu.virtual_cycles;
+    capture->count++;
+    return MM_TRUE;
 }
 
 static void put_le16(mm_u8 *p, mm_u16 value)
@@ -96,6 +122,11 @@ int main(void)
         fprintf(stderr, "web_session_test: ELF boot state mismatch\n");
         return 1;
     }
+    if (cpu.cpu_hz == 0u || cpu.virtual_time_ns != 0u) {
+        mm_web_destroy(session);
+        fprintf(stderr, "web_session_test: boot clock origin invalid\n");
+        return 1;
+    }
     observed_pad[0] = '\0';
     if (mm_web_set_pad_listener(session, on_pad, 0) != MM_WEB_OK) {
         mm_web_destroy(session);
@@ -138,6 +169,60 @@ int main(void)
         mm_web_destroy(session);
         fprintf(stderr, "web_session_test: unsupported opcode was not reported\n");
         return 1;
+    }
+    {
+        struct input_capture capture;
+        mm_u64 event_time_ns;
+        mm_u64 target_cycle = 5u;
+        mm_u32 i;
+        memset(&capture, 0, sizeof(capture));
+        capture.session = session;
+        event_time_ns = target_cycle * 1000000000u / cpu.cpu_hz;
+        put_le16(image + 92u, 0xe7feu); /* b . */
+        put_le16(image + 94u, 0xe7feu);
+        if (mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK ||
+            mm_web_schedule_gpio_input(session, "PA5", MM_TRUE,
+                                       event_time_ns) != MM_WEB_OK ||
+            mm_web_schedule_gpio_input(session, "PA5", MM_FALSE,
+                                       event_time_ns) != MM_WEB_OK) {
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: timestamped input queue rejected event\n");
+            return 1;
+        }
+        mm_gpio_set_external_input_writer(capture_gpio_input, &capture);
+        if (mm_web_step_instructions(session, 4u, &step) != MM_WEB_OK ||
+            capture.count != 0u ||
+            mm_web_step_instructions(session, 1u, &step) != MM_WEB_OK ||
+            capture.count != 2u || capture.levels[0] != 1u ||
+            capture.levels[1] != 0u || capture.cycles[0] != target_cycle ||
+            capture.cycles[1] != target_cycle ||
+            mm_web_schedule_gpio_input(session, "PA5", MM_TRUE, 1u) !=
+                MM_WEB_EVENT_IN_PAST) {
+            mm_gpio_set_external_input_writer(0, 0);
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: timestamped GPIO boundary/order failed\n");
+            return 1;
+        }
+        for (i = 0u; i < 64u; ++i) {
+            enum mm_web_error queued = mm_web_schedule_gpio_input(
+                session, "PA5", (i & 1u) ? MM_TRUE : MM_FALSE,
+                event_time_ns + 1000u);
+            if (queued != MM_WEB_OK) {
+                mm_gpio_set_external_input_writer(0, 0);
+                mm_web_destroy(session);
+                fprintf(stderr, "web_session_test: input queue capacity too small\n");
+                return 1;
+            }
+        }
+        if (mm_web_schedule_gpio_input(session, "PA5", MM_TRUE,
+                                       event_time_ns + 1000u) !=
+            MM_WEB_EVENT_QUEUE_FULL) {
+            mm_gpio_set_external_input_writer(0, 0);
+            mm_web_destroy(session);
+            fprintf(stderr, "web_session_test: input queue limit not enforced\n");
+            return 1;
+        }
+        mm_gpio_set_external_input_writer(0, 0);
     }
     mm_web_destroy(session);
     puts("web_session_test: ok");

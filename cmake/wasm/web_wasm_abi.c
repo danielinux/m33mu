@@ -34,10 +34,16 @@ int mm_web_abi_reset(void *session)
     return (int)g_last_error;
 }
 
-int mm_web_abi_gpio_input(void *session, const char *pad, int level)
+int mm_web_abi_gpio_input(void *session,
+                          const char *pad,
+                          unsigned int time_high,
+                          unsigned int time_low,
+                          int level)
 {
-    g_last_error = mm_web_set_gpio_input(
-        (struct mm_web_session *)session, pad, level ? MM_TRUE : MM_FALSE);
+    mm_u64 event_time_ns = ((mm_u64)time_high << 32) | time_low;
+    g_last_error = mm_web_schedule_gpio_input(
+        (struct mm_web_session *)session, pad,
+        level ? MM_TRUE : MM_FALSE, event_time_ns);
     return (int)g_last_error;
 }
 
@@ -115,6 +121,21 @@ MM_WEB_ABI_CPU_FIELD_GETTER(mm_web_abi_psp_ns, psp_ns)
 MM_WEB_ABI_CPU_FIELD_GETTER(mm_web_abi_security_state, security_state)
 MM_WEB_ABI_CPU_FIELD_GETTER(mm_web_abi_mode, mode)
 MM_WEB_ABI_CPU_FIELD_GETTER(mm_web_abi_sleeping, sleeping)
+MM_WEB_ABI_CPU_FIELD_GETTER(mm_web_abi_cpu_hz, cpu_hz)
+
+unsigned int mm_web_abi_virtual_time_low(void *session)
+{
+    struct mm_web_cpu_state snapshot;
+    if (!mm_web_abi_snapshot(session, &snapshot)) return 0u;
+    return (unsigned int)snapshot.virtual_time_ns;
+}
+
+unsigned int mm_web_abi_virtual_time_high(void *session)
+{
+    struct mm_web_cpu_state snapshot;
+    if (!mm_web_abi_snapshot(session, &snapshot)) return 0u;
+    return (unsigned int)(snapshot.virtual_time_ns >> 32);
+}
 
 #undef MM_WEB_ABI_CPU_FIELD_GETTER
 

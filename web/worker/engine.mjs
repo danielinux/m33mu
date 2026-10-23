@@ -1,7 +1,8 @@
 const ERROR_NAMES = [
   'OK', 'INVALID_ARGUMENT', 'UNSUPPORTED_TARGET', 'SESSION_BUSY',
   'OUT_OF_MEMORY', 'INITIALIZATION_FAILED', 'IMAGE_REJECTED', 'NOT_BOOTED',
-  'EXECUTION_FAULT', 'UNSUPPORTED_INSTRUCTION'
+  'EXECUTION_FAULT', 'UNSUPPORTED_INSTRUCTION', 'EVENT_IN_PAST',
+  'EVENT_QUEUE_FULL'
 ];
 
 const MAX_FIRMWARE_BYTES = 32 * 1024 * 1024;
@@ -54,7 +55,8 @@ export function attachM33muWorker(scope, createModule) {
         load: wrap('mm_web_abi_load', 'number', ['number', 'number', 'number']),
         step: wrap('mm_web_abi_step', 'number', ['number', 'number']),
         reset: wrap('mm_web_abi_reset', 'number', ['number']),
-        gpio: wrap('mm_web_abi_gpio_input', 'number', ['number', 'string', 'number']),
+        gpio: wrap('mm_web_abi_gpio_input', 'number',
+          ['number', 'string', 'number', 'number', 'number']),
         lastError: wrap('mm_web_abi_last_error', 'number', []),
         instructionCount: wrap('mm_web_abi_last_instruction_count', 'number', []),
         stopped: wrap('mm_web_abi_last_stopped', 'number', []),
@@ -69,6 +71,9 @@ export function attachM33muWorker(scope, createModule) {
         securityState: wrap('mm_web_abi_security_state', 'number', ['number']),
         mode: wrap('mm_web_abi_mode', 'number', ['number']),
         sleeping: wrap('mm_web_abi_sleeping', 'number', ['number']),
+        cpuHz: wrap('mm_web_abi_cpu_hz', 'number', ['number']),
+        virtualTimeLow: wrap('mm_web_abi_virtual_time_low', 'number', ['number']),
+        virtualTimeHigh: wrap('mm_web_abi_virtual_time_high', 'number', ['number']),
         destroy: wrap('mm_web_abi_destroy', null, ['number'])
       };
     }
@@ -116,8 +121,11 @@ export function attachM33muWorker(scope, createModule) {
       securityState: api.securityState(session),
       mode: api.mode(session),
       sleeping: api.sleeping(session) !== 0,
+      cpuHz: api.cpuHz(session),
       cycleTotal: ((BigInt(api.cyclesHigh(session)) << 32n) |
-        BigInt(api.cycles(session))).toString()
+        BigInt(api.cycles(session))).toString(),
+      virtualTimeNs: ((BigInt(api.virtualTimeHigh(session)) << 32n) |
+        BigInt(api.virtualTimeLow(session))).toString()
     };
   }
 
@@ -221,13 +229,27 @@ export function attachM33muWorker(scope, createModule) {
         await ensureSession();
         requireFirmware();
         if (typeof payload.socPad !== 'string' ||
+            typeof payload.eventTimeNs !== 'string' ||
+            !/^[0-9]+$/.test(payload.eventTimeNs) ||
             typeof payload.level !== 'boolean') {
-          throw Object.assign(new Error('gpioWrite requires socPad and boolean level'),
+          throw Object.assign(new Error(
+            'gpioWrite requires socPad, decimal eventTimeNs, and boolean level'),
             { code: 'INVALID_ARGUMENT' });
         }
-        const status = api.gpio(session, payload.socPad, payload.level ? 1 : 0);
+        const eventTime = BigInt(payload.eventTimeNs);
+        if (eventTime > 0xffffffffffffffffn) {
+          throw Object.assign(new Error('eventTimeNs exceeds uint64'),
+            { code: 'INVALID_ARGUMENT' });
+        }
+        const status = api.gpio(
+          session, payload.socPad,
+          Number((eventTime >> 32n) & 0xffffffffn),
+          Number(eventTime & 0xffffffffn), payload.level ? 1 : 0);
         if (status !== 0) throw errorFromCode(status);
-        postResponse(requestId, { accepted: true });
+        postResponse(requestId, {
+          accepted: true, socPad: payload.socPad,
+          eventTimeNs: eventTime.toString()
+        });
         return;
       }
       default:

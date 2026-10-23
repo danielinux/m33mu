@@ -125,7 +125,22 @@ const runEventsAfterWait = messages.filter(message =>
   message.kind === 'event' && message.payload.requestId === runLoop.requestId).length;
 assert.equal(runEventsAfterWait, runEventsBeforeWait);
 
-const badPad = await request('gpioWrite', { socPad: 'PA99', level: true });
+const queuedInput = await request('gpioWrite', {
+  socPad: 'PA5', level: true, eventTimeNs: '1000000000'
+});
+assert.equal(queuedInput.ok, true);
+assert.equal(queuedInput.result.accepted, true);
+assert.equal(queuedInput.result.eventTimeNs, '1000000000');
+
+const pastInput = await request('gpioWrite', {
+  socPad: 'PA5', level: false, eventTimeNs: '1'
+});
+assert.equal(pastInput.ok, false);
+assert.equal(pastInput.error.code, 'EVENT_IN_PAST');
+
+const badPad = await request('gpioWrite', {
+  socPad: 'PA99', level: true, eventTimeNs: '0'
+});
 assert.equal(badPad.ok, false);
 assert.equal(badPad.error.code, 'INVALID_ARGUMENT');
 

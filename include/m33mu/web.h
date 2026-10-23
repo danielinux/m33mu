@@ -20,7 +20,9 @@ enum mm_web_error {
     MM_WEB_IMAGE_REJECTED,
     MM_WEB_NOT_BOOTED,
     MM_WEB_EXECUTION_FAULT,
-    MM_WEB_UNSUPPORTED_INSTRUCTION
+    MM_WEB_UNSUPPORTED_INSTRUCTION,
+    MM_WEB_EVENT_IN_PAST,
+    MM_WEB_EVENT_QUEUE_FULL
 };
 
 struct mm_web_config {
@@ -37,6 +39,8 @@ struct mm_web_cpu_state {
     mm_u32 psp_ns;
     mm_u64 cycle_total;
     mm_u64 virtual_cycles;
+    mm_u64 virtual_time_ns;
+    mm_u64 cpu_hz;
     mm_u32 security_state;
     mm_u32 mode;
     mm_bool sleeping;
@@ -66,11 +70,18 @@ enum mm_web_error mm_web_step_instructions(
     struct mm_web_session *session,
     mm_u32 instruction_budget,
     struct mm_web_step_result *result_out);
-/* Apply an input transition at the current virtual time between step calls. */
+/* Apply an input transition at the current virtual time. */
 enum mm_web_error mm_web_set_gpio_input(
     struct mm_web_session *session,
     const char *soc_pad,
     mm_bool level);
+/* Schedule a digital input transition in virtual nanoseconds. Due transitions
+ * are applied before instruction fetch. The queue holds 64 pending events. */
+enum mm_web_error mm_web_schedule_gpio_input(
+    struct mm_web_session *session,
+    const char *soc_pad,
+    mm_bool level,
+    mm_u64 event_time_ns);
 enum mm_web_error mm_web_set_pad_listener(
     struct mm_web_session *session,
     mm_web_pad_listener_fn listener,
