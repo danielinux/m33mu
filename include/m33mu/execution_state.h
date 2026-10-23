@@ -140,7 +140,10 @@ enum mm_execution_instruction_outcome {
     MM_EXECUTION_INSTRUCTION_INVALID = 0,
     MM_EXECUTION_INSTRUCTION_SKIPPED,
     MM_EXECUTION_INSTRUCTION_EXECUTED,
-    MM_EXECUTION_INSTRUCTION_YIELDED
+    MM_EXECUTION_INSTRUCTION_YIELDED,
+    MM_EXECUTION_INSTRUCTION_FETCH_FAULT_HANDLED,
+    MM_EXECUTION_INSTRUCTION_FETCH_FAULT_UNHANDLED,
+    MM_EXECUTION_INSTRUCTION_UNDEFINED
 };
 
 /* Complete one decoded instruction. A worker may call this once per budgeted
@@ -152,6 +155,21 @@ enum mm_execution_instruction_outcome mm_execution_state_step_decoded(
     const struct mm_fetch_result *fetch,
     const struct mm_decoded *decoded,
     mm_bool execute_it,
+    enum mm_exec_status *exec_status_out);
+
+/* Fetch/decode and run one production instruction decision. Undefined
+ * instructions and fetch faults are returned to the caller for its fault
+ * policy; no browser-specific execution loop is introduced here. */
+enum mm_execution_instruction_outcome mm_execution_state_step_instruction(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    struct mm_execute_ctx *context,
+    mm_execution_fpu_access_fn fpu_access_allowed,
+    mm_execution_decode_fn decode,
+    mm_execution_mem_fault_fn raise_mem_fault,
+    struct mm_fetch_result *fetch_out,
+    struct mm_decoded *decoded_out,
+    mm_bool *fpu_ok_out,
     enum mm_exec_status *exec_status_out);
 
 /* Reset CPU/IT state while preserving the staged SCS and NVIC initialization

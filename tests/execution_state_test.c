@@ -629,6 +629,20 @@ static int test_session_bounded_elf_load(void)
             mm_execution_state_destroy(&state);
             return 1;
         }
+        state.cores[0].cpu.r[0] = 0u;
+        state.cores[0].cpu.r[15] = state.target.flash_base_s | 1u;
+        memset(&context, 0, sizeof(context));
+        context.done = &done;
+        outcome = mm_execution_state_step_instruction(
+            &state, 0u, &context, test_fpu_allowed, test_decode,
+            test_fetch_fault_handler, &fetch, &decoded, &fpu_ok,
+            &exec_status);
+        if (outcome != MM_EXECUTION_INSTRUCTION_EXECUTED ||
+            exec_status != MM_EXEC_OK || state.cores[0].cpu.r[0] != 1u ||
+            state.cores[0].cpu.r[15] != state.target.flash_base_s + 3u) {
+            mm_execution_state_destroy(&state);
+            return 1;
+        }
     }
     state.cores[0].cpu.r[15] = 0xdead0001u;
     fetch_fault_handler_calls = 0u;

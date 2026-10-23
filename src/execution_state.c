@@ -280,6 +280,48 @@ enum mm_execution_instruction_outcome mm_execution_state_step_decoded(
         MM_EXECUTION_INSTRUCTION_YIELDED : MM_EXECUTION_INSTRUCTION_EXECUTED;
 }
 
+enum mm_execution_instruction_outcome mm_execution_state_step_instruction(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    struct mm_execute_ctx *context,
+    mm_execution_fpu_access_fn fpu_access_allowed,
+    mm_execution_decode_fn decode,
+    mm_execution_mem_fault_fn raise_mem_fault,
+    struct mm_fetch_result *fetch_out,
+    struct mm_decoded *decoded_out,
+    mm_bool *fpu_ok_out,
+    enum mm_exec_status *exec_status_out)
+{
+    enum mm_execution_fetch_status fetch_status;
+    mm_bool execute_it;
+    if (state == 0 || core_index >= 2u || context == 0 ||
+        fetch_out == 0 || decoded_out == 0 || fpu_ok_out == 0 ||
+        raise_mem_fault == 0) {
+        return MM_EXECUTION_INSTRUCTION_INVALID;
+    }
+    state->active_core = core_index;
+    fetch_status = mm_execution_state_fetch_decode_or_fault(
+        state, fpu_access_allowed, decode, raise_mem_fault, fetch_out,
+        decoded_out, fpu_ok_out);
+    if (fetch_status == MM_EXECUTION_FETCH_FAULT_HANDLED) {
+        return MM_EXECUTION_INSTRUCTION_FETCH_FAULT_HANDLED;
+    }
+    if (fetch_status == MM_EXECUTION_FETCH_FAULT_UNHANDLED) {
+        return MM_EXECUTION_INSTRUCTION_FETCH_FAULT_UNHANDLED;
+    }
+    if (fetch_status != MM_EXECUTION_FETCH_READY) {
+        return MM_EXECUTION_INSTRUCTION_INVALID;
+    }
+    if (decoded_out->undefined) {
+        return MM_EXECUTION_INSTRUCTION_UNDEFINED;
+    }
+    execute_it = mm_execution_state_should_execute(state, core_index,
+                                                   decoded_out);
+    return mm_execution_state_step_decoded(
+        state, core_index, context, fetch_out, decoded_out, execute_it,
+        exec_status_out);
+}
+
 void mm_execution_state_init_memory_map(struct mm_execution_state *state)
 {
     if (state == 0) {
