@@ -29,6 +29,14 @@ option(M33MU_ENABLE_LIBDW       "Enable libdw/libdwfl symbolization if found" ON
 option(M33MU_ENABLE_RUST_PLUGINS "Enable Rust simulator plugins (ATECC608/SE050/STSAFE) if cargo is found" ON)
 option(M33MU_ENABLE_ONNXRUNTIME "Enable the optional ONNX Runtime NPU model backend" OFF)
 
+# Build the browser worker and app, then keep the local Vite server running.
+add_custom_target(webserver
+  COMMAND "${CMAKE_SOURCE_DIR}/scripts/run-webserver.sh"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  USES_TERMINAL
+  COMMENT "Building and serving the web workbench at http://127.0.0.1:5173/"
+)
+
 # -----------------------------------------------------------------------------
 # Compiler flags (match Makefile)
 # -----------------------------------------------------------------------------

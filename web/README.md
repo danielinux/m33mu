@@ -6,9 +6,19 @@ The board geometry and connector numbering are provisional. Contact selection is
 
 ## Build and run
 
-Install the pinned frontend dependencies with `npm install` from this directory. Then, from the repository root, run:
+From the repository root, configure CMake once and start the server:
 
 ```sh
+cmake -S . -B build
+cmake --build build --target webserver
+```
+
+With the Makefiles generator, `make -C build webserver` does the same thing. The target installs the pinned npm dependencies, builds the Emscripten worker and app, then starts Vite at `http://127.0.0.1:5173/`. Press Ctrl-C to stop it. Node.js/npm and Emscripten must be installed.
+
+The equivalent manual commands are:
+
+```sh
+npm --prefix web ci
 scripts/build-web-app.sh
 npm --prefix web run dev
 ```
