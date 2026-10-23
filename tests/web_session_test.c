@@ -312,6 +312,21 @@ int main(void)
         }
         mm_web_destroy(session);
     }
+    config.max_image_size = sizeof(image);
+    session = mm_web_create(&config, &error);
+    put_le16(image + 92u, 0xbf30u); /* wfi */
+    put_le16(image + 94u, 0xbeabu); /* Must remain unfetched while asleep. */
+    if (session == 0 || error != MM_WEB_OK ||
+        mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK ||
+        mm_web_step_instructions(session, 4u, &step) != MM_WEB_OK ||
+        step.instructions != 1u || step.stopped ||
+        mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK || !cpu.sleeping ||
+        cpu.cycle_total != 1u || cpu.r[15] != 0x0c00000bu) {
+        mm_web_destroy(session);
+        fprintf(stderr, "web_session_test: WFI scheduler handling failed\n");
+        return 1;
+    }
+    mm_web_destroy(session);
     puts("web_session_test: ok");
     return 0;
 }

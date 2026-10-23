@@ -166,7 +166,7 @@ export function attachM33muWorker(scope, createModule) {
     }
     const stopped = api.stopped() !== 0;
     emitState(requestId, stopped);
-    if (!stopped && generation === runGeneration) {
+    if (!stopped && !snapshot().sleeping && generation === runGeneration) {
       scope.setTimeout(() => runSlice(generation, requestId), 0);
     }
   }

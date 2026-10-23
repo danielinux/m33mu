@@ -19,6 +19,7 @@
 #define MM_WEB_GPIO_EVENT_CAPACITY 64u
 #define MM_WEB_GPIO_OUTPUT_CAPACITY 4096u
 #define MM_WEB_NSEC_PER_SEC 1000000000u
+#define MM_WEB_TARGET_POLL_CYCLES 64u
 
 struct mm_web_gpio_event {
     int bank;
@@ -514,6 +515,42 @@ enum mm_web_error mm_web_step_instructions(
         mm_bool fpu_ok = MM_FALSE;
         mm_bool done = MM_FALSE;
         session->pending_error = MM_WEB_OK;
+        if (state->cores[0].cpu.sleeping) {
+            mm_u64 external_deadline = 0u;
+            mm_u64 poll_remaining;
+            mm_u64 delta;
+            if (!web_apply_due_gpio_events(session)) {
+                result_out->error = MM_WEB_EXECUTION_FAULT;
+                return result_out->error;
+            }
+            if (mm_execution_state_wake_sleeping_core(state, 0u)) {
+                continue;
+            }
+            if (session->gpio_event_count != 0u) {
+                mm_u64 now = state->clock.virtual_cycles;
+                mm_u64 event_cycle = session->gpio_events[0].cycle;
+                external_deadline = event_cycle > now ? event_cycle - now : 1u;
+            }
+            delta = mm_execution_state_cycles_until_wake(
+                state, 0u, external_deadline);
+            if (delta == (mm_u64)-1) break;
+            poll_remaining = state->clock.cycles_since_poll >=
+                MM_WEB_TARGET_POLL_CYCLES ? 1u :
+                MM_WEB_TARGET_POLL_CYCLES - state->clock.cycles_since_poll;
+            if (delta > poll_remaining) delta = poll_remaining;
+            if (delta == 0u) delta = 1u;
+            mm_execution_state_advance_cycles(
+                state, 0u, delta, MM_TRUE,
+                state->cores[0].cpu.r[15] & ~1u);
+            (void)mm_execution_state_poll_target_devices_if_due(
+                state, MM_WEB_TARGET_POLL_CYCLES);
+            if (!web_apply_due_gpio_events(session)) {
+                result_out->error = MM_WEB_EXECUTION_FAULT;
+                return result_out->error;
+            }
+            (void)mm_execution_state_wake_sleeping_core(state, 0u);
+            continue;
+        }
         if (!mm_execution_state_advance_for_instruction(state, 0u)) {
             result_out->error = MM_WEB_INITIALIZATION_FAILED;
             return result_out->error;
@@ -522,6 +559,8 @@ enum mm_web_error mm_web_step_instructions(
             result_out->error = MM_WEB_EXECUTION_FAULT;
             return result_out->error;
         }
+        (void)mm_execution_state_poll_target_devices_if_due(
+            state, MM_WEB_TARGET_POLL_CYCLES);
         {
             enum mm_execution_irq_dispatch_result irq_result =
                 mm_execution_state_dispatch_pending(
