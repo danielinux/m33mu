@@ -30,7 +30,17 @@ struct mm_image_load_result {
     size_t loaded;
 };
 
-/* Load bounded little-endian ELF32/ARM PT_LOAD segments from memory. */
+/* Load little-endian ELF32/ARM PT_LOAD segments from memory, rejecting an
+ * input larger than max_image_size before inspecting or writing any segment. */
+int mm_elf_load_memory_bounded(const mm_u8 *image,
+                               size_t image_size,
+                               size_t max_image_size,
+                               const struct mm_target_cfg *cfg,
+                               const struct mm_load_targets *targets,
+                               mm_u32 flash_offset,
+                               struct mm_image_load_result *result);
+
+/* Compatibility loader with no policy limit beyond the supplied buffer. */
 int mm_elf_load_memory(const mm_u8 *image,
                        size_t image_size,
                        const struct mm_target_cfg *cfg,

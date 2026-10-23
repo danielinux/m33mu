@@ -121,12 +121,13 @@ static mm_u8 *target_pointer(const struct mm_load_targets *targets,
     return base + offset;
 }
 
-int mm_elf_load_memory(const mm_u8 *image,
-                       size_t image_size,
-                       const struct mm_target_cfg *cfg,
-                       const struct mm_load_targets *targets,
-                       mm_u32 flash_offset,
-                       struct mm_image_load_result *result)
+int mm_elf_load_memory_bounded(const mm_u8 *image,
+                               size_t image_size,
+                               size_t max_image_size,
+                               const struct mm_target_cfg *cfg,
+                               const struct mm_load_targets *targets,
+                               mm_u32 flash_offset,
+                               struct mm_image_load_result *result)
 {
     size_t phoff;
     size_t phentsize;
@@ -138,7 +139,8 @@ int mm_elf_load_memory(const mm_u8 *image,
     size_t loaded = 0u;
 
     if (result != 0) memset(result, 0, sizeof(*result));
-    if (image == 0 || cfg == 0 || targets == 0 || image_size < 52u) return -1;
+    if (image == 0 || cfg == 0 || targets == 0 || image_size < 52u ||
+        image_size > max_image_size) return -1;
     if (image[0] != 0x7fu || image[1] != 'E' || image[2] != 'L' || image[3] != 'F' ||
         image[4] != 1u || image[5] != 1u || image[6] != 1u || read_le16(image + 18u) != 40u) {
         return -1;
@@ -215,4 +217,15 @@ int mm_elf_load_memory(const mm_u8 *image,
         result->loaded = loaded;
     }
     return 0;
+}
+
+int mm_elf_load_memory(const mm_u8 *image,
+                       size_t image_size,
+                       const struct mm_target_cfg *cfg,
+                       const struct mm_load_targets *targets,
+                       mm_u32 flash_offset,
+                       struct mm_image_load_result *result)
+{
+    return mm_elf_load_memory_bounded(image, image_size, (size_t)-1, cfg,
+                                      targets, flash_offset, result);
 }

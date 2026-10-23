@@ -116,6 +116,39 @@ static int test_reject_truncated_program_segment(void)
     return 0;
 }
 
+static int test_reject_image_over_configured_limit(void)
+{
+    mm_u8 image[88];
+    mm_u8 flash[64];
+    struct mm_target_cfg cfg;
+    struct mm_load_targets targets;
+    struct mm_image_load_result result;
+
+    make_elf(image);
+    memset(flash, 0, sizeof(flash));
+    memset(&cfg, 0, sizeof(cfg));
+    memset(&targets, 0, sizeof(targets));
+    cfg.flash_base_s = 0x08000000u;
+    cfg.flash_size_s = sizeof(flash);
+    targets.flash = flash;
+    targets.flash_size = sizeof(flash);
+    memset(&result, 0xA5, sizeof(result));
+
+    if (mm_elf_load_memory_bounded(image, sizeof(image), sizeof(image) - 1u,
+                                   &cfg, &targets, 0u, &result) == 0) {
+        return 1;
+    }
+    if (flash[0] != 0u || result.start != 0u || result.end != 0u ||
+        result.loaded != 0u) {
+        return 1;
+    }
+    if (mm_elf_load_memory_bounded(image, sizeof(image), sizeof(image),
+                                   &cfg, &targets, 0u, &result) != 0) {
+        return 1;
+    }
+    return 0;
+}
+
 static int test_flash_offset_for_linked_at_zero(void)
 {
     mm_u8 image[88];
@@ -144,6 +177,7 @@ int main(void)
     int failures = 0;
     failures += test_load_flash_segment();
     failures += test_reject_truncated_program_segment();
+    failures += test_reject_image_over_configured_limit();
     failures += test_flash_offset_for_linked_at_zero();
     if (failures != 0) {
         printf("image_loader_test: %d failure(s)\n", failures);
