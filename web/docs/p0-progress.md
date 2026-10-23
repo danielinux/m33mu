@@ -46,6 +46,7 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 
 - [x] Extract the production WFI/WFE wake decision into `mm_execution_state_wake_sleeping_core()` and use it in the primary scheduler before idle work and after virtual-time advancement. Native tests cover event-register wake, WFE pending IRQ, masked and enabled WFI IRQ, and PendSV wake. Full CTest passes 102 enabled tests (one disabled). Secondary single-step still uses its pointer-based sleep handling.
 - [x] Add `mm_execution_state_dispatch_pending()` so the primary scheduler dispatches PendSV, SysTick, and external IRQ candidates through its owned per-core CPU/SCS/NVIC/IT state. The existing blocked-candidate policy and injectable exception-entry callback are preserved; the session test verifies the callback receives the owned CPU/map/SCS. Full CTest passes 102 enabled tests (one disabled), including the WASM core build and loader smoke.
+- [x] Move the primary path's IT predicate skip decision into `mm_execution_state_run_decoded()`, which advances IT state for skipped instructions and otherwise invokes the shared decoded executor. The session test covers skipped and executed instructions and verifies an IT instruction still executes when its predicate flag is false. Full CTest passes 102 enabled tests (one disabled).
 
 ## Not started
 

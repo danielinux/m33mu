@@ -7405,22 +7405,6 @@ handle_pending:
                                 (unsigned long)mm_cpu_get_active_sp(&execution.cores[0].cpu),
                                 (unsigned long long)execution.clock.cycle_total);
                     }
-                    if (!execute_it && d.kind != MM_OP_IT) {
-                        mm_execution_state_advance_it(&execution, 0u, &d);
-                        if (trace_started) {
-                            mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
-                            mm_trace_end_step(&execution.cores[0].cpu);
-                            record_window_step(&execution.cores[0].cpu, &execution.map);
-                        }
-                        if (opt_gdb) {
-                            mm_gdb_stub_maybe_rearm(&gdb, &execution.map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
-                            if (mm_gdb_stub_should_step(&gdb)) {
-                                mm_gdb_stub_notify_stop(&gdb, 5);
-                            }
-                        }
-                        continue;
-                    }
-
                     if (fault_skip) {
                         printf("[FAULT-CLOCK] skip pc=0x%08lx cycle=%llu\n",
                                (unsigned long)(f.pc_fetch | 1u),
@@ -7444,7 +7428,8 @@ handle_pending:
                         struct mm_execute_ctx exec_ctx;
                         mm_bool exec_bkpt_hit = MM_FALSE;
                         mm_u32 exec_bkpt_imm = 0u;
-                        calltrace_handle_decoded(&execution.cores[0].cpu, &f, &d);
+                        enum mm_exec_status exec_res = MM_EXEC_CONTINUE;
+                        enum mm_execution_instruction_outcome instruction_outcome;
                         exec_ctx.gdb = &gdb;
                         exec_ctx.opt_dump = opt_dump;
                         exec_ctx.opt_gdb = opt_gdb;
@@ -7458,11 +7443,39 @@ handle_pending:
                         exec_ctx.raise_usage_fault = raise_usage_fault;
                         exec_ctx.exc_return_unstack = exc_return_unstack;
                         exec_ctx.enter_exception = enter_exception;
+                        if (execute_it || d.kind == MM_OP_IT) {
+                            calltrace_handle_decoded(&execution.cores[0].cpu,
+                                                     &f, &d);
+                        }
+                        instruction_outcome = mm_execution_state_run_decoded(
+                            &execution, 0u, &exec_ctx, &f, &d, execute_it,
+                            &exec_res);
+                        if (instruction_outcome ==
+                            MM_EXECUTION_INSTRUCTION_INVALID) {
+                            rc = 1;
+                            goto cleanup;
+                        }
+                        if (instruction_outcome ==
+                            MM_EXECUTION_INSTRUCTION_SKIPPED) {
+                            if (trace_started) {
+                                mmio_bus_end_step(&execution.map.mmio,
+                                                  mm_trace_get_undo_sink());
+                                mm_trace_end_step(&execution.cores[0].cpu);
+                                record_window_step(&execution.cores[0].cpu,
+                                                   &execution.map);
+                            }
+                            if (opt_gdb) {
+                                mm_gdb_stub_maybe_rearm(
+                                    &gdb, &execution.map,
+                                    execution.cores[0].cpu.sec_state,
+                                    execution.cores[0].cpu.r[15]);
+                                if (mm_gdb_stub_should_step(&gdb)) {
+                                    mm_gdb_stub_notify_stop(&gdb, 5);
+                                }
+                            }
+                            continue;
+                        }
                         {
-                            enum mm_exec_status exec_res =
-                                mm_execution_state_execute_decoded(
-                                    &execution, 0u, &exec_ctx, &f, &d,
-                                    execute_it);
                             if (exec_bkpt_hit) {
                                 printf("[BKPT] imm=0x%02lx\n", (unsigned long)exec_bkpt_imm);
                                 if (opt_expect_bkpt) {

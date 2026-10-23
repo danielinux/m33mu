@@ -236,6 +236,36 @@ enum mm_exec_status mm_execution_state_execute_decoded(
     return status;
 }
 
+enum mm_execution_instruction_outcome mm_execution_state_run_decoded(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    struct mm_execute_ctx *context,
+    const struct mm_fetch_result *fetch,
+    const struct mm_decoded *decoded,
+    mm_bool execute_it,
+    enum mm_exec_status *exec_status_out)
+{
+    enum mm_exec_status exec_status;
+    if (state == 0 || core_index >= 2u || context == 0 || fetch == 0 ||
+        decoded == 0) {
+        return MM_EXECUTION_INSTRUCTION_INVALID;
+    }
+    if (!execute_it && decoded->kind != MM_OP_IT) {
+        mm_execution_state_advance_it(state, core_index, decoded);
+        if (exec_status_out != 0) {
+            *exec_status_out = MM_EXEC_CONTINUE;
+        }
+        return MM_EXECUTION_INSTRUCTION_SKIPPED;
+    }
+    exec_status = mm_execution_state_execute_decoded(
+        state, core_index, context, fetch, decoded, execute_it);
+    if (exec_status_out != 0) {
+        *exec_status_out = exec_status;
+    }
+    return exec_status == MM_EXEC_CONTINUE ?
+        MM_EXECUTION_INSTRUCTION_YIELDED : MM_EXECUTION_INSTRUCTION_EXECUTED;
+}
+
 void mm_execution_state_init_memory_map(struct mm_execution_state *state)
 {
     if (state == 0) {

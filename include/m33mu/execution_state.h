@@ -127,6 +127,24 @@ enum mm_exec_status mm_execution_state_execute_decoded(
     const struct mm_decoded *decoded,
     mm_bool execute_it);
 
+enum mm_execution_instruction_outcome {
+    MM_EXECUTION_INSTRUCTION_INVALID = 0,
+    MM_EXECUTION_INSTRUCTION_SKIPPED,
+    MM_EXECUTION_INSTRUCTION_EXECUTED,
+    MM_EXECUTION_INSTRUCTION_YIELDED
+};
+
+/* Apply the production IT skip rule, otherwise execute through the shared
+ * executor. The architectural instruction decision stays session-owned. */
+enum mm_execution_instruction_outcome mm_execution_state_run_decoded(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    struct mm_execute_ctx *context,
+    const struct mm_fetch_result *fetch,
+    const struct mm_decoded *decoded,
+    mm_bool execute_it,
+    enum mm_exec_status *exec_status_out);
+
 /* Reset CPU/IT state while preserving the staged SCS and NVIC initialization
  * order used by target and protection setup. */
 void mm_execution_state_reset_cores(struct mm_execution_state *state,
