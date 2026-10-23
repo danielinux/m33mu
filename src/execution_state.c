@@ -26,6 +26,8 @@ mm_bool mm_execution_state_init(struct mm_execution_state *state)
     }
     memset(state, 0, sizeof(*state));
     mm_execution_clock_reset(&state->clock);
+    mm_signal_reset();
+    mm_signal_set_cpu_hz(64000000u);
     g_active_execution_state = state;
     return MM_TRUE;
 }
@@ -45,6 +47,8 @@ void mm_execution_state_destroy(struct mm_execution_state *state)
     }
     mm_execution_state_end_run(state);
     mm_target_storage_destroy(&state->storage);
+    mm_signal_reset();
+    mm_signal_set_cpu_hz(64000000u);
     memset(state, 0, sizeof(*state));
     g_active_execution_state = 0;
 }

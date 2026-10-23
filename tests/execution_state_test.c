@@ -437,7 +437,6 @@ static int test_single_live_session_and_signal_clock(void)
         mm_execution_state_destroy(&first);
         return 1;
     }
-    mm_signal_reset();
     mm_signal_set_cpu_hz(64000000u);
     mm_execution_state_advance_cycles(&first, 0u, 64000000u,
                                       MM_FALSE, 0u);
@@ -449,7 +448,10 @@ static int test_single_live_session_and_signal_clock(void)
     }
     mm_execution_state_destroy(&second);
     mm_execution_state_destroy(&first);
-    if (!mm_execution_state_init(&second)) {
+    if (mm_signal_now_ns() != 0u ||
+        !mm_execution_state_init(&second) ||
+        mm_execution_state_signal_now_ns(&second) != 0u) {
+        mm_execution_state_destroy(&second);
         return 1;
     }
     mm_execution_state_destroy(&second);
