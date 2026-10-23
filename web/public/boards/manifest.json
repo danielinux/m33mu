@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "version": "2026-10-23-original-provisional-v1",
+  "license": "CC0-1.0 for generated original artwork/layout geometry; reference manufacturer trademarks belong to their owners",
+  "generatedFor": "m33mu (AGPLv3)",
+  "rules": {
+    "noPinLabelsInArtwork": true,
+    "wiringRequiresVerifiedElectricalMapping": true,
+    "coordinateSystem": "SVG viewBox pixel absolute; do not assume real mm; contact centers as drawn",
+    "verifiedSignalMetadata": "only Pico 2 40 through-hole/castellated side pads; SWD contact numbering provisional",
+    "defaultElectricalEnabled": false
+  },
+  "boards": [
+    {
+      "cpu": "stm32h533",
+      "boardName": "NUCLEO-H533RE",
+      "family": "nucleo64",
+      "width": 600,
+      "height": 790,
+      "contacts": 94,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "stm32h563",
+      "boardName": "NUCLEO-H563ZI",
+      "family": "nucleo144",
+      "width": 690,
+      "height": 950,
+      "contacts": 181,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "stm32h5f4",
+      "boardName": "STM32H5F4 \u00b7 Nucleo-style proxy",
+      "family": "nucleo144",
+      "width": 690,
+      "height": 950,
+      "contacts": 181,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": false
+    },
+    {
+      "cpu": "stm32u585",
+      "boardName": "STM32U585 \u00b7 Nucleo-style proxy",
+      "family": "nucleo144",
+      "width": 690,
+      "height": 950,
+      "contacts": 181,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": false
+    },
+    {
+      "cpu": "stm32l552",
+      "boardName": "NUCLEO-L552ZE-Q",
+      "family": "nucleo144",
+      "width": 690,
+      "height": 950,
+      "contacts": 181,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "lpc55s69",
+      "boardName": "LPCXpresso55S69",
+      "family": "lpc",
+      "width": 850,
+      "height": 750,
+      "contacts": 71,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "mcxw71c",
+      "boardName": "FRDM-MCXW71",
+      "family": "frdm",
+      "width": 950,
+      "height": 565,
+      "contacts": 74,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "mcxn947",
+      "boardName": "FRDM-MCXN947",
+      "family": "frdm",
+      "width": 950,
+      "height": 565,
+      "contacts": 74,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "rw612",
+      "boardName": "FRDM-RW612",
+      "family": "frdm",
+      "width": 950,
+      "height": 565,
+      "contacts": 74,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "nrf5340",
+      "boardName": "nRF5340 DK",
+      "family": "nordic",
+      "width": 950,
+      "height": 580,
+      "contacts": 140,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "nrf54lm20",
+      "boardName": "nRF54LM20 DK",
+      "family": "nordic54",
+      "width": 960,
+      "height": 610,
+      "contacts": 127,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "rp2350",
+      "boardName": "Raspberry Pi Pico 2",
+      "family": "pico",
+      "width": 410,
+      "height": 950,
+      "contacts": 43,
+      "pinsWithVerifiedSignal": 40,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "pic32ck",
+      "boardName": "PIC32CK SG01 Curiosity Ultra",
+      "family": "curiosity",
+      "width": 720,
+      "height": 940,
+      "contacts": 81,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "m2354",
+      "boardName": "NuMaker-M2354",
+      "family": "numaker",
+      "width": 780,
+      "height": 915,
+      "contacts": 107,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    },
+    {
+      "cpu": "imxrt700",
+      "boardName": "MIMXRT700-EVK",
+      "family": "rt700",
+      "width": 1020,
+      "height": 800,
+      "contacts": 190,
+      "pinsWithVerifiedSignal": 0,
+      "manufacturerBoardVerified": true
+    }
+  ]
+}

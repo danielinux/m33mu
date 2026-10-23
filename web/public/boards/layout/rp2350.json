@@ -1,0 +1,353 @@
+{
+  "schemaVersion": 1,
+  "cpu": "rp2350",
+  "boardName": "Raspberry Pi Pico 2",
+  "boardFamily": "pico",
+  "manufacturer": "Raspberry Pi",
+  "manufacturerBoardVerified": true,
+  "manufacturerSource": "https://datasheets.raspberrypi.com/pico/Pico-2-Pinout.pdf",
+  "artwork": "../svg/rp2350.svg",
+  "preview": "../png/rp2350.png",
+  "pixelViewbox": [
+    0,
+    0,
+    410,
+    950
+  ],
+  "pinLabelArtwork": false,
+  "geometryStatus": "stylized_provisional_not_manufacturing_scale",
+  "electricalMapStatus": "verified_official_Pico2_pinout",
+  "connectors": [
+    {
+      "id": "J_LEFT",
+      "kind": "castellated",
+      "rows": 20,
+      "columns": 1,
+      "numbering": "physical pins 1 through 20 top to bottom",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 78,
+          "y": 116,
+          "signal": "GP0",
+          "mapping_verified": true
+        },
+        {
+          "number": 2,
+          "x": 78,
+          "y": 154,
+          "signal": "GP1",
+          "mapping_verified": true
+        },
+        {
+          "number": 3,
+          "x": 78,
+          "y": 192,
+          "signal": "GND",
+          "mapping_verified": true
+        },
+        {
+          "number": 4,
+          "x": 78,
+          "y": 230,
+          "signal": "GP2",
+          "mapping_verified": true
+        },
+        {
+          "number": 5,
+          "x": 78,
+          "y": 268,
+          "signal": "GP3",
+          "mapping_verified": true
+        },
+        {
+          "number": 6,
+          "x": 78,
+          "y": 306,
+          "signal": "GP4",
+          "mapping_verified": true
+        },
+        {
+          "number": 7,
+          "x": 78,
+          "y": 344,
+          "signal": "GP5",
+          "mapping_verified": true
+        },
+        {
+          "number": 8,
+          "x": 78,
+          "y": 382,
+          "signal": "GND",
+          "mapping_verified": true
+        },
+        {
+          "number": 9,
+          "x": 78,
+          "y": 420,
+          "signal": "GP6",
+          "mapping_verified": true
+        },
+        {
+          "number": 10,
+          "x": 78,
+          "y": 458,
+          "signal": "GP7",
+          "mapping_verified": true
+        },
+        {
+          "number": 11,
+          "x": 78,
+          "y": 496,
+          "signal": "GP8",
+          "mapping_verified": true
+        },
+        {
+          "number": 12,
+          "x": 78,
+          "y": 534,
+          "signal": "GP9",
+          "mapping_verified": true
+        },
+        {
+          "number": 13,
+          "x": 78,
+          "y": 572,
+          "signal": "GND",
+          "mapping_verified": true
+        },
+        {
+          "number": 14,
+          "x": 78,
+          "y": 610,
+          "signal": "GP10",
+          "mapping_verified": true
+        },
+        {
+          "number": 15,
+          "x": 78,
+          "y": 648,
+          "signal": "GP11",
+          "mapping_verified": true
+        },
+        {
+          "number": 16,
+          "x": 78,
+          "y": 686,
+          "signal": "GP12",
+          "mapping_verified": true
+        },
+        {
+          "number": 17,
+          "x": 78,
+          "y": 724,
+          "signal": "GP13",
+          "mapping_verified": true
+        },
+        {
+          "number": 18,
+          "x": 78,
+          "y": 762,
+          "signal": "GND",
+          "mapping_verified": true
+        },
+        {
+          "number": 19,
+          "x": 78,
+          "y": 800,
+          "signal": "GP14",
+          "mapping_verified": true
+        },
+        {
+          "number": 20,
+          "x": 78,
+          "y": 838,
+          "signal": "GP15",
+          "mapping_verified": true
+        }
+      ]
+    },
+    {
+      "id": "J_RIGHT",
+      "kind": "castellated",
+      "rows": 20,
+      "columns": 1,
+      "numbering": "physical pins 40 through 21 top to bottom",
+      "contacts": [
+        {
+          "number": 40,
+          "x": 332,
+          "y": 116,
+          "signal": "VBUS",
+          "mapping_verified": true
+        },
+        {
+          "number": 39,
+          "x": 332,
+          "y": 154,
+          "signal": "VSYS",
+          "mapping_verified": true
+        },
+        {
+          "number": 38,
+          "x": 332,
+          "y": 192,
+          "signal": "GND",
+          "mapping_verified": true
+        },
+        {
+          "number": 37,
+          "x": 332,
+          "y": 230,
+          "signal": "3V3_EN",
+          "mapping_verified": true
+        },
+        {
+          "number": 36,
+          "x": 332,
+          "y": 268,
+          "signal": "3V3",
+          "mapping_verified": true
+        },
+        {
+          "number": 35,
+          "x": 332,
+          "y": 306,
+          "signal": "ADC_VREF",
+          "mapping_verified": true
+        },
+        {
+          "number": 34,
+          "x": 332,
+          "y": 344,
+          "signal": "GP28",
+          "mapping_verified": true
+        },
+        {
+          "number": 33,
+          "x": 332,
+          "y": 382,
+          "signal": "AGND",
+          "mapping_verified": true
+        },
+        {
+          "number": 32,
+          "x": 332,
+          "y": 420,
+          "signal": "GP27",
+          "mapping_verified": true
+        },
+        {
+          "number": 31,
+          "x": 332,
+          "y": 458,
+          "signal": "GP26",
+          "mapping_verified": true
+        },
+        {
+          "number": 30,
+          "x": 332,
+          "y": 496,
+          "signal": "RUN",
+          "mapping_verified": true
+        },
+        {
+          "number": 29,
+          "x": 332,
+          "y": 534,
+          "signal": "GP22",
+          "mapping_verified": true
+        },
+        {
+          "number": 28,
+          "x": 332,
+          "y": 572,
+          "signal": "GND",
+          "mapping_verified": true
+        },
+        {
+          "number": 27,
+          "x": 332,
+          "y": 610,
+          "signal": "GP21",
+          "mapping_verified": true
+        },
+        {
+          "number": 26,
+          "x": 332,
+          "y": 648,
+          "signal": "GP20",
+          "mapping_verified": true
+        },
+        {
+          "number": 25,
+          "x": 332,
+          "y": 686,
+          "signal": "GP19",
+          "mapping_verified": true
+        },
+        {
+          "number": 24,
+          "x": 332,
+          "y": 724,
+          "signal": "GP18",
+          "mapping_verified": true
+        },
+        {
+          "number": 23,
+          "x": 332,
+          "y": 762,
+          "signal": "GND",
+          "mapping_verified": true
+        },
+        {
+          "number": 22,
+          "x": 332,
+          "y": 800,
+          "signal": "GP17",
+          "mapping_verified": true
+        },
+        {
+          "number": 21,
+          "x": 332,
+          "y": 838,
+          "signal": "GP16",
+          "mapping_verified": true
+        }
+      ]
+    },
+    {
+      "id": "SWD",
+      "kind": "through-hole",
+      "rows": 1,
+      "columns": 3,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 159,
+          "y": 871,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 205,
+          "y": 871,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 251,
+          "y": 871,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    }
+  ],
+  "warning": "Contact coordinates and physical ordering are for visual hit testing. Except Pico 2 do not assume board header numbers match manufacturer numbering. Electrical use must remain disabled until verified from schematics.",
+  "electricalEnabledByDefault": false,
+  "notes": "Graphic silhouettes are original illustrations, not manufacturer CAD or exact top-side facsimiles. Pin labels appear only through UI metadata. Pico J_LEFT and J_RIGHT signals derive from official pinout; pin physical identity is valid, but emulator GPIO bridge availability remains capability gated."
+}

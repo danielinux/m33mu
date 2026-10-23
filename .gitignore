@@ -1,6 +1,8 @@
 bin/
 build/
 web/dist/
+web/node_modules/
+web/public/worker/
 *.o
 .beads/
 tags

@@ -1,6 +1,6 @@
 # Web workbench P0 tracker
 
-Updated 2026-10-23 (HEAD `b1a8e05`). Keep this checklist current as P0 work advances.
+Updated 2026-10-23 (HEAD `b683bd9`). Keep this checklist current as P0 work advances.
 
 ## Completed
 
@@ -64,8 +64,10 @@ Updated 2026-10-23 (HEAD `b1a8e05`). Keep this checklist current as P0 work adva
 - [x] Extract EXC_RETURN unstacking into `mm_execution_exception_unstack()` with fault, diagnostic, calltrace and NVIC hooks. CLI and web callbacks use the shared implementation. Web instruction stepping now applies due GPIO events and dispatches pending exceptions before fetch, and handles SVC plus EXC_RETURN through shared architectural operations. H563 PendSV fixtures verify selection, vector lookup, frame stacking and thread return both directly through the session owner and end to end through `mm_web_step_instructions()`, natively and under Node/WASM. The end-to-end firmware writes ICSR.PENDSVSET, runs the handler's `BX LR`, resumes at BKPT and completes within its instruction budget. Full native build and all 106 enabled CTest tests pass (one disabled). Tail chaining remains disabled as in the original CLI path; UART and analog solver work remain open.
 - [x] Match the web step's basic sleep and target-poll boundaries to the production scheduler: apply due inputs, dispatch wakeable exceptions before fetch, advance sleeping cores only to the next SysTick/signal/GPIO deadline (capped at the 64-cycle target-poll quantum), and stop the worker run loop when the core remains asleep. `web_session_test` proves WFI does not fetch a following BKPT; the full suite and Node/WASM session smoke cover the bridge. Exact peripheral callback timing and complete sleeping-worker resume behavior remain open.
 
-## Not started
+## In progress
 
-- [ ] P1 browser UI and minimal verified H563 workbench.
+- [ ] P1 browser UI and minimal verified H563 workbench. A React/Vite shell bundles all 15 provisional board SVG/layout assets, displays the H563 layout as visual-only, accepts H563 ELF32/ARM firmware, and exposes worker run/pause/step/reset, CPU registers, virtual time and capability status. Board contact anchors remain unverified, so wiring/analog are disabled. The UI production build and packaged Emscripten worker build pass; interactive project editing, board catalog selection, save/open, scope/serial, and verified pad wiring remain open.
+
+## Not started
 - [ ] P2 analog device breadth, ADC and instruments.
 - [ ] P3 broad board mappings and developer workflows.

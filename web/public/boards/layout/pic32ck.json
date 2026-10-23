@@ -1,0 +1,637 @@
+{
+  "schemaVersion": 1,
+  "cpu": "pic32ck",
+  "boardName": "PIC32CK SG01 Curiosity Ultra",
+  "boardFamily": "curiosity",
+  "manufacturer": "Microchip",
+  "manufacturerBoardVerified": true,
+  "manufacturerSource": "https://onlinedocs.microchip.com/oxy/GUID-44D0ED0E-9CC5-4BBF-A3CE-D03D8049B2B0-en-US-3/GUID-9A388EB4-CE20-4080-8294-39542F8D0099.html",
+  "artwork": "../svg/pic32ck.svg",
+  "preview": "../png/pic32ck.png",
+  "pixelViewbox": [
+    0,
+    0,
+    720,
+    940
+  ],
+  "pinLabelArtwork": false,
+  "geometryStatus": "stylized_provisional_not_manufacturing_scale",
+  "electricalMapStatus": "UNVERIFIED_VENDOR_SCHEMATIC_REQUIRED",
+  "connectors": [
+    {
+      "id": "EXT1",
+      "kind": "socket",
+      "rows": 9,
+      "columns": 1,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 574,
+          "y": 190,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 574,
+          "y": 215,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 574,
+          "y": 240,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 574,
+          "y": 265,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 574,
+          "y": 290,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 574,
+          "y": 315,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 574,
+          "y": 340,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 574,
+          "y": 365,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 574,
+          "y": 390,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    },
+    {
+      "id": "EXT2",
+      "kind": "socket",
+      "rows": 9,
+      "columns": 1,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 574,
+          "y": 540,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 574,
+          "y": 565,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 574,
+          "y": 590,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 574,
+          "y": 615,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 574,
+          "y": 640,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 574,
+          "y": 665,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 574,
+          "y": 690,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 574,
+          "y": 715,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 574,
+          "y": 740,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    },
+    {
+      "id": "J400",
+      "kind": "socket",
+      "rows": 16,
+      "columns": 2,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 114,
+          "y": 210,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 133,
+          "y": 210,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 114,
+          "y": 232,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 133,
+          "y": 232,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 114,
+          "y": 254,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 133,
+          "y": 254,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 114,
+          "y": 276,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 133,
+          "y": 276,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 114,
+          "y": 298,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 10,
+          "x": 133,
+          "y": 298,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 11,
+          "x": 114,
+          "y": 320,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 12,
+          "x": 133,
+          "y": 320,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 13,
+          "x": 114,
+          "y": 342,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 14,
+          "x": 133,
+          "y": 342,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 15,
+          "x": 114,
+          "y": 364,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 16,
+          "x": 133,
+          "y": 364,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 17,
+          "x": 114,
+          "y": 386,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 18,
+          "x": 133,
+          "y": 386,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 19,
+          "x": 114,
+          "y": 408,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 20,
+          "x": 133,
+          "y": 408,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 21,
+          "x": 114,
+          "y": 430,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 22,
+          "x": 133,
+          "y": 430,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 23,
+          "x": 114,
+          "y": 452,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 24,
+          "x": 133,
+          "y": 452,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 25,
+          "x": 114,
+          "y": 474,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 26,
+          "x": 133,
+          "y": 474,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 27,
+          "x": 114,
+          "y": 496,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 28,
+          "x": 133,
+          "y": 496,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 29,
+          "x": 114,
+          "y": 518,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 30,
+          "x": 133,
+          "y": 518,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 31,
+          "x": 114,
+          "y": 540,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 32,
+          "x": 133,
+          "y": 540,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    },
+    {
+      "id": "J401",
+      "kind": "socket",
+      "rows": 15,
+      "columns": 1,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 202,
+          "y": 220,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 202,
+          "y": 245,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 202,
+          "y": 270,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 202,
+          "y": 295,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 202,
+          "y": 320,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 202,
+          "y": 345,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 202,
+          "y": 370,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 202,
+          "y": 395,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 202,
+          "y": 420,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 10,
+          "x": 202,
+          "y": 445,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 11,
+          "x": 202,
+          "y": 470,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 12,
+          "x": 202,
+          "y": 495,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 13,
+          "x": 202,
+          "y": 520,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 14,
+          "x": 202,
+          "y": 545,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 15,
+          "x": 202,
+          "y": 570,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    },
+    {
+      "id": "MIKROBUS",
+      "kind": "socket",
+      "rows": 2,
+      "columns": 8,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 270,
+          "y": 744,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 294,
+          "y": 744,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 318,
+          "y": 744,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 342,
+          "y": 744,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 366,
+          "y": 744,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 390,
+          "y": 744,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 414,
+          "y": 744,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 438,
+          "y": 744,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 270,
+          "y": 769,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 10,
+          "x": 294,
+          "y": 769,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 11,
+          "x": 318,
+          "y": 769,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 12,
+          "x": 342,
+          "y": 769,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 13,
+          "x": 366,
+          "y": 769,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 14,
+          "x": 390,
+          "y": 769,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 15,
+          "x": 414,
+          "y": 769,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 16,
+          "x": 438,
+          "y": 769,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    }
+  ],
+  "warning": "Contact coordinates and physical ordering are for visual hit testing. Except Pico 2 do not assume board header numbers match manufacturer numbering. Electrical use must remain disabled until verified from schematics.",
+  "electricalEnabledByDefault": false,
+  "notes": "Graphic silhouettes are original illustrations, not manufacturer CAD or exact top-side facsimiles. Pin labels appear only through UI metadata."
+}

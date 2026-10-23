@@ -1,0 +1,1337 @@
+{
+  "schemaVersion": 1,
+  "cpu": "stm32h5f4",
+  "boardName": "STM32H5F4 \u00b7 Nucleo-style proxy",
+  "boardFamily": "nucleo144",
+  "manufacturer": "STMicroelectronics",
+  "manufacturerBoardVerified": false,
+  "manufacturerSource": "https://www.st.com/en/evaluation-tools/stm32-nucleo-boards.html",
+  "artwork": "../svg/stm32h5f4.svg",
+  "preview": "../png/stm32h5f4.png",
+  "pixelViewbox": [
+    0,
+    0,
+    690,
+    950
+  ],
+  "pinLabelArtwork": false,
+  "geometryStatus": "stylized_provisional_not_manufacturing_scale",
+  "electricalMapStatus": "UNVERIFIED_VENDOR_SCHEMATIC_REQUIRED",
+  "connectors": [
+    {
+      "id": "CN11",
+      "kind": "socket",
+      "rows": 35,
+      "columns": 2,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 65,
+          "y": 288,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 82,
+          "y": 288,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 65,
+          "y": 305,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 82,
+          "y": 305,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 65,
+          "y": 322,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 82,
+          "y": 322,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 65,
+          "y": 339,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 82,
+          "y": 339,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 65,
+          "y": 356,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 10,
+          "x": 82,
+          "y": 356,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 11,
+          "x": 65,
+          "y": 373,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 12,
+          "x": 82,
+          "y": 373,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 13,
+          "x": 65,
+          "y": 390,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 14,
+          "x": 82,
+          "y": 390,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 15,
+          "x": 65,
+          "y": 407,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 16,
+          "x": 82,
+          "y": 407,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 17,
+          "x": 65,
+          "y": 424,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 18,
+          "x": 82,
+          "y": 424,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 19,
+          "x": 65,
+          "y": 441,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 20,
+          "x": 82,
+          "y": 441,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 21,
+          "x": 65,
+          "y": 458,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 22,
+          "x": 82,
+          "y": 458,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 23,
+          "x": 65,
+          "y": 475,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 24,
+          "x": 82,
+          "y": 475,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 25,
+          "x": 65,
+          "y": 492,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 26,
+          "x": 82,
+          "y": 492,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 27,
+          "x": 65,
+          "y": 509,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 28,
+          "x": 82,
+          "y": 509,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 29,
+          "x": 65,
+          "y": 526,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 30,
+          "x": 82,
+          "y": 526,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 31,
+          "x": 65,
+          "y": 543,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 32,
+          "x": 82,
+          "y": 543,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 33,
+          "x": 65,
+          "y": 560,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 34,
+          "x": 82,
+          "y": 560,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 35,
+          "x": 65,
+          "y": 577,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 36,
+          "x": 82,
+          "y": 577,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 37,
+          "x": 65,
+          "y": 594,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 38,
+          "x": 82,
+          "y": 594,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 39,
+          "x": 65,
+          "y": 611,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 40,
+          "x": 82,
+          "y": 611,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 41,
+          "x": 65,
+          "y": 628,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 42,
+          "x": 82,
+          "y": 628,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 43,
+          "x": 65,
+          "y": 645,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 44,
+          "x": 82,
+          "y": 645,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 45,
+          "x": 65,
+          "y": 662,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 46,
+          "x": 82,
+          "y": 662,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 47,
+          "x": 65,
+          "y": 679,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 48,
+          "x": 82,
+          "y": 679,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 49,
+          "x": 65,
+          "y": 696,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 50,
+          "x": 82,
+          "y": 696,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 51,
+          "x": 65,
+          "y": 713,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 52,
+          "x": 82,
+          "y": 713,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 53,
+          "x": 65,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 54,
+          "x": 82,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 55,
+          "x": 65,
+          "y": 747,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 56,
+          "x": 82,
+          "y": 747,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 57,
+          "x": 65,
+          "y": 764,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 58,
+          "x": 82,
+          "y": 764,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 59,
+          "x": 65,
+          "y": 781,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 60,
+          "x": 82,
+          "y": 781,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 61,
+          "x": 65,
+          "y": 798,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 62,
+          "x": 82,
+          "y": 798,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 63,
+          "x": 65,
+          "y": 815,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 64,
+          "x": 82,
+          "y": 815,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 65,
+          "x": 65,
+          "y": 832,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 66,
+          "x": 82,
+          "y": 832,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 67,
+          "x": 65,
+          "y": 849,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 68,
+          "x": 82,
+          "y": 849,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 69,
+          "x": 65,
+          "y": 866,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 70,
+          "x": 82,
+          "y": 866,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    },
+    {
+      "id": "CN12",
+      "kind": "socket",
+      "rows": 35,
+      "columns": 2,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 586,
+          "y": 288,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 603,
+          "y": 288,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 586,
+          "y": 305,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 603,
+          "y": 305,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 586,
+          "y": 322,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 603,
+          "y": 322,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 586,
+          "y": 339,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 603,
+          "y": 339,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 586,
+          "y": 356,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 10,
+          "x": 603,
+          "y": 356,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 11,
+          "x": 586,
+          "y": 373,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 12,
+          "x": 603,
+          "y": 373,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 13,
+          "x": 586,
+          "y": 390,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 14,
+          "x": 603,
+          "y": 390,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 15,
+          "x": 586,
+          "y": 407,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 16,
+          "x": 603,
+          "y": 407,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 17,
+          "x": 586,
+          "y": 424,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 18,
+          "x": 603,
+          "y": 424,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 19,
+          "x": 586,
+          "y": 441,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 20,
+          "x": 603,
+          "y": 441,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 21,
+          "x": 586,
+          "y": 458,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 22,
+          "x": 603,
+          "y": 458,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 23,
+          "x": 586,
+          "y": 475,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 24,
+          "x": 603,
+          "y": 475,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 25,
+          "x": 586,
+          "y": 492,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 26,
+          "x": 603,
+          "y": 492,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 27,
+          "x": 586,
+          "y": 509,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 28,
+          "x": 603,
+          "y": 509,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 29,
+          "x": 586,
+          "y": 526,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 30,
+          "x": 603,
+          "y": 526,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 31,
+          "x": 586,
+          "y": 543,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 32,
+          "x": 603,
+          "y": 543,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 33,
+          "x": 586,
+          "y": 560,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 34,
+          "x": 603,
+          "y": 560,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 35,
+          "x": 586,
+          "y": 577,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 36,
+          "x": 603,
+          "y": 577,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 37,
+          "x": 586,
+          "y": 594,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 38,
+          "x": 603,
+          "y": 594,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 39,
+          "x": 586,
+          "y": 611,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 40,
+          "x": 603,
+          "y": 611,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 41,
+          "x": 586,
+          "y": 628,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 42,
+          "x": 603,
+          "y": 628,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 43,
+          "x": 586,
+          "y": 645,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 44,
+          "x": 603,
+          "y": 645,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 45,
+          "x": 586,
+          "y": 662,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 46,
+          "x": 603,
+          "y": 662,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 47,
+          "x": 586,
+          "y": 679,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 48,
+          "x": 603,
+          "y": 679,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 49,
+          "x": 586,
+          "y": 696,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 50,
+          "x": 603,
+          "y": 696,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 51,
+          "x": 586,
+          "y": 713,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 52,
+          "x": 603,
+          "y": 713,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 53,
+          "x": 586,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 54,
+          "x": 603,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 55,
+          "x": 586,
+          "y": 747,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 56,
+          "x": 603,
+          "y": 747,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 57,
+          "x": 586,
+          "y": 764,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 58,
+          "x": 603,
+          "y": 764,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 59,
+          "x": 586,
+          "y": 781,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 60,
+          "x": 603,
+          "y": 781,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 61,
+          "x": 586,
+          "y": 798,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 62,
+          "x": 603,
+          "y": 798,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 63,
+          "x": 586,
+          "y": 815,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 64,
+          "x": 603,
+          "y": 815,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 65,
+          "x": 586,
+          "y": 832,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 66,
+          "x": 603,
+          "y": 832,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 67,
+          "x": 586,
+          "y": 849,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 68,
+          "x": 603,
+          "y": 849,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 69,
+          "x": 586,
+          "y": 866,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 70,
+          "x": 603,
+          "y": 866,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    },
+    {
+      "id": "ZIO_D",
+      "kind": "socket",
+      "rows": 12,
+      "columns": 1,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 189,
+          "y": 330,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 189,
+          "y": 353,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 189,
+          "y": 376,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 189,
+          "y": 399,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 189,
+          "y": 422,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 189,
+          "y": 445,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 189,
+          "y": 468,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 189,
+          "y": 491,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 189,
+          "y": 514,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 10,
+          "x": 189,
+          "y": 537,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 11,
+          "x": 189,
+          "y": 560,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 12,
+          "x": 189,
+          "y": 583,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    },
+    {
+      "id": "ZIO_A",
+      "kind": "socket",
+      "rows": 11,
+      "columns": 1,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 496,
+          "y": 340,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 496,
+          "y": 363,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 496,
+          "y": 386,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 496,
+          "y": 409,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 496,
+          "y": 432,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 496,
+          "y": 455,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 496,
+          "y": 478,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 496,
+          "y": 501,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 496,
+          "y": 524,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 10,
+          "x": 496,
+          "y": 547,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 11,
+          "x": 496,
+          "y": 570,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    },
+    {
+      "id": "ZIO_MISC",
+      "kind": "socket",
+      "rows": 2,
+      "columns": 9,
+      "numbering": "row-major",
+      "contacts": [
+        {
+          "number": 1,
+          "x": 310,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 2,
+          "x": 332,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 3,
+          "x": 354,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 4,
+          "x": 376,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 5,
+          "x": 398,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 6,
+          "x": 420,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 7,
+          "x": 442,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 8,
+          "x": 464,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 9,
+          "x": 486,
+          "y": 730,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 10,
+          "x": 310,
+          "y": 750,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 11,
+          "x": 332,
+          "y": 750,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 12,
+          "x": 354,
+          "y": 750,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 13,
+          "x": 376,
+          "y": 750,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 14,
+          "x": 398,
+          "y": 750,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 15,
+          "x": 420,
+          "y": 750,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 16,
+          "x": 442,
+          "y": 750,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 17,
+          "x": 464,
+          "y": 750,
+          "signal": null,
+          "mapping_verified": false
+        },
+        {
+          "number": 18,
+          "x": 486,
+          "y": 750,
+          "signal": null,
+          "mapping_verified": false
+        }
+      ]
+    }
+  ],
+  "warning": "Contact coordinates and physical ordering are for visual hit testing. Except Pico 2 do not assume board header numbers match manufacturer numbering. Electrical use must remain disabled until verified from schematics.",
+  "electricalEnabledByDefault": false,
+  "notes": "Graphic silhouettes are original illustrations, not manufacturer CAD or exact top-side facsimiles. Pin labels appear only through UI metadata."
+}
