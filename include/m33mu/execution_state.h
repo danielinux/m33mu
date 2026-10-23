@@ -262,6 +262,13 @@ mm_bool mm_execution_state_apply_reset_vector(
 mm_bool mm_execution_state_wake_sleeping_core(
     struct mm_execution_state *state,
     mm_u32 core_index);
+/* Return the earliest SysTick, signal, or host scheduler deadline in cycles.
+ * A zero host deadline means none; an immediately due signal is clamped to
+ * one cycle so idle scheduling always makes progress. */
+mm_u64 mm_execution_state_cycles_until_wake(
+    const struct mm_execution_state *state,
+    mm_u32 core_index,
+    mm_u64 host_deadline_cycles);
 enum mm_execution_irq_dispatch_result
 mm_execution_state_dispatch_pending(
     struct mm_execution_state *state,

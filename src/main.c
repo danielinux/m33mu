@@ -6899,20 +6899,13 @@ int main(int argc, char **argv)
                         /* Core1 still has work: keep scheduling it rather than idling the host. */
                         continue;
                     } else if (execution.cores[0].cpu.sleeping) {
-                        mm_u64 delta = mm_scs_systick_cycles_until_fire(&execution.cores[0].scs);
-                        mm_u64 signal_delta =
-                            mm_execution_state_signal_cycles_until_event(
-                                &execution);
-                        if (signal_delta < delta) {
-                            delta = (signal_delta != 0u) ? signal_delta : 1u;
-                        }
-                        if (opt_gdb) {
-                            /* do not sleep past a `monitor run-for` deadline */
-                            mm_u64 left = mm_gdb_stub_cycles_to_deadline(&gdb);
-                            if (left != 0u && left < delta) {
-                                delta = left;
-                            }
-                        }
+                        /* The session owns the virtual wake horizon; the CLI contributes
+                         * only its optional debugger run-for deadline. */
+                        mm_u64 host_deadline = opt_gdb ?
+                            mm_gdb_stub_cycles_to_deadline(&gdb) : 0u;
+                        mm_u64 delta =
+                            mm_execution_state_cycles_until_wake(
+                                &execution, 0u, host_deadline);
                         if (delta == (mm_u64)-1) {
                             mm_u64 idle_cycles = 0;
                             if (!g_no_realtime) {

@@ -222,6 +222,31 @@ static int test_session_sleep_wake(void)
     cpu = &state.cores[0].cpu;
     nvic = &state.cores[0].nvic;
 
+    if (mm_execution_state_cycles_until_wake(&state, 0u, 0u) !=
+            (mm_u64)-1 ||
+        mm_execution_state_cycles_until_wake(&state, 0u, 9u) != 9u ||
+        mm_execution_state_cycles_until_wake(&state, 2u, 9u) !=
+            (mm_u64)-1) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    state.cores[0].scs.systick_ctrl_s = 1u;
+    state.cores[0].scs.systick_load_s = 11u;
+    state.cores[0].scs.systick_val_s = 7u;
+    state.cores[0].scs.systick_ctrl_ns = 1u;
+    state.cores[0].scs.systick_load_ns = 5u;
+    state.cores[0].scs.systick_val_ns = 3u;
+    if (mm_execution_state_cycles_until_wake(&state, 0u, 0u) != 3u ||
+        mm_execution_state_cycles_until_wake(&state, 0u, 2u) != 2u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    state.cores[0].scs.systick_ctrl_ns = 0u;
+    if (mm_execution_state_cycles_until_wake(&state, 0u, 0u) != 7u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+
     cpu->sleeping = MM_TRUE;
     cpu->sleep_wfe = MM_TRUE;
     cpu->event_reg = MM_TRUE;

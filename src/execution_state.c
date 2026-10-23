@@ -671,6 +671,27 @@ mm_bool mm_execution_state_wake_sleeping_core(
     return wake;
 }
 
+mm_u64 mm_execution_state_cycles_until_wake(
+    const struct mm_execution_state *state,
+    mm_u32 core_index,
+    mm_u64 host_deadline_cycles)
+{
+    mm_u64 delta;
+    mm_u64 signal_delta;
+    if (state == 0 || core_index >= 2u) {
+        return (mm_u64)-1;
+    }
+    delta = mm_scs_systick_cycles_until_fire(&state->cores[core_index].scs);
+    signal_delta = mm_execution_state_signal_cycles_until_event(state);
+    if (signal_delta < delta) {
+        delta = signal_delta != 0u ? signal_delta : 1u;
+    }
+    if (host_deadline_cycles != 0u && host_deadline_cycles < delta) {
+        delta = host_deadline_cycles;
+    }
+    return delta;
+}
+
 enum mm_execution_irq_dispatch_result
 mm_execution_state_dispatch_pending(
     struct mm_execution_state *state,
