@@ -70,6 +70,7 @@
 #include "m33mu/gpio.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/execution_clock.h"
+#include "m33mu/execution_state.h"
 #include "m33mu/execution_irq.h"
 #include "m33mu/spiflash.h"
 #include "m33mu/usbdev.h"
@@ -4724,18 +4725,11 @@ int main(int argc, char **argv)
     const char *cpu_name = 0;
     int i;
     struct mm_target_cfg cfg;
+    struct mm_execution_state execution = { 0 };
     struct mm_memmap map;
             struct mmio_region regions[256];
-    struct mm_cpu cpu;
-    struct mm_cpu cpu1;
-    struct mm_scs scs;
-    struct mm_scs scs1;
     struct mm_prot_ctx prot;
     struct mm_prot_ctx prot1;
-    struct mm_nvic nvic;
-    struct mm_nvic nvic1;
-    struct mm_scs_mux scs_mux;
-    mm_u32 active_core = 0;
     mm_u8 *flash;
     mm_u8 *ram;
     struct mm_gdb_stub gdb;
@@ -4746,12 +4740,6 @@ int main(int argc, char **argv)
     struct mm_load_targets targets;
     struct mm_target_storage target_storage = { 0 };
     /* IT block tracking: pattern encodes THEN(1)/ELSE(0) for remaining instructions. */
-    mm_u8 it_pattern = 0;
-    mm_u8 it_remaining = 0;
-    mm_u8 it_cond = 0;
-    mm_u8 it_pattern1 = 0;
-    mm_u8 it_remaining1 = 0;
-    mm_u8 it_cond1 = 0;
     mm_bool tui_paused = MM_FALSE;
     mm_bool tui_step = MM_FALSE;
     mm_bool tui_debug_skip_break = MM_FALSE;
@@ -5500,7 +5488,7 @@ int main(int argc, char **argv)
     }
 
     if (image_count == 0) {
-        fprintf(stderr, "usage: %s [--cpu cpu] [--gdb] [--port <n>] [--dump] [--record] "
+        fprintf(stderr, "usage: %s [--cpu <name>] [--gdb] [--port <n>] [--dump] [--record] "
 #ifdef M33MU_HAS_NCURSES
                         "[--tui] "
 #endif
@@ -5585,7 +5573,7 @@ int main(int argc, char **argv)
                                    opt_sbkload_key_len);
     if (!mm_cpu_lookup(cpu_name, &cfg)) {
         size_t ci;
-        fprintf(stderr, "unknown cpu: %s\n", cpu_name);
+        fprintf(stderr, "unknown CPU: %s\n", cpu_name);
         fprintf(stderr, "valid cpus:");
         for (ci = 0; ci < mm_cpu_count(); ++ci) {
             const char *name = mm_cpu_name_at(ci);
@@ -5962,7 +5950,7 @@ int main(int argc, char **argv)
         mm_flash_ops_cut_at(opt_flash_cut);
         if (opt_flash_timing != MM_FLASH_TIMING_NONE && cfg.flash_timing == 0) {
             printf("warning: no flash timing data for %s; operations take no time\n",
-                   (cpu_name != 0) ? cpu_name : "this cpu");
+                   (cpu_name != 0) ? cpu_name : "this CPU");
         }
         mm_flash_ops_set_timing(cfg.flash_timing, opt_flash_timing);
         if (opt_flash_cut_erase) {
@@ -6016,7 +6004,6 @@ int main(int argc, char **argv)
             mm_trace_init();
         }
         for (;;) {
-            struct mm_execution_clock execution_clock;
             mm_bool done = MM_FALSE;
             mm_bool reset_again = MM_FALSE;
             mm_bool force_ns_boot = MM_FALSE;
@@ -6036,9 +6023,9 @@ int main(int argc, char **argv)
             mm_u64 cpu_hz = MM_CPU_HZ;
             mm_u64 hz_now = 0;
             mm_u64 last_hz = 0;
-            mm_execution_clock_reset(&execution_clock);
+            mm_execution_clock_reset(&execution.clock);
             tui_steps_offset = 0;
-            gdb.vcycles = &execution_clock.virtual_cycles;
+            gdb.vcycles = &execution.clock.virtual_cycles;
             gdb.cpu_hz = cpu_hz;
             g_core_locked = MM_FALSE;           /* a reset ends a lockup */
             mm_signal_set_cpu_hz(cpu_hz);
@@ -6090,7 +6077,7 @@ int main(int argc, char **argv)
             }
 #endif
             memset(&core_sys, 0, sizeof(core_sys));
-            core_sys.dwt.vcycles = &execution_clock.virtual_cycles;
+            core_sys.dwt.vcycles = &execution.clock.virtual_cycles;
             core_sys.dwt.ctrl = 0u;
             core_sys.dwt.cyccnt_base = 0u;
             mm_code_cache_init(&code_cache, &map);
@@ -6269,42 +6256,42 @@ int main(int argc, char **argv)
             mm_spiflash_register_mmap_regions(&map.mmio);
             mm_target_flash_bind(&cfg, &map, flash, cfg.flash_size_s, persist.enabled ? &persist : 0);
             mm_target_usart_reset(&cfg);
-            mm_target_usart_init(&cfg, &map.mmio, &nvic);
+            mm_target_usart_init(&cfg, &map.mmio, &execution.cores[0].nvic);
             mm_target_spi_reset(&cfg);
-            mm_target_spi_init(&cfg, &map.mmio, &nvic);
+            mm_target_spi_init(&cfg, &map.mmio, &execution.cores[0].nvic);
             mm_target_eth_reset(&cfg);
-            mm_target_eth_init(&cfg, &map.mmio, &nvic);
-            mm_timer_init(&cfg, &map.mmio, &nvic);
+            mm_target_eth_init(&cfg, &map.mmio, &execution.cores[0].nvic);
+            mm_timer_init(&cfg, &map.mmio, &execution.cores[0].nvic);
 
-            mm_scs_init(&scs, 0x410fc241u);
-            mm_scs_set_fpu_present(&scs, (cfg.flags & MM_TARGET_FLAG_FPU) != 0u);
+            mm_scs_init(&execution.cores[0].scs, 0x410fc241u);
+            mm_scs_set_fpu_present(&execution.cores[0].scs, (cfg.flags & MM_TARGET_FLAG_FPU) != 0u);
             if (cfg.core_count > 1u) {
-                mm_scs_init(&scs1, 0x410fc241u);
-                mm_scs_set_fpu_present(&scs1, (cfg.flags & MM_TARGET_FLAG_FPU) != 0u);
-                scs_mux.scs[0] = &scs;
-                scs_mux.scs[1] = &scs1;
-                scs_mux.nvic[0] = &nvic;
-                scs_mux.nvic[1] = &nvic1;
-                scs_mux.core_count = cfg.core_count;
-                scs_mux.active_core = &active_core;
-                mm_scs_register_regions_multi(&scs_mux, &map.mmio, 0xE000ED00u, 0xE002ED00u);
+                mm_scs_init(&execution.cores[1].scs, 0x410fc241u);
+                mm_scs_set_fpu_present(&execution.cores[1].scs, (cfg.flags & MM_TARGET_FLAG_FPU) != 0u);
+                execution.scs_mux.scs[0] = &execution.cores[0].scs;
+                execution.scs_mux.scs[1] = &execution.cores[1].scs;
+                execution.scs_mux.nvic[0] = &execution.cores[0].nvic;
+                execution.scs_mux.nvic[1] = &execution.cores[1].nvic;
+                execution.scs_mux.core_count = cfg.core_count;
+                execution.scs_mux.active_core = &execution.active_core;
+                mm_scs_register_regions_multi(&execution.scs_mux, &map.mmio, 0xE000ED00u, 0xE002ED00u);
             } else {
-                mm_scs_register_regions(&scs, &map.mmio, 0xE000ED00u, 0xE002ED00u, &nvic);
+                mm_scs_register_regions(&execution.cores[0].scs, &map.mmio, 0xE000ED00u, 0xE002ED00u, &execution.cores[0].nvic);
             }
             if ((cfg.flags & MM_TARGET_FLAG_FPU) != 0u) {
-                scs.cpacr_s |= 0x00F00000u;
-                scs.cpacr_ns |= 0x00F00000u;
-                scs.nsacr |= (1u << 10) | (1u << 11);
+                execution.cores[0].scs.cpacr_s |= 0x00F00000u;
+                execution.cores[0].scs.cpacr_ns |= 0x00F00000u;
+                execution.cores[0].scs.nsacr |= (1u << 10) | (1u << 11);
                 if (cfg.core_count > 1u) {
-                    scs1.cpacr_s |= 0x00F00000u;
-                    scs1.cpacr_ns |= 0x00F00000u;
-                    scs1.nsacr |= (1u << 10) | (1u << 11);
+                    execution.cores[1].scs.cpacr_s |= 0x00F00000u;
+                    execution.cores[1].scs.cpacr_ns |= 0x00F00000u;
+                    execution.cores[1].scs.nsacr |= (1u << 10) | (1u << 11);
                 }
             }
             mm_core_sys_register(&map.mmio, &core_sys);
-            mm_prot_init(&prot, &scs, &cfg, &cpu);
+            mm_prot_init(&prot, &execution.cores[0].scs, &cfg, &execution.cores[0].cpu);
             if (cfg.core_count > 1u) {
-                mm_prot_init(&prot1, &scs1, &cfg, &cpu1);
+                mm_prot_init(&prot1, &execution.cores[1].scs, &cfg, &execution.cores[1].cpu);
             }
             g_active_prot_ctx = &prot;
             mm_memmap_set_interceptor(&map, prot_mux_interceptor, 0);
@@ -6454,52 +6441,46 @@ int main(int argc, char **argv)
             }
             mm_spiflash_register_prot_regions(&prot);
 
-            mm_nvic_init(&nvic);
+            mm_nvic_init(&execution.cores[0].nvic);
             if (cfg.core_count > 1u) {
-                mm_nvic_init(&nvic1);
+                mm_nvic_init(&execution.cores[1].nvic);
             }
-            g_cpu0 = &cpu;
-            g_nvic0 = &nvic;
-            g_cycle_total = &execution_clock.cycle_total;
+            g_cpu0 = &execution.cores[0].cpu;
+            g_nvic0 = &execution.cores[0].nvic;
+            g_cycle_total = &execution.clock.cycle_total;
             if (cfg.core_count > 1u) {
-                g_cpu1 = &cpu1;
-                g_nvic1 = &nvic1;
+                g_cpu1 = &execution.cores[1].cpu;
+                g_nvic1 = &execution.cores[1].nvic;
             }
             if (force_ns_boot) {
                 mm_u32 irq;
                 for (irq = 0; irq < MM_MAX_IRQ; ++irq) {
-                    mm_nvic_set_itns(&nvic, irq, MM_TRUE);
+                    mm_nvic_set_itns(&execution.cores[0].nvic, irq, MM_TRUE);
                 }
                 if (cfg.core_count > 1u) {
                     for (irq = 0; irq < MM_MAX_IRQ; ++irq) {
-                        mm_nvic_set_itns(&nvic1, irq, MM_TRUE);
+                        mm_nvic_set_itns(&execution.cores[1].nvic, irq, MM_TRUE);
                     }
                 }
             }
             if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->bind != 0) {
-                cfg.mc_ops->bind(&cpu, &cpu1, &nvic, &nvic1, &active_core, &map);
+                cfg.mc_ops->bind(&execution.cores[0].cpu, &execution.cores[1].cpu, &execution.cores[0].nvic, &execution.cores[1].nvic, &execution.active_core, &map);
             }
 
             /* Reset CPU state */
             {
-                mm_cpu_reset(&cpu, boot_base_s, boot_base_ns, MM_FALSE, MM_FALSE);
-                apply_target_boot_seed_regs(&cpu, cpu_name);
-                it_pattern = 0;
-                it_remaining = 0;
-                it_cond = 0;
+                mm_execution_state_reset_cores(&execution, cfg.core_count,
+                                               boot_base_s, boot_base_ns);
+                apply_target_boot_seed_regs(&execution.cores[0].cpu, cpu_name);
                 if (cfg.core_count > 1u) {
-                    mm_cpu_reset(&cpu1, boot_base_s, boot_base_ns, MM_TRUE, MM_TRUE);
-                    apply_target_boot_seed_regs(&cpu1, cpu_name);
-                    it_pattern1 = 0;
-                    it_remaining1 = 0;
-                    it_cond1 = 0;
+                    apply_target_boot_seed_regs(&execution.cores[1].cpu, cpu_name);
                 }
             }
 
         {
-            mm_u32 cpacr_s = scs.cpacr_s;
-            mm_u32 cpacr_ns = scs.cpacr_ns;
-            mm_u32 nsacr = scs.nsacr;
+            mm_u32 cpacr_s = execution.cores[0].scs.cpacr_s;
+            mm_u32 cpacr_ns = execution.cores[0].scs.cpacr_ns;
+            mm_u32 nsacr = execution.cores[0].scs.nsacr;
             mm_bool s_en = ((cpacr_s >> 20) & 0x3u) != 0u && ((cpacr_s >> 22) & 0x3u) != 0u;
             mm_bool ns_en = ((cpacr_ns >> 20) & 0x3u) != 0u && ((cpacr_ns >> 22) & 0x3u) != 0u;
             mm_bool nsacr_en = ((nsacr >> 10) & 0x1u) != 0u && ((nsacr >> 11) & 0x1u) != 0u;
@@ -6511,31 +6492,31 @@ int main(int argc, char **argv)
 
         {
             enum mm_sec_state boot_sec = force_ns_boot ? MM_NONSECURE : MM_SECURE;
-            active_core = 0;
+            execution.active_core = 0;
                 g_active_prot_ctx = &prot;
                 if (cfg.mc_ops != 0 && cfg.mc_ops->set_active_core != 0) {
                     cfg.mc_ops->set_active_core(0u);
                 }
                 if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                    scs.sau_ctrl = 0x1u | 0x2u;
+                    execution.cores[0].scs.sau_ctrl = 0x1u | 0x2u;
                 } else if (force_ns_boot) {
-                    scs.sau_ctrl = 0x1u | 0x2u;
+                    execution.cores[0].scs.sau_ctrl = 0x1u | 0x2u;
                 }
-                if (!mm_vector_apply_reset(&cpu, &map, boot_sec)) {
+                if (!mm_vector_apply_reset(&execution.cores[0].cpu, &map, boot_sec)) {
                     fprintf(stderr, "failed to apply reset\n");
                     rc = 1;
                     goto cleanup;
                 }
             }
             /* Keep SCS VTOR banks in sync with CPU reset values so exception dispatch uses VTOR_S/VTOR_NS. */
-            scs.vtor_s = cpu.vtor_s;
-            scs.vtor_ns = cpu.vtor_ns;
+            execution.cores[0].scs.vtor_s = execution.cores[0].cpu.vtor_s;
+            execution.cores[0].scs.vtor_ns = execution.cores[0].cpu.vtor_ns;
             if (cfg.core_count > 1u) {
                 if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
-                    scs1.sau_ctrl = 0x1u | 0x2u;
+                    execution.cores[1].scs.sau_ctrl = 0x1u | 0x2u;
                 }
-                scs1.vtor_s = cpu1.vtor_s;
-                scs1.vtor_ns = cpu1.vtor_ns;
+                execution.cores[1].scs.vtor_s = execution.cores[1].cpu.vtor_s;
+                execution.cores[1].scs.vtor_ns = execution.cores[1].cpu.vtor_ns;
             }
 
             if (opt_gdb) {
@@ -6569,7 +6550,7 @@ int main(int argc, char **argv)
                     if (!mm_optbytes_set(name, v)) {
                         size_t k;
                         fprintf(stderr, "optbyte %s: unknown, or value refused. %s has:",
-                                name, (cpu_name != 0) ? cpu_name : "this cpu");
+                                name, (cpu_name != 0) ? cpu_name : "this CPU");
                         for (k = 0; k < mm_optbytes_count(); ++k) {
                             fprintf(stderr, " %s", mm_optbytes_name(k));
                         }
@@ -6597,18 +6578,18 @@ int main(int argc, char **argv)
                         goto cleanup;
                     }
                 }
-                printf("Initial SP=0x%08lx PC=0x%08lx\n", (unsigned long)mm_cpu_get_active_sp(&cpu), (unsigned long)cpu.r[15]);
-                printf("VTOR_S=0x%08lx VTOR_NS=0x%08lx\n", (unsigned long)cpu.vtor_s, (unsigned long)cpu.vtor_ns);
+                printf("Initial SP=0x%08lx PC=0x%08lx\n", (unsigned long)mm_cpu_get_active_sp(&execution.cores[0].cpu), (unsigned long)execution.cores[0].cpu.r[15]);
+                printf("VTOR_S=0x%08lx VTOR_NS=0x%08lx\n", (unsigned long)execution.cores[0].cpu.vtor_s, (unsigned long)execution.cores[0].cpu.vtor_ns);
                 first_start = MM_FALSE;
             } else {
                 printf("[RESET] System reset requested, reinitialising core\n");
             }
 
-            cpu.r[14] = 0xFFFFFFFFu; /* Initial LR */
+            execution.cores[0].cpu.r[14] = 0xFFFFFFFFu; /* Initial LR */
             last_running = target_should_run(opt_gdb, &gdb, tui_paused, tui_step);
 
             /* Main loop */
-            while (!done || hold_lockup(opt_gdb, &gdb, &done, &cpu)) {
+            while (!done || hold_lockup(opt_gdb, &gdb, &done, &execution.cores[0].cpu)) {
                 mm_bool running_now;
                 hz_now = mm_target_cpu_hz(&cfg);
                 if (hz_now != 0 && hz_now != last_hz) {
@@ -6649,41 +6630,41 @@ int main(int argc, char **argv)
                     mm_u32 launch_entry = 0;
                     if (cfg.mc_ops->core1_take_launch(&launch_vtor, &launch_sp, &launch_entry)) {
                         int r;
-                        for (r = 0; r < 16; ++r) cpu1.r[r] = 0;
-                        cpu1.xpsr = 0x01000000u;
-                        cpu1.sec_state = MM_SECURE;
-                        cpu1.mode = MM_THREAD;
-                        cpu1.priv_s = MM_FALSE;
-                        cpu1.priv_ns = MM_FALSE;
-                        cpu1.control_s = cpu1.control_ns = 0;
-                        cpu1.primask_s = cpu1.primask_ns = 0;
-                        cpu1.basepri_s = cpu1.basepri_ns = 0;
-                        cpu1.faultmask_s = cpu1.faultmask_ns = 0;
-                        cpu1.msp_s = launch_sp;
-                        cpu1.msp_ns = 0;
-                        cpu1.psp_s = 0;
-                        cpu1.psp_ns = 0;
-                        cpu1.vtor_s = launch_vtor;
-                        cpu1.vtor_ns = launch_vtor;
-                        cpu1.r[13] = launch_sp;
-                        cpu1.r[14] = 0xFFFFFFFFu;
-                        cpu1.r[15] = launch_entry | 1u;
-                        cpu1.exc_depth = 0;
-                        cpu1.tz_depth = 0;
-                        cpu1.sleeping = MM_FALSE;
-                        cpu1.sleep_wfe = MM_FALSE;
-                        cpu1.event_reg = MM_FALSE;
-                        scs1.vtor_s = launch_vtor;
-                        scs1.vtor_ns = launch_vtor;
-                        it_pattern1 = 0;
-                        it_remaining1 = 0;
-                        it_cond1 = 0;
+                        for (r = 0; r < 16; ++r) execution.cores[1].cpu.r[r] = 0;
+                        execution.cores[1].cpu.xpsr = 0x01000000u;
+                        execution.cores[1].cpu.sec_state = MM_SECURE;
+                        execution.cores[1].cpu.mode = MM_THREAD;
+                        execution.cores[1].cpu.priv_s = MM_FALSE;
+                        execution.cores[1].cpu.priv_ns = MM_FALSE;
+                        execution.cores[1].cpu.control_s = execution.cores[1].cpu.control_ns = 0;
+                        execution.cores[1].cpu.primask_s = execution.cores[1].cpu.primask_ns = 0;
+                        execution.cores[1].cpu.basepri_s = execution.cores[1].cpu.basepri_ns = 0;
+                        execution.cores[1].cpu.faultmask_s = execution.cores[1].cpu.faultmask_ns = 0;
+                        execution.cores[1].cpu.msp_s = launch_sp;
+                        execution.cores[1].cpu.msp_ns = 0;
+                        execution.cores[1].cpu.psp_s = 0;
+                        execution.cores[1].cpu.psp_ns = 0;
+                        execution.cores[1].cpu.vtor_s = launch_vtor;
+                        execution.cores[1].cpu.vtor_ns = launch_vtor;
+                        execution.cores[1].cpu.r[13] = launch_sp;
+                        execution.cores[1].cpu.r[14] = 0xFFFFFFFFu;
+                        execution.cores[1].cpu.r[15] = launch_entry | 1u;
+                        execution.cores[1].cpu.exc_depth = 0;
+                        execution.cores[1].cpu.tz_depth = 0;
+                        execution.cores[1].cpu.sleeping = MM_FALSE;
+                        execution.cores[1].cpu.sleep_wfe = MM_FALSE;
+                        execution.cores[1].cpu.event_reg = MM_FALSE;
+                        execution.cores[1].scs.vtor_s = launch_vtor;
+                        execution.cores[1].scs.vtor_ns = launch_vtor;
+                        execution.cores[1].it_pattern = 0;
+                        execution.cores[1].it_remaining = 0;
+                        execution.cores[1].it_cond = 0;
                     }
                 }
 
                 if (opt_gdb) {
                     if (mm_gdb_stub_poll(&gdb, 0)) {
-                        mm_gdb_stub_handle(&gdb, &cpu, &map);
+                        mm_gdb_stub_handle(&gdb, &execution.cores[0].cpu, &map);
                     }
                     if (!gdb.connected && gdb.listen_fd >= 0) {
                         if (mm_gdb_stub_wait_client(&gdb)) {
@@ -6692,7 +6673,7 @@ int main(int argc, char **argv)
                         }
                     }
                     if (mm_gdb_stub_take_reset(&gdb)) {
-                        apply_reset_view(opt_tui ? &tui : 0, &cpu, &map, execution_clock.cycle_total,
+                        apply_reset_view(opt_tui ? &tui : 0, &execution.cores[0].cpu, &map, execution.clock.cycle_total,
                                          opt_tui ? &tui_steps_offset : 0,
                                          opt_tui ? &tui_steps_latched : 0);
                     }
@@ -6708,7 +6689,7 @@ int main(int argc, char **argv)
                         (void)mm_flash_ops_take_stall_us();
                         mm_flash_ops_set_count(0u);
                         mm_flash_ops_clear_latches();
-                        apply_reset_view(opt_tui ? &tui : 0, &cpu, &map, execution_clock.cycle_total,
+                        apply_reset_view(opt_tui ? &tui : 0, &execution.cores[0].cpu, &map, execution.clock.cycle_total,
                                          opt_tui ? &tui_steps_offset : 0,
                                          opt_tui ? &tui_steps_latched : 0);
                     }
@@ -6734,33 +6715,33 @@ int main(int argc, char **argv)
                 }
 
                 if (opt_tui) {
-                    update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution_clock.cycle_total,
+                    update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
-                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &cpu, &scs, &map, execution_clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                         done = MM_TRUE;
                         continue;
                     }
                 }
 
                 if (opt_tui && !opt_gdb && tui_step &&
-                    execution_clock.cycle_total > tui.debugger_step_cycle) {
+                    execution.clock.cycle_total > tui.debugger_step_cycle) {
                     tui_step = MM_FALSE;
                     tui_paused = MM_TRUE;
                 }
                 if (opt_tui && !opt_gdb &&
-                    mm_tui_debug_next_reached(&tui, &cpu)) {
+                    mm_tui_debug_next_reached(&tui, &execution.cores[0].cpu)) {
                     tui.debugger_next_pending = MM_FALSE;
                     tui_paused = MM_TRUE;
                     snprintf(tui.debugger_message, sizeof(tui.debugger_message),
-                             "Next stopped at 0x%08lx", (unsigned long)(cpu.r[15] & ~1u));
+                             "Next stopped at 0x%08lx", (unsigned long)(execution.cores[0].cpu.r[15] & ~1u));
                     tui.input_dirty = MM_TRUE;
                 }
 
                 running_now = target_should_run(opt_gdb, &gdb, tui_paused, tui_step);
                 if (running_now != last_running) {
                     mm_u64 steps_now = 0;
-                    if (execution_clock.cycle_total >= tui_steps_offset) {
-                        steps_now = execution_clock.cycle_total - tui_steps_offset;
+                    if (execution.clock.cycle_total >= tui_steps_offset) {
+                        steps_now = execution.clock.cycle_total - tui_steps_offset;
                     }
                     printf("[EMULATION] %s steps=%llu\n",
                            running_now ? "Start" : "Stop",
@@ -6768,13 +6749,13 @@ int main(int argc, char **argv)
                     if (running_now) {
                         mm_u64 now_ns = host_now_ns();
                         if (cpu_hz != 0) {
-                            long double vns = ((long double)execution_clock.virtual_cycles * (long double)NS_PER_SEC) / (long double)cpu_hz;
+                            long double vns = ((long double)execution.clock.virtual_cycles * (long double)NS_PER_SEC) / (long double)cpu_hz;
                             mm_u64 vns_u = (vns < 0.0L) ? 0u : (mm_u64)vns;
                             host0_ns = (now_ns > vns_u) ? (now_ns - vns_u) : 0u;
                         } else {
                             host0_ns = now_ns;
                         }
-                        execution_clock.vcycles_last_sync = execution_clock.virtual_cycles;
+                        execution.clock.vcycles_last_sync = execution.clock.virtual_cycles;
                     }
                     last_running = running_now;
                 }
@@ -6783,7 +6764,7 @@ int main(int argc, char **argv)
                     cfg.mc_ops->core1_running != 0 && cfg.mc_ops->core1_running()) {
                     const mm_u32 core1_epoch_steps = 64u;
                     mm_u32 core1_step;
-                    active_core = 1u;
+                    execution.active_core = 1u;
                     g_active_prot_ctx = &prot1;
                     if (cfg.mc_ops->set_active_core != 0) {
                         cfg.mc_ops->set_active_core(1u);
@@ -6802,16 +6783,16 @@ int main(int argc, char **argv)
                                 fault_clocks[i] = gdb.fault_clocks[i];
                             }
                         }
-                        if (!step_core_simple(&cpu1, &scs1, &nvic1, &map, &cfg, fault_clocks, fault_clock_count,
-                                              &execution_clock,
-                                              &it_pattern1, &it_remaining1, &it_cond1, &done)) {
+                        if (!step_core_simple(&execution.cores[1].cpu, &execution.cores[1].scs, &execution.cores[1].nvic, &map, &cfg, fault_clocks, fault_clock_count,
+                                              &execution.clock,
+                                              &execution.cores[1].it_pattern, &execution.cores[1].it_remaining, &execution.cores[1].it_cond, &done)) {
                             break;
                         }
                         if (done) {
                             break;
                         }
                     }
-                    active_core = 0u;
+                    execution.active_core = 0u;
                     g_active_prot_ctx = &prot;
                     if (cfg.mc_ops->set_active_core != 0) {
                         cfg.mc_ops->set_active_core(0u);
@@ -6822,16 +6803,16 @@ int main(int argc, char **argv)
                 }
 
                 if (!running_now) {
-                    host_sync_if_needed(execution_clock.virtual_cycles, &execution_clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
+                    host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                     mm_target_usart_poll(&cfg);
                     mm_target_spi_poll(&cfg);
                     mm_target_eth_poll(&cfg);
-                    rp2350_usb_sync_vector_ready(cpu_name, &scs, &map);
-                    mm_usbdev_set_paused(cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
+                    rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                    mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                     mm_usbdev_poll();
-                    update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution_clock.cycle_total,
+                    update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
-                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &cpu, &scs, &map, execution_clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                         done = MM_TRUE;
                         continue;
                     }
@@ -6850,13 +6831,13 @@ int main(int argc, char **argv)
                 }
 
                 if (opt_gdb) {
-                    if (mm_gdb_stub_breakpoint_hit(&gdb, cpu.r[15] | 1u)) {
+                    if (mm_gdb_stub_breakpoint_hit(&gdb, execution.cores[0].cpu.r[15] | 1u)) {
                         mm_gdb_stub_notify_stop(&gdb, 5);
                         continue;
                     }
                 }
                 if (opt_tui && !opt_gdb && mm_tui_debug_has_slots(&tui) &&
-                    mm_tui_debug_check(&tui, &cpu, &map, &tui_debug_skip_break)) {
+                    mm_tui_debug_check(&tui, &execution.cores[0].cpu, &map, &tui_debug_skip_break)) {
                     tui_paused = MM_TRUE;
                     tui_step = MM_FALSE;
                     tui.debugger_next_pending = MM_FALSE;
@@ -6894,7 +6875,7 @@ int main(int argc, char **argv)
                     enum mm_sec_state systick_sec = MM_SECURE;
 
                 /* If CPU is sleeping (WFI/WFE), stay in low-power loop until an event or pending exception arrives. */
-                if (cpu.sleeping) {
+                if (execution.cores[0].cpu.sleeping) {
                     mm_bool wake = MM_FALSE;
                     mm_bool stopped = MM_FALSE;
                     stopped = !target_should_run(opt_gdb, &gdb, tui_paused, tui_step);
@@ -6906,7 +6887,7 @@ int main(int argc, char **argv)
                         continue;
                     }
                     /* Flush accumulated cycles into virtual time before idling. */
-                    host_sync_if_needed(execution_clock.virtual_cycles, &execution_clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
+                    host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                     if (g_core_locked) {
                         /* Locked up: time goes on in steps of a millisecond, up to a
                          * `monitor run-for` deadline; only a reset ends it. */
@@ -6917,7 +6898,7 @@ int main(int argc, char **argv)
                                 step = left;
                             }
                         }
-                        mm_execution_clock_advance(&scs, &cfg, step, MM_FALSE, 0u, &execution_clock);
+                        mm_execution_clock_advance(&execution.cores[0].scs, &cfg, step, MM_FALSE, 0u, &execution.clock);
                         mm_target_usart_poll(&cfg);
                         if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
                             reset_again = MM_TRUE;
@@ -6927,34 +6908,34 @@ int main(int argc, char **argv)
                         continue;
                     }
                     /* Wake on event register or any pending enabled exception. */
-                    if (cpu.event_reg) {
+                    if (execution.cores[0].cpu.event_reg) {
                         wake = MM_TRUE;
-                    } else if (mm_execution_irq_systick_pending_select(&cpu, &scs, &systick_sec) || scs.pend_sv) {
+                    } else if (mm_execution_irq_systick_pending_select(&execution.cores[0].cpu, &execution.cores[0].scs, &systick_sec) || execution.cores[0].scs.pend_sv) {
                         wake = MM_TRUE;
-                    } else if (mm_nvic_select_ex(&nvic, &cpu, &scs) >= 0) {
+                    } else if (mm_nvic_select_ex(&execution.cores[0].nvic, &execution.cores[0].cpu, &execution.cores[0].scs) >= 0) {
                         wake = MM_TRUE;
-                    } else if (!cpu.sleep_wfe && mm_nvic_any_pending_enabled(&nvic)) {
+                    } else if (!execution.cores[0].cpu.sleep_wfe && mm_nvic_any_pending_enabled(&execution.cores[0].nvic)) {
                         /* WFI wakes on an interrupt that would preempt with
                          * PRIMASK clear ("cpsid i; wfi; cpsie i" idle loops). */
                         wake = MM_TRUE;
-                    } else if (cpu.sleep_wfe && mm_nvic_any_pending(&nvic)) {
+                    } else if (execution.cores[0].cpu.sleep_wfe && mm_nvic_any_pending(&execution.cores[0].nvic)) {
                         if (getenv("M33MU_SLEEP_TRACE")) {
                             printf("[SLEEP_WAKE] wfe pending irq (primask_s=%lu primask_ns=%lu)\n",
-                                   (unsigned long)cpu.primask_s,
-                                   (unsigned long)cpu.primask_ns);
+                                   (unsigned long)execution.cores[0].cpu.primask_s,
+                                   (unsigned long)execution.cores[0].cpu.primask_ns);
                         }
                         wake = MM_TRUE;
                     }
                     if (wake) {
-                        cpu.sleeping = MM_FALSE;
-                        cpu.sleep_wfe = MM_FALSE;
-                        cpu.event_reg = MM_FALSE;
+                        execution.cores[0].cpu.sleeping = MM_FALSE;
+                        execution.cores[0].cpu.sleep_wfe = MM_FALSE;
+                        execution.cores[0].cpu.event_reg = MM_FALSE;
                     } else if (cfg.core_count > 1u && cfg.mc_ops != 0 && cfg.mc_ops->core1_running != 0 &&
-                               cfg.mc_ops->core1_running() && !cpu1.sleeping) {
+                               cfg.mc_ops->core1_running() && !execution.cores[1].cpu.sleeping) {
                         /* Core1 still has work: keep scheduling it rather than idling the host. */
                         continue;
                     } else {
-                        mm_u64 delta = mm_scs_systick_cycles_until_fire(&scs);
+                        mm_u64 delta = mm_scs_systick_cycles_until_fire(&execution.cores[0].scs);
                         mm_u64 signal_delta = mm_signal_cycles_until_next_event();
                         if (signal_delta < delta) {
                             delta = (signal_delta != 0u) ? signal_delta : 1u;
@@ -6980,25 +6961,25 @@ int main(int argc, char **argv)
                             if (idle_cycles == 0) {
                                 idle_cycles = 1;
                             }
-                            mm_execution_clock_advance(&scs, &cfg, idle_cycles, MM_FALSE, 0u, &execution_clock);
+                            mm_execution_clock_advance(&execution.cores[0].scs, &cfg, idle_cycles, MM_FALSE, 0u, &execution.clock);
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
                             mm_target_eth_poll(&cfg);
-                            rp2350_usb_sync_vector_ready(cpu_name, &scs, &map);
-                            mm_usbdev_set_paused(cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
+                            rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                            mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
-                            update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution_clock.cycle_total,
+                            update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
-                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &cpu, &scs, &map, execution_clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                                 done = MM_TRUE;
                                 continue;
                             }
-                            if (mm_execution_irq_systick_pending_select(&cpu, &scs, &systick_sec) || scs.pend_sv || mm_nvic_select_ex(&nvic, &cpu, &scs) >= 0 ||
-                                (cpu.sleep_wfe && mm_nvic_any_pending(&nvic)) ||
-                                (!cpu.sleep_wfe && mm_nvic_any_pending_enabled(&nvic))) {
-                                cpu.sleeping = MM_FALSE;
-                                cpu.sleep_wfe = MM_FALSE;
-                                cpu.event_reg = MM_FALSE;
+                            if (mm_execution_irq_systick_pending_select(&execution.cores[0].cpu, &execution.cores[0].scs, &systick_sec) || execution.cores[0].scs.pend_sv || mm_nvic_select_ex(&execution.cores[0].nvic, &execution.cores[0].cpu, &execution.cores[0].scs) >= 0 ||
+                                (execution.cores[0].cpu.sleep_wfe && mm_nvic_any_pending(&execution.cores[0].nvic)) ||
+                                (!execution.cores[0].cpu.sleep_wfe && mm_nvic_any_pending_enabled(&execution.cores[0].nvic))) {
+                                execution.cores[0].cpu.sleeping = MM_FALSE;
+                                execution.cores[0].cpu.sleep_wfe = MM_FALSE;
+                                execution.cores[0].cpu.event_reg = MM_FALSE;
                                 goto handle_pending;
                             }
                             if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
@@ -7007,38 +6988,38 @@ int main(int argc, char **argv)
                                 break;
                             }
                         } else {
-                            mm_execution_clock_advance(&scs, &cfg, delta, MM_FALSE, 0u, &execution_clock);
-                            if (mm_execution_irq_systick_pending_select(&cpu, &scs, &systick_sec) || scs.pend_sv) {
-                                cpu.sleeping = MM_FALSE;
-                                cpu.sleep_wfe = MM_FALSE;
-                                cpu.event_reg = MM_FALSE;
+                            mm_execution_clock_advance(&execution.cores[0].scs, &cfg, delta, MM_FALSE, 0u, &execution.clock);
+                            if (mm_execution_irq_systick_pending_select(&execution.cores[0].cpu, &execution.cores[0].scs, &systick_sec) || execution.cores[0].scs.pend_sv) {
+                                execution.cores[0].cpu.sleeping = MM_FALSE;
+                                execution.cores[0].cpu.sleep_wfe = MM_FALSE;
+                                execution.cores[0].cpu.event_reg = MM_FALSE;
                             }
-                            host_sync_if_needed(execution_clock.virtual_cycles, &execution_clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
+                            host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
                             mm_target_eth_poll(&cfg);
-                            rp2350_usb_sync_vector_ready(cpu_name, &scs, &map);
-                            mm_usbdev_set_paused(cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
+                            rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                            mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
-                            update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution_clock.cycle_total,
+                            update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
-                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &cpu, &scs, &map, execution_clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                                 done = MM_TRUE;
                                 continue;
                             }
-                            execution_clock.cycles_since_poll = 0;
+                            execution.clock.cycles_since_poll = 0;
                             if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
                                 reset_again = MM_TRUE;
                                 mm_system_clear_reset();
                                 break;
                             }
                         }
-                        if (!cpu.sleeping) {
+                        if (!execution.cores[0].cpu.sleeping) {
                             goto handle_pending;
                         }
                         continue;
                     }
-                    if (!cpu.sleeping) {
+                    if (!execution.cores[0].cpu.sleeping) {
                         goto handle_pending;
                     }
                     continue;
@@ -7049,9 +7030,9 @@ handle_pending:
                 {
                     enum mm_execution_irq_dispatch_result irq_result;
                     irq_result = mm_execution_irq_dispatch_pending(
-                        &cpu, &map, &scs, &nvic, MM_EXECUTION_IRQ_SKIP_BLOCKED,
-                        execution_irq_enter, 0, &it_pattern, &it_remaining,
-                        &it_cond, &done);
+                        &execution.cores[0].cpu, &map, &execution.cores[0].scs, &execution.cores[0].nvic, MM_EXECUTION_IRQ_SKIP_BLOCKED,
+                        execution_irq_enter, 0, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining,
+                        &execution.cores[0].it_cond, &done);
                     if (irq_result == MM_EXECUTION_IRQ_DELIVERED) {
                         continue;
                     }
@@ -7059,17 +7040,17 @@ handle_pending:
                 }
 
                 if (opt_gdb && mm_gdb_stub_is_reverse(&gdb) && mm_gdb_stub_should_run(&gdb)) {
-                    if (!mm_trace_undo_step(&cpu, &map)) {
+                    if (!mm_trace_undo_step(&execution.cores[0].cpu, &map)) {
                         mm_gdb_stub_notify_stop(&gdb, 5);
                         continue;
                     }
-                    if (execution_clock.cycle_total > 0u) {
-                        execution_clock.cycle_total--;
+                    if (execution.clock.cycle_total > 0u) {
+                        execution.clock.cycle_total--;
                     }
-                    if (execution_clock.virtual_cycles > 0u) {
-                        execution_clock.virtual_cycles--;
+                    if (execution.clock.virtual_cycles > 0u) {
+                        execution.clock.virtual_cycles--;
                     }
-                    if (mm_gdb_stub_should_step(&gdb) || mm_gdb_stub_breakpoint_hit(&gdb, cpu.r[15])) {
+                    if (mm_gdb_stub_should_step(&gdb) || mm_gdb_stub_breakpoint_hit(&gdb, execution.cores[0].cpu.r[15])) {
                         mm_gdb_stub_notify_stop(&gdb, 5);
                     }
                     continue;
@@ -7094,30 +7075,30 @@ handle_pending:
                         (opt_tui && mm_tui_debug_has_slots(&tui))) {
                         fast_mode = MM_FALSE;
                     }
-                    if (it_remaining != 0u) {
+                    if (execution.cores[0].it_remaining != 0u) {
                         fast_mode = MM_FALSE;
                     }
                     if (opt_disable_tb) {
                         fast_mode = MM_FALSE;
                     }
-                    if (fast_mode && !fpu_access_allowed(&cpu, &scs)) {
+                    if (fast_mode && !fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs)) {
                         fast_fpu_ok = MM_FALSE;
                     }
                     code_cache.fpu_ok = fast_fpu_ok;
                     if (fast_mode) {
-                    struct mm_tb *tb = mm_tb_lookup(&code_cache, cpu.r[15] & ~1u, cpu.sec_state);
+                    struct mm_tb *tb = mm_tb_lookup(&code_cache, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.sec_state);
                         if (tb == 0) {
-                            tb = mm_tb_build(&code_cache, &cpu, &map, &scs, cpu.r[15] & ~1u, cpu.sec_state, opt_gdb);
+                            tb = mm_tb_build(&code_cache, &execution.cores[0].cpu, &map, &execution.cores[0].scs, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.sec_state, opt_gdb);
                         }
                         if (tb != 0) {
                             if (tb->fpu_ok != fast_fpu_ok) {
                                 tb = 0;
                             }
                         }
-                        exec_ctx.cpu = &cpu;
+                        exec_ctx.cpu = &execution.cores[0].cpu;
                         exec_ctx.map = &map;
-                        exec_ctx.scs = &scs;
-                        exec_ctx.nvic = &nvic;
+                        exec_ctx.scs = &execution.cores[0].scs;
+                        exec_ctx.nvic = &execution.cores[0].nvic;
                         exec_ctx.gdb = &gdb;
                         exec_ctx.fetch = 0;
                         exec_ctx.dec = 0;
@@ -7125,9 +7106,9 @@ handle_pending:
                         exec_ctx.opt_gdb = opt_gdb;
                         exec_ctx.opt_expect_bkpt = opt_expect_bkpt;
                         exec_ctx.expect_bkpt = expect_bkpt;
-                        exec_ctx.it_pattern = &it_pattern;
-                        exec_ctx.it_remaining = &it_remaining;
-                        exec_ctx.it_cond = &it_cond;
+                        exec_ctx.it_pattern = &execution.cores[0].it_pattern;
+                        exec_ctx.it_remaining = &execution.cores[0].it_remaining;
+                        exec_ctx.it_cond = &execution.cores[0].it_cond;
                         exec_ctx.done = &done;
                         exec_ctx.bkpt_hit = &tb_bkpt_hit;
                         exec_ctx.bkpt_imm = &tb_bkpt_imm;
@@ -7147,17 +7128,17 @@ handle_pending:
                             tb_bkpt_imm = 0;
                             ops_executed = 0;
 
-                            cpu.r[13] = mm_cpu_get_active_sp(&cpu);
+                            execution.cores[0].cpu.r[13] = mm_cpu_get_active_sp(&execution.cores[0].cpu);
 
-                            mm_signal_check_trigger(cpu.r[15] & ~1u);
+                            mm_signal_check_trigger(execution.cores[0].cpu.r[15] & ~1u);
                             (void)mm_tb_run(tb, &exec_ctx, &done, &tb_bkpt_hit, &tb_bkpt_imm, &ops_executed);
                             if (ops_executed != 0u) {
-                                mm_execution_clock_advance(&scs, &cfg, (mm_u64)ops_executed, MM_FALSE, 0u, &execution_clock);
+                                mm_execution_clock_advance(&execution.cores[0].scs, &cfg, (mm_u64)ops_executed, MM_FALSE, 0u, &execution.clock);
                             }
                             {
                                 mm_u64 stall = flash_stall_cycles(cpu_hz);
                                 if (stall != 0u) {
-                                    mm_execution_clock_advance(&scs, &cfg, stall, MM_FALSE, 0u, &execution_clock);
+                                    mm_execution_clock_advance(&execution.cores[0].scs, &cfg, stall, MM_FALSE, 0u, &execution.clock);
                                 }
                             }
                             if (mm_flash_ops_cut_fired(0)) {
@@ -7189,26 +7170,26 @@ handle_pending:
                                 }
                                 break;
                             }
-                            if (cpu.sleeping) {
+                            if (execution.cores[0].cpu.sleeping) {
                                 break;
                             }
-                            if (it_remaining != 0u) {
+                            if (execution.cores[0].it_remaining != 0u) {
                                 break;
                             }
                             /* Leave the chain as soon as an interrupt can be taken
                              * (e.g. right after CPSIE), or a "cpsie; ...; cpsid; wfi"
                              * idle loop never lets it in. */
-                            if (mm_nvic_any_pending_enabled(&nvic) &&
-                                mm_nvic_select_ex(&nvic, &cpu, &scs) >= 0) {
+                            if (mm_nvic_any_pending_enabled(&execution.cores[0].nvic) &&
+                                mm_nvic_select_ex(&execution.cores[0].nvic, &execution.cores[0].cpu, &execution.cores[0].scs) >= 0) {
                                 break;
                             }
-                            fast_fpu_ok = fpu_access_allowed(&cpu, &scs) ? MM_TRUE : MM_FALSE;
+                            fast_fpu_ok = fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs) ? MM_TRUE : MM_FALSE;
                             code_cache.fpu_ok = fast_fpu_ok;
-                            pc_after = cpu.r[15];
+                            pc_after = execution.cores[0].cpu.r[15];
                             /* Successor blocks must be resolved in the CURRENT
                              * security state, not the state the finished block
                              * was built for: a block ending in BXNS/BLXNS/SG
-                             * changes cpu.sec_state, and chaining with the
+                             * changes execution.cores[0].cpu.sec_state, and chaining with the
                              * stale tb->sec fetches the next block through the
                              * wrong security view (garbage decode -> phantom
                              * UNDEFINSTR/DACCVIOL in the guest). */
@@ -7218,14 +7199,14 @@ handle_pending:
                                                                       tb->fallthrough_idx,
                                                                       tb->fallthrough_gen,
                                                                       tb->end_pc,
-                                                                      cpu.sec_state);
+                                                                      execution.cores[0].cpu.sec_state);
                                     if (candidate_tb == 0) {
                                         tb->fallthrough_idx = M33MU_TB_ENTRIES;
                                         tb->fallthrough_gen = 0;
                                     }
                                 }
                                 if (candidate_tb == 0) {
-                                    candidate_tb = mm_tb_lookup(&code_cache, tb->end_pc, cpu.sec_state);
+                                    candidate_tb = mm_tb_lookup(&code_cache, tb->end_pc, execution.cores[0].cpu.sec_state);
                                     if (candidate_tb != 0) {
                                         target_idx = (tb->end_pc >> 1u) & (M33MU_TB_ENTRIES - 1u);
                                         tb->fallthrough_idx = target_idx;
@@ -7239,14 +7220,14 @@ handle_pending:
                                                                       tb->branch_idx,
                                                                       tb->branch_gen,
                                                                       tb->branch_pc & ~1u,
-                                                                      cpu.sec_state);
+                                                                      execution.cores[0].cpu.sec_state);
                                     if (candidate_tb == 0) {
                                         tb->branch_idx = M33MU_TB_ENTRIES;
                                         tb->branch_gen = 0;
                                     }
                                 }
                                 if (candidate_tb == 0) {
-                                    candidate_tb = mm_tb_lookup(&code_cache, tb->branch_pc & ~1u, cpu.sec_state);
+                                    candidate_tb = mm_tb_lookup(&code_cache, tb->branch_pc & ~1u, execution.cores[0].cpu.sec_state);
                                     if (candidate_tb != 0) {
                                         target_idx = ((tb->branch_pc & ~1u) >> 1u) & (M33MU_TB_ENTRIES - 1u);
                                         tb->branch_idx = target_idx;
@@ -7264,22 +7245,22 @@ handle_pending:
                             tb = next_tb;
                             continue;
                         }
-                        if (tb != 0 && execution_clock.cycles_since_poll >= poll_granularity) {
+                        if (tb != 0 && execution.clock.cycles_since_poll >= poll_granularity) {
                             mm_target_usart_poll(&cfg);
                             mm_target_spi_poll(&cfg);
                             mm_target_eth_poll(&cfg);
-                            rp2350_usb_sync_vector_ready(cpu_name, &scs, &map);
-                            mm_usbdev_set_paused(cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
+                            rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                            mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                             mm_usbdev_poll();
-                            update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution_clock.cycle_total,
+                            update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                                      &tui_steps_offset, &tui_steps_latched);
-                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &cpu, &scs, &map, execution_clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                            if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                                 done = MM_TRUE;
                                 continue;
                             }
-                            execution_clock.cycles_since_poll = 0;
+                            execution.clock.cycles_since_poll = 0;
                         }
-                        if (tb != 0 || done || cpu.sleeping || it_remaining != 0u) {
+                        if (tb != 0 || done || execution.cores[0].cpu.sleeping || execution.cores[0].it_remaining != 0u) {
                             continue;
                         }
                     }
@@ -7300,10 +7281,10 @@ handle_pending:
                         /* the previous instruction's flash operation, if any */
                         mm_u64 stall = flash_stall_cycles(cpu_hz);
                         if (stall != 0u) {
-                            mm_execution_clock_advance(&scs, &cfg, stall, MM_FALSE, 0u, &execution_clock);
+                            mm_execution_clock_advance(&execution.cores[0].scs, &cfg, stall, MM_FALSE, 0u, &execution.clock);
                         }
                     }
-                    mm_execution_clock_advance(&scs, &cfg, insn_cycles, MM_TRUE, cpu.r[15] & ~1u, &execution_clock);
+                    mm_execution_clock_advance(&execution.cores[0].scs, &cfg, insn_cycles, MM_TRUE, execution.cores[0].cpu.r[15] & ~1u, &execution.clock);
                     if (opt_gdb || opt_tui) {
                         mm_u8 i;
                         fault_clock_count = gdb.fault_clock_count;
@@ -7314,7 +7295,7 @@ handle_pending:
                             fault_clocks[i] = gdb.fault_clocks[i];
                         }
                     }
-                    if (fault_clock_hit(execution_clock.cycle_total, fault_clocks, fault_clock_count)) {
+                    if (fault_clock_hit(execution.clock.cycle_total, fault_clocks, fault_clock_count)) {
                         fault_skip = MM_TRUE;
                     }
 
@@ -7322,67 +7303,67 @@ handle_pending:
                      * like LDR/STR [SP,#imm] and function prologue/epilogue sequences
                      * operate on the correct stack memory.
                      */
-                    cpu.r[13] = mm_cpu_get_active_sp(&cpu);
+                    execution.cores[0].cpu.r[13] = mm_cpu_get_active_sp(&execution.cores[0].cpu);
 
                     if (!g_record_started && g_record_start_set &&
-                        ((cpu.r[15] & ~1u) == g_record_start_pc)) {
+                        ((execution.cores[0].cpu.r[15] & ~1u) == g_record_start_pc)) {
                         mm_trace_reset();
                         g_record_started = MM_TRUE;
                         if (g_record_start_dump) {
-                            dump_record_start_context(&cpu, &map);
+                            dump_record_start_context(&execution.cores[0].cpu, &map);
                         }
                     }
-                    if (g_record_stop_set && ((cpu.r[15] & ~1u) == g_record_stop_pc)) {
-                        fprintf(stderr, "[RECORD_STOP] pc=0x%08lx\n", (unsigned long)(cpu.r[15] & ~1u));
-                        dump_bytes(&map, cpu.sec_state, g_record_dump_addr, 64u, "record_r_after (r0)");
+                    if (g_record_stop_set && ((execution.cores[0].cpu.r[15] & ~1u) == g_record_stop_pc)) {
+                        fprintf(stderr, "[RECORD_STOP] pc=0x%08lx\n", (unsigned long)(execution.cores[0].cpu.r[15] & ~1u));
+                        dump_bytes(&map, execution.cores[0].cpu.sec_state, g_record_dump_addr, 64u, "record_r_after (r0)");
                         if (g_record_dump_count > 0u && mm_trace_enabled() && g_record_started) {
-                            dump_trace_tail(&cpu, &map, g_record_dump_count);
+                            dump_trace_tail(&execution.cores[0].cpu, &map, g_record_dump_count);
                         }
                         g_record_stop_set = MM_FALSE;
                         g_record_started = MM_FALSE;
                     }
                     if (mm_trace_enabled() && g_record_started) {
-                        mm_trace_begin_step(&cpu, cpu.r[15] & ~1u);
+                        mm_trace_begin_step(&execution.cores[0].cpu, execution.cores[0].cpu.r[15] & ~1u);
                         trace_started = MM_TRUE;
                     }
 
-                    if (mm_bootapi_handle(&cpu, &map)) {
-                        finish_trace_step_if_started(trace_started, &cpu, &map);
+                    if (mm_bootapi_handle(&execution.cores[0].cpu, &map)) {
+                        finish_trace_step_if_started(trace_started, &execution.cores[0].cpu, &map);
                         continue;
                     }
 
-                    f = mm_fetch_t32_memmap(&cpu, &map, cpu.sec_state);
+                    f = mm_fetch_t32_memmap(&execution.cores[0].cpu, &map, execution.cores[0].cpu.sec_state);
                     if (f.fault) {
-                        if (!raise_mem_fault(&cpu, &map, &scs, cpu.r[15] & ~1u, cpu.xpsr, f.fault_addr, MM_TRUE)) {
+                        if (!raise_mem_fault(&execution.cores[0].cpu, &map, &execution.cores[0].scs, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.xpsr, f.fault_addr, MM_TRUE)) {
                             printf("Fault on fetch at 0x%08lx (PC=0x%08lx SP=0x%08lx LR=0x%08lx xPSR=0x%08lx)\n",
                                     (unsigned long)f.fault_addr,
-                                    (unsigned long)cpu.r[15],
-                                    (unsigned long)mm_cpu_get_active_sp(&cpu),
-                                    (unsigned long)cpu.r[14],
-                                    (unsigned long)cpu.xpsr);
+                                    (unsigned long)execution.cores[0].cpu.r[15],
+                                    (unsigned long)mm_cpu_get_active_sp(&execution.cores[0].cpu),
+                                    (unsigned long)execution.cores[0].cpu.r[14],
+                                    (unsigned long)execution.cores[0].cpu.xpsr);
                             g_core_lockup = MM_TRUE;
                             g_core_lockup_sig = 11;
                             if (trace_started) {
                                 mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
-                                mm_trace_end_step(&cpu);
-                                record_window_step(&cpu, &map);
+                                mm_trace_end_step(&execution.cores[0].cpu);
+                                record_window_step(&execution.cores[0].cpu, &map);
                             }
                             done = MM_TRUE;     /* or locked up, see hold_lockup() */
                             continue;
                         }
                         if (trace_started) {
                             mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
-                            mm_trace_end_step(&cpu);
-                            record_window_step(&cpu, &map);
+                            mm_trace_end_step(&execution.cores[0].cpu);
+                            record_window_step(&execution.cores[0].cpu, &map);
                         }
                         continue;
                     }
-                    if (f.len == 4u && !fpu_access_allowed(&cpu, &scs) && mm_is_vfp_insn_fast(f.insn)) {
+                    if (f.len == 4u && !fpu_access_allowed(&execution.cores[0].cpu, &execution.cores[0].scs) && mm_is_vfp_insn_fast(f.insn)) {
                         fpu_ok = MM_FALSE;
                     }
-                    if (!mm_icache_lookup(&code_cache, &f, cpu.sec_state, fpu_ok, &d)) {
-                        d = decode_t32_fast(&f, &cpu, &scs);
-                        mm_icache_store(&code_cache, &f, cpu.sec_state, fpu_ok, &d);
+                    if (!mm_icache_lookup(&code_cache, &f, execution.cores[0].cpu.sec_state, fpu_ok, &d)) {
+                        d = decode_t32_fast(&f, &execution.cores[0].cpu, &execution.cores[0].scs);
+                        mm_icache_store(&code_cache, &f, execution.cores[0].cpu.sec_state, fpu_ok, &d);
                     }
                     mm_memmap_set_last_pc(f.pc_fetch);
                     if (opt_capstone) {
@@ -7401,7 +7382,7 @@ handle_pending:
                                 rc = 1;
                                 goto cleanup;
                             }
-                            if (!capstone_it_check_pre(&f, &d, it_pattern, it_remaining, it_cond)) {
+                            if (!capstone_it_check_pre(&f, &d, execution.cores[0].it_pattern, execution.cores[0].it_remaining, execution.cores[0].it_cond)) {
                                 rc = 1;
                                 goto cleanup;
                             }
@@ -7415,28 +7396,28 @@ handle_pending:
                                    (unsigned long)d.raw,
                                    (unsigned long)(d.raw & 0xffffu));
                         }
-                        if (!raise_usage_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, (1u << 16))) {
+                        if (!raise_usage_fault(&execution.cores[0].cpu, &map, &execution.cores[0].scs, f.pc_fetch, execution.cores[0].cpu.xpsr, (1u << 16))) {
                             printf("Unimplemented opcode 0x%08lx at PC=0x%08lx\n", (unsigned long)d.raw, (unsigned long)(f.pc_fetch | 1u));
                             g_core_lockup = MM_TRUE;
                             g_core_lockup_sig = 4;
                             if (trace_started) {
                                 mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
-                                mm_trace_end_step(&cpu);
-                                record_window_step(&cpu, &map);
+                                mm_trace_end_step(&execution.cores[0].cpu);
+                                record_window_step(&execution.cores[0].cpu, &map);
                             }
                             done = MM_TRUE;     /* or locked up, see hold_lockup() */
                             continue;
                         }
                         if (trace_started) {
                             mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
-                            mm_trace_end_step(&cpu);
-                            record_window_step(&cpu, &map);
+                            mm_trace_end_step(&execution.cores[0].cpu);
+                            record_window_step(&execution.cores[0].cpu, &map);
                         }
                         continue;
                     }
 
                     /* ITSTATE handling: if inside IT block and not IT instruction, conditionally execute. */
-                    execute_it = mm_it_should_execute(&cpu, &d, &it_pattern, &it_remaining, &it_cond);
+                    execute_it = mm_it_should_execute(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
                     if ((g_record_trace_fp != NULL || g_record_trace_live) &&
                         g_record_started && g_record_start_remaining > 0u) {
                         FILE *trace_out = g_record_trace_fp ? g_record_trace_fp : stderr;
@@ -7449,14 +7430,14 @@ handle_pending:
                                 (unsigned long)f.pc_fetch,
                                 (unsigned)d.len,
                                 (unsigned long)d.raw,
-                                (unsigned long)cpu.r[0], (unsigned long)cpu.r[1],
-                                (unsigned long)cpu.r[2], (unsigned long)cpu.r[3],
-                                (unsigned long)cpu.r[4], (unsigned long)cpu.r[5],
-                                (unsigned long)cpu.r[6], (unsigned long)cpu.r[7],
-                                (unsigned long)cpu.r[8], (unsigned long)cpu.r[9],
-                                (unsigned long)cpu.r[10], (unsigned long)cpu.r[11],
-                                (unsigned long)cpu.r[12], (unsigned long)mm_cpu_get_active_sp(&cpu),
-                                (unsigned long)cpu.r[14], (unsigned long)cpu.xpsr,
+                                (unsigned long)execution.cores[0].cpu.r[0], (unsigned long)execution.cores[0].cpu.r[1],
+                                (unsigned long)execution.cores[0].cpu.r[2], (unsigned long)execution.cores[0].cpu.r[3],
+                                (unsigned long)execution.cores[0].cpu.r[4], (unsigned long)execution.cores[0].cpu.r[5],
+                                (unsigned long)execution.cores[0].cpu.r[6], (unsigned long)execution.cores[0].cpu.r[7],
+                                (unsigned long)execution.cores[0].cpu.r[8], (unsigned long)execution.cores[0].cpu.r[9],
+                                (unsigned long)execution.cores[0].cpu.r[10], (unsigned long)execution.cores[0].cpu.r[11],
+                                (unsigned long)execution.cores[0].cpu.r[12], (unsigned long)mm_cpu_get_active_sp(&execution.cores[0].cpu),
+                                (unsigned long)execution.cores[0].cpu.r[14], (unsigned long)execution.cores[0].cpu.xpsr,
                                 execute_it ? 1u : 0u);
                     }
 
@@ -7466,22 +7447,22 @@ handle_pending:
                                 (unsigned)d.len,
                                 (unsigned long)d.raw,
                                 (int)d.kind,
-                                (unsigned long)cpu.r[0],
-                                (unsigned long)cpu.r[1],
-                                (unsigned long)cpu.r[2],
-                                (unsigned long)cpu.r[3],
-                                (unsigned long)mm_cpu_get_active_sp(&cpu),
-                                (unsigned long long)execution_clock.cycle_total);
+                                (unsigned long)execution.cores[0].cpu.r[0],
+                                (unsigned long)execution.cores[0].cpu.r[1],
+                                (unsigned long)execution.cores[0].cpu.r[2],
+                                (unsigned long)execution.cores[0].cpu.r[3],
+                                (unsigned long)mm_cpu_get_active_sp(&execution.cores[0].cpu),
+                                (unsigned long long)execution.clock.cycle_total);
                     }
                     if (!execute_it && d.kind != MM_OP_IT) {
-                        mm_it_advance(&cpu, &d, &it_pattern, &it_remaining, &it_cond);
+                        mm_it_advance(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
                         if (trace_started) {
                             mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
-                            mm_trace_end_step(&cpu);
-                            record_window_step(&cpu, &map);
+                            mm_trace_end_step(&execution.cores[0].cpu);
+                            record_window_step(&execution.cores[0].cpu, &map);
                         }
                         if (opt_gdb) {
-                            mm_gdb_stub_maybe_rearm(&gdb, &map, cpu.sec_state, cpu.r[15]);
+                            mm_gdb_stub_maybe_rearm(&gdb, &map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
                             if (mm_gdb_stub_should_step(&gdb)) {
                                 mm_gdb_stub_notify_stop(&gdb, 5);
                             }
@@ -7492,21 +7473,21 @@ handle_pending:
                     if (fault_skip) {
                         printf("[FAULT-CLOCK] skip pc=0x%08lx cycle=%llu\n",
                                (unsigned long)(f.pc_fetch | 1u),
-                               (unsigned long long)execution_clock.cycle_total);
-                        if (it_remaining > 0u && d.kind != MM_OP_IT) {
-                            mm_u8 raw = itstate_get(cpu.xpsr);
-                            it_pattern >>= 1;
-                            it_remaining--;
+                               (unsigned long long)execution.clock.cycle_total);
+                        if (execution.cores[0].it_remaining > 0u && d.kind != MM_OP_IT) {
+                            mm_u8 raw = itstate_get(execution.cores[0].cpu.xpsr);
+                            execution.cores[0].it_pattern >>= 1;
+                            execution.cores[0].it_remaining--;
                             raw = itstate_advance(raw);
-                            cpu.xpsr = itstate_set(cpu.xpsr, raw);
+                            execution.cores[0].cpu.xpsr = itstate_set(execution.cores[0].cpu.xpsr, raw);
                         }
                         if (trace_started) {
                             mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
-                            mm_trace_end_step(&cpu);
-                            record_window_step(&cpu, &map);
+                            mm_trace_end_step(&execution.cores[0].cpu);
+                            record_window_step(&execution.cores[0].cpu, &map);
                         }
                         if (opt_gdb) {
-                            mm_gdb_stub_maybe_rearm(&gdb, &map, cpu.sec_state, cpu.r[15]);
+                            mm_gdb_stub_maybe_rearm(&gdb, &map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
                             if (mm_gdb_stub_should_step(&gdb)) {
                                 mm_gdb_stub_notify_stop(&gdb, 5);
                             }
@@ -7518,11 +7499,11 @@ handle_pending:
                         struct mm_execute_ctx exec_ctx;
                         mm_bool exec_bkpt_hit = MM_FALSE;
                         mm_u32 exec_bkpt_imm = 0u;
-                        calltrace_handle_decoded(&cpu, &f, &d);
-                        exec_ctx.cpu = &cpu;
+                        calltrace_handle_decoded(&execution.cores[0].cpu, &f, &d);
+                        exec_ctx.cpu = &execution.cores[0].cpu;
                         exec_ctx.map = &map;
-                        exec_ctx.scs = &scs;
-                        exec_ctx.nvic = &nvic;
+                        exec_ctx.scs = &execution.cores[0].scs;
+                        exec_ctx.nvic = &execution.cores[0].nvic;
                         exec_ctx.gdb = &gdb;
                         exec_ctx.fetch = &f;
                         exec_ctx.dec = &d;
@@ -7530,9 +7511,9 @@ handle_pending:
                         exec_ctx.opt_gdb = opt_gdb;
                         exec_ctx.opt_expect_bkpt = opt_expect_bkpt;
                         exec_ctx.expect_bkpt = expect_bkpt;
-                        exec_ctx.it_pattern = &it_pattern;
-                        exec_ctx.it_remaining = &it_remaining;
-                        exec_ctx.it_cond = &it_cond;
+                        exec_ctx.it_pattern = &execution.cores[0].it_pattern;
+                        exec_ctx.it_remaining = &execution.cores[0].it_remaining;
+                        exec_ctx.it_cond = &execution.cores[0].it_cond;
                         exec_ctx.done = &done;
                         exec_ctx.bkpt_hit = &exec_bkpt_hit;
                         exec_ctx.bkpt_imm = &exec_bkpt_imm;
@@ -7563,16 +7544,16 @@ handle_pending:
                                  * frame and represents the resumed context. */
                                 mm_u32 expected_next = (f.pc_fetch + f.len) | 1u;
                                 if (execute_it && d.kind != MM_OP_IT &&
-                                    cpu.r[15] == expected_next) {
-                                    mm_it_advance(&cpu, &d, &it_pattern, &it_remaining, &it_cond);
+                                    execution.cores[0].cpu.r[15] == expected_next) {
+                                    mm_it_advance(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
                                 }
                                 if (trace_started) {
                                     mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
-                                    mm_trace_end_step(&cpu);
-                                    record_window_step(&cpu, &map);
+                                    mm_trace_end_step(&execution.cores[0].cpu);
+                                    record_window_step(&execution.cores[0].cpu, &map);
                                 }
                                 if (opt_gdb) {
-                                    mm_gdb_stub_maybe_rearm(&gdb, &map, cpu.sec_state, cpu.r[15]);
+                                    mm_gdb_stub_maybe_rearm(&gdb, &map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
                                     if (mm_gdb_stub_should_step(&gdb)) {
                                         mm_gdb_stub_notify_stop(&gdb, 5);
                                     }
@@ -7589,12 +7570,12 @@ handle_pending:
                     }
                     if (trace_started) {
                         mmio_bus_end_step(&map.mmio, mm_trace_get_undo_sink());
-                        mm_trace_end_step(&cpu);
-                        record_window_step(&cpu, &map);
+                        mm_trace_end_step(&execution.cores[0].cpu);
+                        record_window_step(&execution.cores[0].cpu, &map);
                     }
 
                     if (opt_capstone) {
-                        if (!capstone_it_check_post(&f, &d, it_pattern, it_remaining, it_cond)) {
+                        if (!capstone_it_check_post(&f, &d, execution.cores[0].it_pattern, execution.cores[0].it_remaining, execution.cores[0].it_cond)) {
                             rc = 1;
                             goto cleanup;
                         }
@@ -7602,29 +7583,29 @@ handle_pending:
 
                     {
                         mm_u32 expected_next = (f.pc_fetch + f.len) | 1u;
-                        if (cpu.r[15] == expected_next) {
-                            mm_it_advance(&cpu, &d, &it_pattern, &it_remaining, &it_cond);
+                        if (execution.cores[0].cpu.r[15] == expected_next) {
+                            mm_it_advance(&execution.cores[0].cpu, &d, &execution.cores[0].it_pattern, &execution.cores[0].it_remaining, &execution.cores[0].it_cond);
                         }
                     }
                 }
 
-                if (execution_clock.cycles_since_poll >= poll_granularity) {
+                if (execution.clock.cycles_since_poll >= poll_granularity) {
                     mm_target_usart_poll(&cfg);
                     mm_target_spi_poll(&cfg);
                     mm_target_eth_poll(&cfg);
-                    rp2350_usb_sync_vector_ready(cpu_name, &scs, &map);
-                    mm_usbdev_set_paused(cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
+                    rp2350_usb_sync_vector_ready(cpu_name, &execution.cores[0].scs, &map);
+                    mm_usbdev_set_paused(execution.cores[0].cpu.primask_ns != 0u ? MM_TRUE : MM_FALSE);
                     mm_usbdev_poll();
-                    update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution_clock.cycle_total,
+                    update_tui_steps_latched(opt_gdb, &gdb, tui_paused, tui_step, execution.clock.cycle_total,
                                              &tui_steps_offset, &tui_steps_latched);
-                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &cpu, &scs, &map, execution_clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
+                    if (handle_tui(&tui, opt_tui, &opt_capstone, &opt_gdb, &gdb, cpu_name, &execution.cores[0].cpu, &execution.cores[0].scs, &map, execution.clock.cycle_total, &tui_steps_offset, &tui_steps_latched, &tui_paused, &tui_step, &reload_pending, gdb_port)) {
                         done = MM_TRUE;
                         continue;
                     }
-                    execution_clock.cycles_since_poll = 0;
+                    execution.clock.cycles_since_poll = 0;
                 }
 
-                host_sync_if_needed(execution_clock.virtual_cycles, &execution_clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
+                host_sync_if_needed(execution.clock.virtual_cycles, &execution.clock.vcycles_last_sync, host0_ns, sync_granularity, cpu_hz);
 
                 if (mm_system_reset_pending() && allow_system_reset(&cfg, cpu_name)) {
                     reset_again = MM_TRUE;
@@ -7632,7 +7613,7 @@ handle_pending:
                     break;
                 }
                 if (opt_gdb) {
-                    mm_gdb_stub_maybe_rearm(&gdb, &map, cpu.sec_state, cpu.r[15]);
+                    mm_gdb_stub_maybe_rearm(&gdb, &map, execution.cores[0].cpu.sec_state, execution.cores[0].cpu.r[15]);
                     if (mm_gdb_stub_should_step(&gdb)) {
                         mm_gdb_stub_notify_stop(&gdb, 5);
                         continue;
@@ -7644,18 +7625,18 @@ handle_pending:
                 }
             }
             if (reset_again) {
-                gdb.vtime_base += execution_clock.virtual_cycles;
+                gdb.vtime_base += execution.clock.virtual_cycles;
                 gdb.vcycles = 0;
                 mm_code_cache_release(&code_cache);
                 continue;
             }
             if (!opt_gdb) {
-                mm_u64 wraps = mm_scs_systick_wrap_count(&scs);
-                double avg_cycles_per_wrap = (wraps > 0u) ? ((double)execution_clock.cycle_total / (double)wraps) : 0.0;
+                mm_u64 wraps = mm_scs_systick_wrap_count(&execution.cores[0].scs);
+                double avg_cycles_per_wrap = (wraps > 0u) ? ((double)execution.clock.cycle_total / (double)wraps) : 0.0;
                 printf("Execution stopped after %llu virtual cycles; PC=0x%08lx LR=0x%08lx\n",
-                        (unsigned long long)execution_clock.cycle_total,
-                        (unsigned long)cpu.r[15],
-                        (unsigned long)cpu.r[14]);
+                        (unsigned long long)execution.clock.cycle_total,
+                        (unsigned long)execution.cores[0].cpu.r[15],
+                        (unsigned long)execution.cores[0].cpu.r[14]);
                 if (wraps > 0u) {
                     printf("SysTick wraps=%llu avg_cycles_per_wrap=%.1f\n",
                            (unsigned long long)wraps,
@@ -7663,9 +7644,9 @@ handle_pending:
                 }
             }
             if (opt_record_dump > 0u && mm_trace_enabled() && g_record_started) {
-                dump_trace_tail(&cpu, &map, opt_record_dump);
+                dump_trace_tail(&execution.cores[0].cpu, &map, opt_record_dump);
             }
-            covdump_cycles = execution_clock.cycle_total;
+            covdump_cycles = execution.clock.cycle_total;
             mm_code_cache_release(&code_cache);
             break;
         }
@@ -7725,7 +7706,7 @@ cleanup:
                                        sizeof(coverr))) {
             fprintf(stderr, "--covdump: %s\n", coverr);
             rc = 1;
-        } else if (!mm_covdump_write(&map, cpu.sec_state, &covinfo, cov_elf,
+        } else if (!mm_covdump_write(&map, execution.cores[0].cpu.sec_state, &covinfo, cov_elf,
                                      opt_covdump, reason, covdump_cycles,
                                      coverr, sizeof(coverr))) {
             fprintf(stderr, "--covdump: %s\n", coverr);
