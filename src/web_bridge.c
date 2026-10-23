@@ -188,27 +188,6 @@ static struct mm_decoded web_decode(
     return mm_decode_t32(fetch);
 }
 
-static mm_bool web_unhandled_mem_fault(struct mm_cpu *cpu,
-                                       struct mm_memmap *map,
-                                       struct mm_scs *scs,
-                                       mm_u32 fault_pc,
-                                       mm_u32 fault_xpsr,
-                                       mm_u32 addr,
-                                       mm_bool is_exec)
-{
-    if (g_web_active_session != 0) {
-        g_web_active_session->pending_error = MM_WEB_EXECUTION_FAULT;
-    }
-    (void)cpu;
-    (void)map;
-    (void)scs;
-    (void)fault_pc;
-    (void)fault_xpsr;
-    (void)addr;
-    (void)is_exec;
-    return MM_FALSE;
-}
-
 static mm_bool web_exception_enter(void *opaque,
                                    struct mm_cpu *cpu,
                                    struct mm_memmap *map,
@@ -218,10 +197,70 @@ static mm_bool web_exception_enter(void *opaque,
                                    mm_u32 xpsr,
                                    enum mm_sec_state handler_sec);
 
-/* Match the production UsageFault policy for architectural undefined
- * instructions: set UFSR, deliver UsageFault when enabled, otherwise escalate
- * to HardFault and set HFSR.FORCED. The CLI adds diagnostics around this same
- * architectural entry path. */
+static mm_bool web_enter_fault(struct mm_cpu *cpu,
+                               struct mm_memmap *map,
+                               struct mm_scs *scs,
+                               mm_u32 exception,
+                               mm_u32 fault_pc,
+                               mm_u32 fault_xpsr,
+                               enum mm_sec_state handler_sec)
+{
+    if (g_web_active_session == 0) return MM_FALSE;
+    mm_scs_exception_set_active(scs, handler_sec, exception);
+    if (web_exception_enter(g_web_active_session, cpu, map, scs,
+                            exception, fault_pc, fault_xpsr, handler_sec)) {
+        return MM_TRUE;
+    }
+    g_web_active_session->pending_error = MM_WEB_EXECUTION_FAULT;
+    return MM_FALSE;
+}
+
+static mm_bool web_raise_hard_fault(struct mm_cpu *cpu,
+                                    struct mm_memmap *map,
+                                    struct mm_scs *scs,
+                                    mm_u32 fault_pc,
+                                    mm_u32 fault_xpsr)
+{
+    enum mm_sec_state handler_sec = cpu->sec_state;
+    if (handler_sec == MM_SECURE && (scs->aircr_s & (1u << 13)) != 0u) {
+        handler_sec = MM_NONSECURE; /* AIRCR.BFHFNMINS */
+    }
+    scs->hfsr |= 1u << 30; /* FORCED */
+    return web_enter_fault(cpu, map, scs, MM_VECT_HARDFAULT,
+                           fault_pc, fault_xpsr, handler_sec);
+}
+
+static mm_bool web_raise_mem_fault(struct mm_cpu *cpu,
+                                   struct mm_memmap *map,
+                                   struct mm_scs *scs,
+                                   mm_u32 fault_pc,
+                                   mm_u32 fault_xpsr,
+                                   mm_u32 addr,
+                                   mm_bool is_exec)
+{
+    enum mm_sec_state sec = cpu->sec_state;
+    mm_u32 *cfsr;
+    mm_u32 *mmfar;
+    mm_u32 enabled;
+    if (scs->securefault_pending) {
+        scs->securefault_pending = MM_FALSE;
+        return web_enter_fault(cpu, map, scs, MM_VECT_SECUREFAULT,
+                               fault_pc, fault_xpsr, MM_SECURE);
+    }
+    cfsr = mm_scs_cfsr_ptr(scs, sec);
+    mmfar = mm_scs_mmfar_ptr(scs, sec);
+    *cfsr |= (is_exec ? 1u : 2u) | (1u << 7); /* I/DACCVIOL, MMARVALID */
+    *mmfar = addr;
+    enabled = sec == MM_NONSECURE ? scs->shcsr_ns : scs->shcsr_s;
+    if ((enabled & (1u << 16)) != 0u) {
+        return web_enter_fault(cpu, map, scs, MM_VECT_MEMMANAGE,
+                               fault_pc, fault_xpsr, sec);
+    }
+    return web_raise_hard_fault(cpu, map, scs, fault_pc, fault_xpsr);
+}
+
+/* Match production fault routing while using shared architectural exception
+ * entry. CLI diagnostic and full lockup policy remain separate. */
 static mm_bool web_raise_usage_fault(struct mm_cpu *cpu,
                                      struct mm_memmap *map,
                                      struct mm_scs *scs,
@@ -232,7 +271,6 @@ static mm_bool web_raise_usage_fault(struct mm_cpu *cpu,
     enum mm_sec_state sec;
     mm_u32 *cfsr;
     mm_u32 enabled;
-    mm_u32 exception;
     if (cpu == 0 || map == 0 || scs == 0) return MM_FALSE;
     sec = cpu->sec_state;
     cfsr = mm_scs_cfsr_ptr(scs, sec);
@@ -240,21 +278,10 @@ static mm_bool web_raise_usage_fault(struct mm_cpu *cpu,
     *cfsr |= ufsr_bits != 0u ? ufsr_bits : (1u << 16);
     enabled = sec == MM_NONSECURE ? scs->shcsr_ns : scs->shcsr_s;
     if ((enabled & (1u << 18)) != 0u) {
-        exception = MM_VECT_USAGEFAULT;
-        mm_scs_exception_set_active(scs, sec, exception);
-    } else {
-        exception = MM_VECT_HARDFAULT;
-        scs->hfsr |= 1u << 30; /* FORCED */
-        mm_scs_exception_set_active(scs, sec, exception);
+        return web_enter_fault(cpu, map, scs, MM_VECT_USAGEFAULT,
+                               fault_pc, fault_xpsr, sec);
     }
-    if (!web_exception_enter(g_web_active_session, cpu, map, scs,
-                             exception, fault_pc, fault_xpsr, sec)) {
-        if (g_web_active_session != 0) {
-            g_web_active_session->pending_error = MM_WEB_EXECUTION_FAULT;
-        }
-        return MM_FALSE;
-    }
-    return MM_TRUE;
+    return web_raise_hard_fault(cpu, map, scs, fault_pc, fault_xpsr);
 }
 
 static mm_bool web_execution_exc_return(struct mm_cpu *cpu,
@@ -463,9 +490,17 @@ enum mm_web_error mm_web_load_elf(struct mm_web_session *session,
     if (session == 0 || data == 0 || size == 0u) {
         return MM_WEB_INVALID_ARGUMENT;
     }
+    if (size > session->max_image_size) return MM_WEB_IMAGE_REJECTED;
+    session->loaded = MM_FALSE;
     mm_system_clear_reset();
     mm_execution_state_end_run(&session->execution);
-    mm_execution_state_init_code_cache(&session->execution);
+    memset(session->execution.storage.flash, 0xff,
+           session->execution.storage.flash_size);
+    memset(session->execution.storage.ram, 0,
+           session->execution.storage.ram_size);
+    if (!web_initialize_target_hardware(session)) {
+        return MM_WEB_INITIALIZATION_FAILED;
+    }
     mm_execution_clock_reset(&session->execution.clock);
     if (mm_execution_state_load_elf(&session->execution,
                                     (const mm_u8 *)data, size,
@@ -653,13 +688,13 @@ static enum mm_web_error web_execute_budgeted(
         /* Stop on BKPT for a deterministic, host-budgeted headless API. */
         context.opt_expect_bkpt = MM_TRUE;
         context.handle_pc_write = web_handle_pc_write;
-        context.raise_mem_fault = web_unhandled_mem_fault;
+        context.raise_mem_fault = web_raise_mem_fault;
         context.raise_usage_fault = web_raise_usage_fault;
         context.exc_return_unstack = web_execution_exc_return;
         context.enter_exception = web_execution_instruction_exception;
         outcome = mm_execution_state_step_instruction(
             state, 0u, &context, mm_execution_exception_fpu_access_allowed, web_decode,
-            web_unhandled_mem_fault, &fetch, &decoded, &fpu_ok,
+            web_raise_mem_fault, &fetch, &decoded, &fpu_ok,
             &exec_status);
         (void)mm_execution_state_poll_target_devices_if_due(
             state, MM_WEB_TARGET_POLL_CYCLES);
