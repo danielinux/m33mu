@@ -661,6 +661,16 @@ if(M33MU_BUILD_TESTS)
         set_tests_properties(wasm_worker_wfi_exti_test PROPERTIES
           WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         )
+        add_test(NAME wasm_worker_active_exti_boundary_test
+          COMMAND "${CMAKE_COMMAND}" -E env
+            "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
+            "M33MU_NODE=${M33MU_NODE}"
+            "M33MU_CLI=$<TARGET_FILE:m33mu>"
+            "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
+            "${CMAKE_SOURCE_DIR}/scripts/test-web-worker-active-exti.sh")
+        set_tests_properties(wasm_worker_active_exti_boundary_test PROPERTIES
+          WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        )
       endif()
     endif()
   endif()

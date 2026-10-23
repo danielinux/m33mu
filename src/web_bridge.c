@@ -560,17 +560,6 @@ static enum mm_web_error web_execute_budgeted(
             (void)mm_execution_state_wake_sleeping_core(state, 0u);
             continue;
         }
-        if (!mm_execution_state_advance_for_instruction(state, 0u)) {
-            result_out->error = MM_WEB_INITIALIZATION_FAILED;
-            return result_out->error;
-        }
-        work++;
-        if (!web_apply_due_gpio_events(session)) {
-            result_out->error = MM_WEB_EXECUTION_FAULT;
-            return result_out->error;
-        }
-        (void)mm_execution_state_poll_target_devices_if_due(
-            state, MM_WEB_TARGET_POLL_CYCLES);
         {
             enum mm_execution_irq_dispatch_result irq_result =
                 mm_execution_state_dispatch_pending(
@@ -581,6 +570,15 @@ static enum mm_web_error web_execute_budgeted(
                 return result_out->error;
             }
             if (irq_result == MM_EXECUTION_IRQ_DELIVERED) continue;
+        }
+        if (!mm_execution_state_advance_for_instruction(state, 0u)) {
+            result_out->error = MM_WEB_INITIALIZATION_FAILED;
+            return result_out->error;
+        }
+        work++;
+        if (!web_apply_due_gpio_events(session)) {
+            result_out->error = MM_WEB_EXECUTION_FAULT;
+            return result_out->error;
         }
         i++;
         memset(&context, 0, sizeof(context));
@@ -596,6 +594,8 @@ static enum mm_web_error web_execute_budgeted(
             state, 0u, &context, mm_execution_exception_fpu_access_allowed, web_decode,
             web_unhandled_mem_fault, &fetch, &decoded, &fpu_ok,
             &exec_status);
+        (void)mm_execution_state_poll_target_devices_if_due(
+            state, MM_WEB_TARGET_POLL_CYCLES);
         if (session->pending_error != MM_WEB_OK) {
             result_out->error = session->pending_error;
             return result_out->error;

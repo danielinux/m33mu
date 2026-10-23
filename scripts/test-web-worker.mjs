@@ -203,4 +203,41 @@ if (process.env.M33MU_WFI_FIRMWARE) {
   assert.equal(wfiExtiResult.payload.sleeping, false);
 }
 
+if (process.env.M33MU_ACTIVE_EXTI_FIRMWARE) {
+  const firmware = new Uint8Array(readFileSync(
+    process.env.M33MU_ACTIVE_EXTI_FIRMWARE));
+  const loopPc = Number(process.env.M33MU_ACTIVE_EXTI_LOOP_PC);
+  assert.ok(Number.isInteger(loopPc) && loopPc > 0);
+  const activeLoad = await request('loadFirmware', { bytes: firmware });
+  assert.equal(activeLoad.ok, true);
+
+  let loopState;
+  for (let count = 0; count < 512; count++) {
+    const steppedLoop = await request('step', { instructionBudget: 1 });
+    assert.equal(steppedLoop.ok, true);
+    if (steppedLoop.result.pc === (loopPc | 1)) {
+      loopState = steppedLoop.result;
+      break;
+    }
+  }
+  assert.ok(loopState, 'firmware did not reach its active EXTI loop');
+  const targetCycle = BigInt(loopState.cycleTotal) + 1n;
+  const targetNs = targetCycle * 1000000000n / BigInt(loopState.cpuHz);
+  const edge = await request('gpioWrite', {
+    socPad: 'PA6', level: true, eventTimeNs: targetNs.toString()
+  });
+  assert.equal(edge.ok, true);
+
+  const boundaryStep = await request('step', { instructionBudget: 1 });
+  assert.equal(boundaryStep.ok, true);
+  assert.equal(boundaryStep.result.registers[4],
+    (loopState.registers[4] + 1) >>> 0,
+    'instruction at the GPIO/EXTI boundary must execute before IRQ entry');
+
+  const handler = await request('step', { instructionBudget: 32 });
+  assert.equal(handler.ok, true);
+  assert.equal(handler.result.stopped, true,
+    'active-core timestamped EXTI did not reach the handler BKPT');
+}
+
 console.log('test-web-worker: ok');
