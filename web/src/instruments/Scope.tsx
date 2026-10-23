@@ -45,6 +45,21 @@ export class ScopeBuffer {
 
   lastTime(): number { return this.length ? this.t[this.at(this.length - 1)] : 0; }
 
+  /** Immutable-in-practice copy for a held display while live samples continue. */
+  snapshot(): ScopeBuffer {
+    const copy = new ScopeBuffer();
+    for (let k = 0; k < this.length; k++) {
+      const from = this.at(k);
+      copy.t[k] = this.t[from];
+      copy.v[0][k] = this.v[0][from];
+      copy.v[1][k] = this.v[1][from];
+    }
+    copy.length = this.length;
+    copy.dropped = this.dropped;
+    copy.version = this.version;
+    return copy;
+  }
+
   /** Index of the first row with time >= tNs. */
   lowerBound(tNs: number): number {
     let lo = 0;
@@ -140,13 +155,15 @@ type Props = {
   onExport(): void;
   onExportSigc(): void;
   onImportSigc(file: File): void;
+  held: boolean;
+  onHold(): void;
 };
 
 const COLORS = ['#e8a33d', '#3dc1e8'];
 const WINDOWS = [10_000, 50_000, 200_000, 1_000_000, 5_000_000, 20_000_000, 50_000_000, 100_000_000, 1_000_000_000, 5_000_000_000];
 
 export function Scope({ buffer, version, labels, units, windowNs, trigger, onWindow, onTrigger,
-  onExport, onExportSigc, onImportSigc }: Props) {
+  onExport, onExportSigc, onImportSigc, held, onHold }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [cursors, setCursors] = useState<[number | null, number | null]>([null, null]);
   const end = buffer.lastTime();
@@ -279,6 +296,9 @@ export function Scope({ buffer, version, labels, units, windowNs, trigger, onWin
           }} /></label>}
         {trigger && <span data-testid="trigger-status">{triggerTime === null ? 'Waiting for edge' :
           `Triggered at ${formatSi(triggerTime * 1e-9, 's')}`}</span>}
+        <button type="button" onClick={onHold} disabled={!held && buffer.length === 0}
+          aria-pressed={held} data-testid="scope-hold">{held ? 'Release' : 'Hold'}</button>
+        {held && <span data-testid="scope-held-status">Held capture</span>}
         <button type="button" onClick={onExport} disabled={buffer.length === 0}>Export CSV</button>
         <button type="button" onClick={onExportSigc} disabled={buffer.length === 0}>Export .sigc</button>
         <label className="scope-import">Import .sigc<input type="file" accept=".sigc,application/octet-stream"

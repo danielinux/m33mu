@@ -19,6 +19,21 @@ test('scope locates rising and falling edges between samples', () => {
   assert.equal(b.latestTrigger({ channel: 0, edge: 'falling', level: 0 }, 0, 30), null);
 });
 
+test('held scope snapshot survives live writes and ring wrap', () => {
+  const b = new ScopeBuffer();
+  b.append(new Float64Array([0, 1, 2, 10, 3, 4]), 3, [0, 1]);
+  const held = b.snapshot();
+  b.append(new Float64Array([20, 5, 6]), 3, [0, 1]);
+  assert.equal(held.toCsv(['ch1', 'ch2']), 'time_ns,ch1,ch2\n0,1,2\n10,3,4\n');
+  assert.equal(b.length, 3);
+  b.start = b.t.length - 1;
+  b.length = 2;
+  b.t[b.start] = 50; b.v[0][b.start] = 7; b.v[1][b.start] = 8;
+  b.t[0] = 60; b.v[0][0] = 9; b.v[1][0] = 10;
+  const wrapped = b.snapshot();
+  assert.equal(wrapped.toCsv(['ch1', 'ch2']), 'time_ns,ch1,ch2\n50,7,8\n60,9,10\n');
+});
+
 test('scope trigger is saved and invalid settings are rejected', () => {
   const p = emptyProject();
   p.instruments.scope.trigger = { channel: 1, edge: 'falling', level: 1.25 };

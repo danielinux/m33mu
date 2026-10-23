@@ -71,6 +71,7 @@ export function App() {
   const [fault, setFault] = useState('');
   const [scopeVersion, setScopeVersion] = useState(0);
   const [scopePreview, setScopePreview] = useState<[string, string] | null>(null);
+  const [heldScope, setHeldScope] = useState<{ buffer: ScopeBuffer; labels: [string, string]; units: [string, string] } | null>(null);
   const [realTime, setRealTime] = useState(true);
   const [examples, setExamples] = useState<{ id: string; name: string; project: string; firmware: string | null; description: string }[]>([]);
   const scope = useRef(new ScopeBuffer());
@@ -224,7 +225,7 @@ export function App() {
     setFirmware({ name, hash, bytes });
     setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
     scope.current.clear(); setScopeVersion(scope.current.version);
-    setScopePreview(null);
+    setScopePreview(null); setHeldScope(null);
     setRunState('paused');
   }
 
@@ -278,7 +279,7 @@ export function App() {
     setFault('');
     try {
       if (scopePreview) {
-        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null);
+        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null); setHeldScope(null);
       }
       if (hasCircuit) {
         if (!benchActive || benchStale) await startBench();
@@ -312,7 +313,7 @@ export function App() {
       await worker().request('reset');
       setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null); setMcuPads({});
       scope.current.clear(); setScopeVersion(scope.current.version);
-      setScopePreview(null);
+      setScopePreview(null); setHeldScope(null);
       setRunState('paused');
       setMessage('Firmware reset; the circuit restarts from its DC operating point on the next run.');
     } catch (err) { fail(err); }
@@ -362,7 +363,7 @@ export function App() {
         client.current?.terminate();
         client.current = null;
         setFirmware(null); setMachine(null); setRunState('idle'); setBenchActive(false);
-        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null);
+        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null); setHeldScope(null);
       }
       const { firmwareBase64: _drop, ...simulator } = p.simulator;
       void _drop;
@@ -387,7 +388,7 @@ export function App() {
         if (benchActive) await worker().request('destroyBench');
         setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
         scope.current.clear(); setScopeVersion(scope.current.version);
-        setScopePreview(null);
+        setScopePreview(null); setHeldScope(null);
         setRunState(firmware ? 'paused' : 'idle');
       }
       setHistory(createHistory(p));
@@ -397,12 +398,12 @@ export function App() {
   }
 
   function exportCsv() {
-    download('m33mu-scope.csv', scope.current.toCsv(['ch1', 'ch2']), 'text/csv');
+    download('m33mu-scope.csv', (heldScope?.buffer ?? scope.current).toCsv(['ch1', 'ch2']), 'text/csv');
   }
 
   function exportSigc() {
     try {
-      download('m33mu-scope.sigc', scope.current.toSigc([u1, u2]), 'application/octet-stream');
+      download('m33mu-scope.sigc', (heldScope?.buffer ?? scope.current).toSigc(heldScope?.units ?? [u1, u2]), 'application/octet-stream');
       setMessage('Exported voltage traces as SIGC v1 (ch1/ch2, millivolts, time relative to first sample).');
     } catch (err) { fail(err); }
   }
@@ -414,6 +415,7 @@ export function App() {
       if (file.size > SIGC_MAX_BYTES) throw new SigcError('SIGC input exceeds 8 MiB');
       const capture = decodeSigc(new Uint8Array(await file.arrayBuffer()));
       scope.current.loadSigc(capture);
+      setHeldScope(null);
       setScopeVersion(scope.current.version);
       setScopePreview([capture.traces[0].name, capture.traces[1]?.name ?? '—']);
       setMessage(`Imported ${capture.traces.length} voltage trace(s) for scope preview. Waveforms are not stored in the project; export them separately.`);
@@ -437,6 +439,13 @@ export function App() {
   };
   const [l1, u1] = scopePreview ? [scopePreview[0], 'V'] : channelLabel(project.instruments.scope.channels[0]);
   const [l2, u2] = scopePreview ? [scopePreview[1], 'V'] : channelLabel(project.instruments.scope.channels[1]);
+  const displayScope = heldScope?.buffer ?? scope.current;
+  const displayLabels: [string, string] = heldScope?.labels ?? [l1, l2];
+  const displayUnits: [string, string] = heldScope?.units ?? [u1, u2];
+  function toggleScopeHold() {
+    if (heldScope) setHeldScope(null);
+    else setHeldScope({ buffer: scope.current.snapshot(), labels: [l1, l2], units: [u1, u2] });
+  }
   const timeNs = stats?.timeNs ?? (machine ? Number(machine.virtualTimeNs) : 0);
   const canRun = runState !== 'running' && (hasCircuit ? errors.length === 0 : !!firmware && runState !== 'stopped');
 
@@ -525,7 +534,8 @@ export function App() {
           </div>
         </aside>
       </div>
-      <Scope buffer={scope.current} version={scopeVersion} labels={[l1, l2]} units={[u1, u2]}
+      <Scope buffer={displayScope} version={heldScope ? displayScope.version : scopeVersion}
+        labels={displayLabels} units={displayUnits} held={!!heldScope} onHold={toggleScopeHold}
         windowNs={project.instruments.scope.windowNs}
         trigger={project.instruments.scope.trigger ?? null}
         onWindow={(ns) => view({ ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope, windowNs: ns } } })}

@@ -160,6 +160,26 @@ try {
     assert.ok(await page.getByRole('button', { name: 'Export CSV' }).isEnabled());
     await shot('03-blink-running');
     await page.getByRole('button', { name: 'Pause' }).click();
+    await page.getByTestId('scope-hold').click();
+    assert.equal(await page.getByTestId('scope-hold').getAttribute('aria-pressed'), 'true');
+    assert.ok(await page.getByTestId('scope-held-status').isVisible());
+    const [heldCsv] = await Promise.all([page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export CSV' }).click()]);
+    const heldBytes = readFileSync(await heldCsv.path());
+    await page.getByTestId('run').click();
+    await page.waitForFunction(() => {
+      const m = /([\d.]+) (m?)s/.exec(document.querySelector('[data-testid=virtual-time]')?.textContent ?? '');
+      return m && (m[2] === '' ? Number(m[1]) * 1000 : Number(m[1])) > 250;
+    }, null, { timeout: 120000 });
+    await page.getByRole('button', { name: 'Pause' }).click();
+    const [stillHeldCsv] = await Promise.all([page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export CSV' }).click()]);
+    assert.deepEqual(readFileSync(await stillHeldCsv.path()), heldBytes, 'hold freezes exported capture');
+    await page.getByTestId('scope-hold').click();
+    assert.equal(await page.getByTestId('scope-hold').getAttribute('aria-pressed'), 'false');
+    const [liveCsv] = await Promise.all([page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export CSV' }).click()]);
+    assert.ok(readFileSync(await liveCsv.path()).length > heldBytes.length, 'release shows later live samples');
     await page.getByTestId('real-time').check();
     results.push(`blink: 150 ms simulated in ${wall} ms wall (unpaced)`);
   });
