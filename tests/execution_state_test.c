@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "m33mu/execution_state.h"
+#include "m33mu/gpio.h"
 #include "m33mu/signal.h"
 #include "m33mu/vector.h"
 
@@ -335,6 +336,33 @@ static int test_session_pending_dispatch(void)
     if (mm_execution_state_dispatch_pending(
             &state, 2u, MM_EXECUTION_IRQ_SKIP_BLOCKED,
             test_session_irq_enter, &state, &done) != MM_EXECUTION_IRQ_NONE) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
+static int test_session_target_registration(void)
+{
+    struct mm_execution_state state;
+    int pins = 0;
+    if (!mm_execution_state_init(&state) ||
+        !mm_execution_state_select_target(&state, "stm32h563")) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_init_memory_map(&state);
+    if (!mm_execution_state_register_target_mmio(&state) ||
+        state.map.mmio.region_count == 0u ||
+        !mm_gpio_bank_info(0u, 0, 0, &pins) || pins == 0) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    if (!mm_execution_state_allocate_storage(&state) ||
+        !mm_execution_state_configure_memory(&state) ||
+        !mm_execution_state_bind_target_flash(
+            &state, state.storage.flash, state.target.flash_size_s, 0)) {
         mm_execution_state_destroy(&state);
         return 1;
     }
@@ -878,6 +906,10 @@ int main(void)
     }
     if (test_target_setup_order() != 0) {
         fprintf(stderr, "execution_state_test: target setup ordering failed\n");
+        return 1;
+    }
+    if (test_session_target_registration() != 0) {
+        fprintf(stderr, "execution_state_test: target registration failed\n");
         return 1;
     }
     if (test_session_poll_quantum() != 0) {

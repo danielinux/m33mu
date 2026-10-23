@@ -10,6 +10,7 @@
 #include "m33mu/cpu_db.h"
 #include "m33mu/exec_helpers.h"
 #include "m33mu/target_hal.h"
+#include "m33mu/spiflash.h"
 #include "m33mu/timer.h"
 #include "m33mu/vector.h"
 #include "m33mu/signal.h"
@@ -366,6 +367,31 @@ mm_bool mm_execution_state_configure_memory(struct mm_execution_state *state)
     ok = mm_memmap_configure_ram(&state->map, &state->target,
                                  state->storage.ram, MM_FALSE) && ok;
     return ok;
+}
+
+mm_bool mm_execution_state_register_target_mmio(
+    struct mm_execution_state *state)
+{
+    if (state == 0 || state->map.mmio.regions == 0) {
+        return MM_FALSE;
+    }
+    return mm_target_register_mmio(&state->target, &state->map.mmio);
+}
+
+mm_bool mm_execution_state_bind_target_flash(
+    struct mm_execution_state *state,
+    mm_u8 *flash,
+    mm_u32 flash_size,
+    const struct mm_flash_persist *persist)
+{
+    if (state == 0 || state->map.mmio.regions == 0 || flash == 0 ||
+        flash_size != state->target.flash_size_s) {
+        return MM_FALSE;
+    }
+    mm_spiflash_register_mmap_regions(&state->map.mmio);
+    mm_target_flash_bind(&state->target, &state->map, flash, flash_size,
+                         persist);
+    return MM_TRUE;
 }
 
 void mm_execution_state_init_code_cache(struct mm_execution_state *state)

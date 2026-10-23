@@ -95,6 +95,13 @@ mm_bool mm_execution_state_allocate_storage(struct mm_execution_state *state);
  * bind flash/RAM views and code cache after storage has been allocated. */
 void mm_execution_state_init_memory_map(struct mm_execution_state *state);
 mm_bool mm_execution_state_configure_memory(struct mm_execution_state *state);
+mm_bool mm_execution_state_register_target_mmio(
+    struct mm_execution_state *state);
+mm_bool mm_execution_state_bind_target_flash(
+    struct mm_execution_state *state,
+    mm_u8 *flash,
+    mm_u32 flash_size,
+    const struct mm_flash_persist *persist);
 void mm_execution_state_init_code_cache(struct mm_execution_state *state);
 void mm_execution_state_reset_soc(struct mm_execution_state *state);
 void mm_execution_state_init_target_devices(struct mm_execution_state *state);

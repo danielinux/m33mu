@@ -6197,7 +6197,7 @@ int main(int argc, char **argv)
                     stm32h5_flash_set_secwm(1, opt_secwm_strt[1], opt_secwm_end[1]);
                 }
             }
-            if (!mm_target_register_mmio(&execution.target, &execution.map.mmio)) {
+            if (!mm_execution_state_register_target_mmio(&execution)) {
                 fprintf(stderr, "Failed to register MMIO for CPU %s\n", (cpu_name != 0) ? cpu_name : "unknown");
                 rc = 1;
                 goto cleanup;
@@ -6242,8 +6242,14 @@ int main(int argc, char **argv)
                     }
                 }
             }
-            mm_spiflash_register_mmap_regions(&execution.map.mmio);
-            mm_target_flash_bind(&execution.target, &execution.map, flash, execution.target.flash_size_s, persist.enabled ? &persist : 0);
+            if (!mm_execution_state_bind_target_flash(
+                    &execution, flash, execution.target.flash_size_s,
+                    persist.enabled ? &persist : 0)) {
+                fprintf(stderr, "Failed to bind target flash for CPU %s\n",
+                        (cpu_name != 0) ? cpu_name : "unknown");
+                rc = 1;
+                goto cleanup;
+            }
             mm_execution_state_init_target_devices(&execution);
 
             if (!mm_execution_state_init_core_system(&execution,
