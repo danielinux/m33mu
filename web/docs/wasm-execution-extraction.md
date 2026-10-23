@@ -1,6 +1,6 @@
 # WASM execution extraction notes
 
-**Status:** in progress; `mm_execution_state` now owns target/storage, memory/cache, per-core CPU/SCS/NVIC/IT, clock and core-system state, and exposes setup, bounded ELF loading, fetch/decode/fault, decoded execution, WFI/WFE wake, pending-IRQ dispatch and target-device polling operations. The existing production-session regression suite now links and runs under Node/WASM against the static core. Full scheduler ordering, exception entry/unstack, signal/peripheral instances, browser worker messaging and full production startup remain incomplete. Reviewed through local HEAD `a95bc7b`.
+**Status:** in progress; `mm_execution_state` now owns target/storage, memory/cache, per-core CPU/SCS/NVIC/IT, clock and core-system state, and exposes setup, bounded ELF loading, fetch/decode/fault, decoded execution, WFI/WFE wake, pending-IRQ dispatch and target-device polling operations. The session pending-dispatch regression now reads a PendSV vector from session RAM and verifies handler-mode transfer through its callback boundary; it passes natively and under Node/WASM. Full scheduler ordering, production exception stacking/unstacking, signal/peripheral instances, browser worker messaging and full production startup remain incomplete. Reviewed through local HEAD `d2d1ebf`.
 
 ## Current paths
 

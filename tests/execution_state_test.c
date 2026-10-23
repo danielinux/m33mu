@@ -28,7 +28,12 @@ static mm_bool test_session_irq_enter(void *opaque,
         exception_number == MM_VECT_PENDSV && handler_sec == cpu->sec_state &&
         return_pc == (cpu->r[15] & ~1u) && xpsr == cpu->xpsr;
     scs->pend_sv = MM_FALSE;
-    return MM_TRUE;
+    if (!mm_vector_read(map, handler_sec, scs->vtor_s,
+                        exception_number, &cpu->r[15])) {
+        return MM_FALSE;
+    }
+    cpu->mode = MM_HANDLER;
+    return cpu->r[15] != 0u;
 }
 
 static mm_bool test_fetch_fault_handler(struct mm_cpu *cpu,
@@ -242,19 +247,45 @@ static int test_session_sleep_wake(void)
 static int test_session_pending_dispatch(void)
 {
     struct mm_execution_state state;
+    mm_u32 vector_addr;
     mm_bool done = MM_FALSE;
     enum mm_execution_irq_dispatch_result result;
     mm_execution_state_init(&state);
+    if (!mm_execution_state_select_target(&state, "stm32h563") ||
+        !mm_execution_state_allocate_storage(&state)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_init_memory_map(&state);
+    if (!mm_execution_state_configure_memory(&state)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
     mm_scs_init(&state.cores[0].scs, 0x410fc241u);
     mm_nvic_init(&state.cores[0].nvic);
+    state.cores[0].scs.vtor_s = state.target.ram_base_s;
+    vector_addr = state.target.ram_base_s + (MM_VECT_PENDSV * 4u);
+    state.cores[0].cpu.sec_state = MM_SECURE;
+    state.cores[0].cpu.mode = MM_THREAD;
+    state.cores[0].cpu.msp_s = state.target.ram_base_s + 0x1000u;
+    state.cores[0].cpu.r[13] = state.cores[0].cpu.msp_s;
     state.cores[0].cpu.r[15] = 0x1235u;
+    state.cores[0].cpu.xpsr = 0x21000000u;
+    if (!mm_memmap_write_ram_raw(&state.map, vector_addr, 4u,
+                                 state.target.ram_base_s + 0x201u)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
     state.cores[0].scs.pend_sv = MM_TRUE;
     irq_callback_state_owned = MM_FALSE;
     result = mm_execution_state_dispatch_pending(
         &state, 0u, MM_EXECUTION_IRQ_SKIP_BLOCKED,
         test_session_irq_enter, &state, &done);
     if (result != MM_EXECUTION_IRQ_DELIVERED || !irq_callback_state_owned ||
-        state.cores[0].scs.pend_sv || done) {
+        state.cores[0].scs.pend_sv || done ||
+        state.cores[0].cpu.r[15] != state.target.ram_base_s + 0x201u ||
+        state.cores[0].cpu.mode != MM_HANDLER ||
+        state.cores[0].cpu.exc_depth != 0u) {
         mm_execution_state_destroy(&state);
         return 1;
     }
