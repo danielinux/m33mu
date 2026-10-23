@@ -445,6 +445,19 @@ void mm_execution_state_advance_cycles(
                                &state->clock);
 }
 
+mm_bool mm_execution_state_advance_for_instruction(
+    struct mm_execution_state *state,
+    mm_u32 core_index)
+{
+    if (state == 0 || core_index >= 2u) {
+        return MM_FALSE;
+    }
+    mm_execution_state_advance_cycles(
+        state, core_index, 1u, MM_TRUE,
+        state->cores[core_index].cpu.r[15] & ~1u);
+    return MM_TRUE;
+}
+
 mm_u64 mm_execution_state_signal_cycles_until_event(
     const struct mm_execution_state *state)
 {

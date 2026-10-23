@@ -311,10 +311,20 @@ static int test_session_cycle_advance(void)
         mm_execution_state_destroy(&state);
         return 1;
     }
+    state.cores[0].cpu.r[15] = 0x1235u;
+    if (!mm_execution_state_advance_for_instruction(&state, 0u) ||
+        state.clock.cycle_total != 13u ||
+        state.clock.virtual_cycles != 13u ||
+        state.clock.cycles_since_poll != 13u ||
+        mm_execution_state_advance_for_instruction(&state, 2u) ||
+        state.clock.cycle_total != 13u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
     mm_execution_state_advance_cycles(&state, 2u, 9u, MM_FALSE, 0u);
-    if (state.clock.cycle_total != 12u ||
-        state.clock.virtual_cycles != 12u ||
-        state.clock.cycles_since_poll != 12u) {
+    if (state.clock.cycle_total != 13u ||
+        state.clock.virtual_cycles != 13u ||
+        state.clock.cycles_since_poll != 13u) {
         mm_execution_state_destroy(&state);
         return 1;
     }

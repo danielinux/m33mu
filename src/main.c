@@ -7225,7 +7225,6 @@ handle_pending:
                     mm_bool execute_it;
                     mm_u32 pc_before_exec = 0;
                     mm_bool fpu_ok = MM_TRUE;
-                    const mm_u32 insn_cycles = 1u;
                     mm_bool trace_started = MM_FALSE;
                     mm_bool fault_skip = MM_FALSE;
                     (void)pc_before_exec;
@@ -7237,9 +7236,8 @@ handle_pending:
                                 &execution, 0u, stall, MM_FALSE, 0u);
                         }
                     }
-                    mm_execution_state_advance_cycles(
-                        &execution, 0u, insn_cycles, MM_TRUE,
-                        execution.cores[0].cpu.r[15] & ~1u);
+                    (void)mm_execution_state_advance_for_instruction(
+                        &execution, 0u);
                     if (opt_gdb || opt_tui) {
                         mm_u8 i;
                         fault_clock_count = gdb.fault_clock_count;

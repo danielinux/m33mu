@@ -184,6 +184,11 @@ void mm_execution_state_advance_cycles(
     mm_u64 cycles,
     mm_bool check_signal_trigger,
     mm_u32 trigger_pc);
+/* Charge the production single-instruction base cost before fetch, checking
+ * signal triggers at the instruction's current PC. */
+mm_bool mm_execution_state_advance_for_instruction(
+    struct mm_execution_state *state,
+    mm_u32 core_index);
 mm_u64 mm_execution_state_signal_cycles_until_event(
     const struct mm_execution_state *state);
 mm_u64 mm_execution_state_signal_now_ns(
