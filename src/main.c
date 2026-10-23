@@ -6004,7 +6004,6 @@ int main(int argc, char **argv)
             mm_bool reset_again = MM_FALSE;
             mm_bool force_ns_boot = MM_FALSE;
             mm_u32 initial_sp = 0;
-            struct mm_core_sys core_sys;
             mm_u64 fault_clocks[16];
             mm_u8 fault_clock_count = opt_fault_clock_count;
             mm_u32 boot_offset_local = 0;
@@ -6071,10 +6070,10 @@ int main(int argc, char **argv)
                 }
             }
 #endif
-            memset(&core_sys, 0, sizeof(core_sys));
-            core_sys.dwt.vcycles = &execution.clock.virtual_cycles;
-            core_sys.dwt.ctrl = 0u;
-            core_sys.dwt.cyccnt_base = 0u;
+            memset(&execution.core_sys, 0, sizeof(execution.core_sys));
+            execution.core_sys.dwt.vcycles = &execution.clock.virtual_cycles;
+            execution.core_sys.dwt.ctrl = 0u;
+            execution.core_sys.dwt.cyccnt_base = 0u;
             mm_code_cache_init(&execution.code_cache, &execution.map);
             mm_memmap_set_code_cache(&execution.map, &execution.code_cache);
             {
@@ -6283,7 +6282,7 @@ int main(int argc, char **argv)
                     execution.cores[1].scs.nsacr |= (1u << 10) | (1u << 11);
                 }
             }
-            mm_core_sys_register(&execution.map.mmio, &core_sys);
+            mm_core_sys_register(&execution.map.mmio, &execution.core_sys);
             mm_prot_init(&execution.protection[0], &execution.cores[0].scs, &cfg, &execution.cores[0].cpu);
             if (cfg.core_count > 1u) {
                 mm_prot_init(&execution.protection[1], &execution.cores[1].scs, &cfg, &execution.cores[1].cpu);

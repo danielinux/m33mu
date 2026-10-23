@@ -59,6 +59,13 @@ int main(void)
         fprintf(stderr, "execution_state_test: owned MMIO storage binding failed\n");
         return 1;
     }
+    state.core_sys.dwt.vcycles = &state.clock.virtual_cycles;
+    if (!mm_core_sys_register(&state.map.mmio, &state.core_sys) ||
+        state.map.mmio.region_count == 0u ||
+        state.core_sys.dwt.vcycles != &state.clock.virtual_cycles) {
+        fprintf(stderr, "execution_state_test: owned core system registration failed\n");
+        return 1;
+    }
     mm_memmap_init(&state.map, external_regions,
                    sizeof(external_regions) / sizeof(external_regions[0]));
     if (state.map.mmio.regions != external_regions ||

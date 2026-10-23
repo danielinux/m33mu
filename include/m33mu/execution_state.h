@@ -12,6 +12,7 @@
 #include "m33mu/memmap.h"
 #include "m33mu/code_cache.h"
 #include "m33mu/mem_prot.h"
+#include "m33mu/core_sys.h"
 
 struct mm_execution_core_state {
     struct mm_cpu cpu;
@@ -23,12 +24,13 @@ struct mm_execution_core_state {
 };
 
 /* Owned architectural, memory and scheduler state for a single emulation
- * session. Protection contexts and peripheral instances remain to be moved. */
+ * session. Target peripheral instances and signal state remain to be moved. */
 struct mm_execution_state {
     struct mm_memmap map;
     struct mmio_region regions[256];
     struct mm_code_cache code_cache;
     struct mm_prot_ctx protection[2];
+    struct mm_core_sys core_sys;
     struct mm_execution_core_state cores[2];
     struct mm_scs_mux scs_mux;
     struct mm_execution_clock clock;
