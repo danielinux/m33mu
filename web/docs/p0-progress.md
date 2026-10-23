@@ -21,9 +21,10 @@ Validated on this checkout with `cmake -S . -B build -DM33MU_BUILD_TESTS=ON && c
 ### Open after 2026-10-24
 
 - [x] **P2 op-amp macro model.** Added a five-terminal rail-limited amplifier with finite input/output resistance and rail supply currents, plus a gain-two browser example. Solver fixtures check closed-loop gain, loaded saturation, supply current, capacitive transient, snapshot/restore and invalid model parameters. `node web/tests/run-unit.mjs`, `npm --prefix web run build` and the Chromium browser regression pass on this change. This is an idealized DC/transient macro model; bandwidth, slew, common-mode, offset and current limiting remain open.
+- [x] **P2 sampled scope trigger.** CH1/CH2 rising or falling threshold crossing aligns the scope display with 20% pretrigger time and retains the last edge while it remains in the ring buffer. A ring-buffer unit fixture checks interpolated edge time and window cutoff; project v2 saves channel, edge and level, and invalid settings are rejected. The Chromium test checks the saved setting and captures a live RC rising crossing. A new v2 JSON Schema validates every checked-in example; the worker schema now accepts the op-amp device. `/usr/bin/python3 scripts/validate-web-schemas.py`, `node web/tests/run-unit.mjs`, `npm --prefix web run build` and the Chromium test pass. The trigger does not stop simulation or localize events between solver samples.
 - [ ] Firefox and WebKit runs (only Chromium was available to the test driver).
 - [ ] MB1404 schematic/Gerber cross-check of the measured CN7/CN9 geometry (+/-0.5 mm today).
-- [ ] P2 (M5): regulator and device-specific op-amp behavior, ADC/DAC/PWM coupling (no H563 ADC/timer-output electrical path exists), scope triggers, `.sigc` import/export.
+- [ ] P2 (M5): regulator and device-specific op-amp behavior, ADC/DAC/PWM coupling (no H563 ADC/timer-output electrical path exists), trigger acquisition/hold modes, `.sigc` import/export.
 - [ ] P3 (M6): mappings for the other 14 boards, protocol adapters, Falstad import, debugger panes, coupled MCU+circuit snapshot/replay, multi-MCU.
 - [ ] CLI translated-block interrupt timing differs from the instruction scheduler (14 cycles on the parity fixture).
 

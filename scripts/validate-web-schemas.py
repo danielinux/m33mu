@@ -37,6 +37,16 @@ def main():
     project_bad = {**project, "simulator": {**project["simulator"], "cpu": "unknown"}}
     check(project_schema, project_bad, False, "unsupported project CPU")
 
+    project_v2_schema = load_schema("project-v2.schema.json")
+    for path in sorted((ROOT / "web" / "public" / "examples").glob("*.m33mu.json")):
+        check(project_v2_schema, json.loads(path.read_text(encoding="utf-8")), True,
+              f"v2 example {path.name}")
+    v2_bad = json.loads((ROOT / "web" / "public" / "examples" /
+                         "opamp-gain.m33mu.json").read_text(encoding="utf-8"))
+    v2_bad["instruments"]["scope"]["trigger"] = {
+        "channel": 2, "edge": "up", "level": "1 V"}
+    check(project_v2_schema, v2_bad, False, "invalid v2 scope trigger")
+
     pad_schema = load_schema("board-pad.schema.json")
     pad = json.loads((ROOT / "web" / "boards" / "nucleo-h563zi-pins.json").read_text(encoding="utf-8"))
     check(pad_schema, pad, True, "H563 pin evidence")
@@ -58,12 +68,19 @@ def main():
                          {"kind": "resistor", "id": "r1", "a": "n", "b": "gnd", "ohms": 1000}]},
                          "probes": [{"id": "v", "kind": "voltage", "net": "n"}]}}
     check(worker_schema, bench_request, True, "createBench request")
+    opamp_request = json.loads(json.dumps(bench_request))
+    opamp_request["payload"]["netlist"]["devices"] = [
+        {"kind": "opamp", "id": "u1", "plus": "p", "minus": "m", "out": "o",
+         "vcc": "vcc", "vee": "gnd",
+         "model": {"gain": 100000, "rOut": 20, "rIn": 1000000000, "headroom": 0.2}}
+    ]
+    check(worker_schema, opamp_request, True, "op-amp createBench request")
     check(worker_schema, {**bench_request, "payload": {"netlist": {"schemaVersion": 1, "devices": [
         {"kind": "transformer", "id": "t"}]}}}, False, "unsupported device kind")
     check(worker_schema, {**bench_request, "operation": "runUntil", "payload": {"targetNs": "-5"}},
           False, "negative runUntil target")
 
-    print("web schema validation: 4 schemas valid; 5 positive and 5 negative fixtures pass")
+    print("web schema validation: 5 schemas valid; v1/v2 projects, board, capability and worker fixtures pass")
 
 
 if __name__ == "__main__":

@@ -497,7 +497,9 @@ export function App() {
       </div>
       <Scope buffer={scope.current} version={scopeVersion} labels={[l1, l2]} units={[u1, u2]}
         windowNs={project.instruments.scope.windowNs}
+        trigger={project.instruments.scope.trigger ?? null}
         onWindow={(ns) => view({ ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope, windowNs: ns } } })}
+        onTrigger={(trigger) => view({ ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope, trigger } } })}
         onExport={exportCsv} />
       <footer className="status">
         <span className={fault ? 'fault' : ''} data-testid="status-message">{fault || message}</span>

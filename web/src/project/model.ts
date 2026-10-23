@@ -29,6 +29,8 @@ export type ProbeTarget =
   | { kind: 'voltage'; at: TerminalRef }
   | { kind: 'current'; part: string };
 
+export type ScopeTrigger = { channel: 0 | 1; edge: 'rising' | 'falling'; level: number };
+
 export type Project = {
   schemaVersion: 2;
   projectId: string;
@@ -43,7 +45,8 @@ export type Project = {
   boards: BoardInstance[];
   parts: Part[];
   wires: Wire[];
-  instruments: { scope: { channels: (ProbeTarget | null)[]; windowNs: number } };
+  instruments: { scope: { channels: (ProbeTarget | null)[]; windowNs: number;
+    trigger?: ScopeTrigger | null } };
   solver: { lookaheadNs: number; sampleNs: number };
   ui: { zoom: number; panX: number; panY: number };
 };
@@ -62,7 +65,7 @@ export function emptyProject(): Project {
     boards: [{ id: 'board1', cpu: 'stm32h563', layoutRevision: H563_LAYOUT_REVISION, x: 0, y: 0 }],
     parts: [],
     wires: [],
-    instruments: { scope: { channels: [null, null], windowNs: 200_000 } },
+    instruments: { scope: { channels: [null, null], windowNs: 200_000, trigger: null } },
     solver: { lookaheadNs: 50_000, sampleNs: 1000 },
     ui: { zoom: 0.5, panX: 40, panY: 20 }
   };
@@ -181,6 +184,11 @@ export function validateProject(value: unknown): Project {
     if (ch === null) continue;
     if (ch.kind === 'voltage') checkRef(ch.at, 'Scope channel');
     else if (ch.kind !== 'current' || typeof ch.part !== 'string') fail('Scope channel target invalid');
+  }
+  if (scope.trigger !== undefined && scope.trigger !== null &&
+      (!isObject(scope.trigger) || (scope.trigger.channel !== 0 && scope.trigger.channel !== 1) ||
+       !['rising', 'falling'].includes(String(scope.trigger.edge)) || !finite(scope.trigger.level))) {
+    fail('Scope trigger needs CH1 or CH2, a rising/falling edge and a finite level');
   }
   if (!isObject(p.solver) || !finite(p.solver.lookaheadNs) || p.solver.lookaheadNs <= 0 ||
       !finite(p.solver.sampleNs) || p.solver.sampleNs <= 0) {

@@ -147,6 +147,7 @@
                                 "pnp",
                                 "nmos",
                                 "pmos",
+                                "opamp",
                                 "pad"
                               ]
                             },
@@ -218,6 +219,7 @@
                                 "pnp",
                                 "nmos",
                                 "pmos",
+                                "opamp",
                                 "pad"
                               ]
                             },

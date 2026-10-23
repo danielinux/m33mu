@@ -193,6 +193,29 @@ try {
     await page.locator('g[data-part="u1"]').click();
     await page.waitForFunction(() => /OUT/.test(document.querySelector('.inspector')?.textContent ?? '') &&
       /2 V/.test(document.querySelector('.inspector')?.textContent ?? ''));
+    await page.getByTestId('scope-trigger').selectOption('0-rising');
+    await page.getByLabel('Trigger level').fill('1.5');
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save' }).click()]);
+    const saved = JSON.parse(readFileSync(await download.path(), 'utf8'));
+    assert.deepEqual(saved.instruments.scope.trigger, { channel: 0, edge: 'rising', level: 1.5 });
+    await page.getByRole('button', { name: 'Pause' }).click();
+    await page.getByTestId('run').waitFor();
+  });
+
+  await check('scope aligns to an RC rising crossing', async () => {
+    await page.getByTestId('examples').selectOption('rc-switch');
+    await page.waitForSelector('g[data-part="sw1"]');
+    await page.getByTestId('scope-trigger').selectOption('0-rising');
+    await page.getByLabel('Trigger level').fill('2.5');
+    await page.getByTestId('run').click();
+    await page.getByRole('button', { name: 'Pause' }).waitFor();
+    const sw = await center(page.locator('g[data-part="sw1"]'));
+    await page.mouse.move(sw.x, sw.y);
+    await page.mouse.down();
+    await page.waitForFunction(() => /Triggered at/.test(document.querySelector('[data-testid=trigger-status]')?.textContent ?? ''),
+      null, { timeout: 60000 });
+    await page.mouse.up();
+    await page.getByRole('button', { name: 'Pause' }).click();
   });
 
   await check('worker destroy and recreate in the browser', async () => {
