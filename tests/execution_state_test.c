@@ -966,12 +966,63 @@ static int test_exception_fpu_and_secure_state_helpers(void)
     return 0;
 }
 
+static int test_shared_exception_entry(void)
+{
+    struct mm_execution_state state;
+    struct mm_cpu *cpu;
+    struct mm_scs *scs;
+    mm_u32 handler;
+    mm_execution_state_init(&state);
+    if (!mm_execution_state_select_target(&state, "stm32h563") ||
+        !mm_execution_state_allocate_storage(&state)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_init_memory_map(&state);
+    if (!mm_execution_state_configure_memory(&state)) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    cpu = &state.cores[0].cpu;
+    scs = &state.cores[0].scs;
+    mm_scs_init(scs, 0x410fc241u);
+    cpu->sec_state = MM_SECURE;
+    cpu->mode = MM_THREAD;
+    cpu->msp_s = state.target.ram_base_s + 0x1000u;
+    cpu->r[13] = cpu->msp_s;
+    cpu->r[15] = state.target.flash_base_s | 1u;
+    cpu->xpsr = 0x21000000u;
+    scs->vtor_s = state.target.ram_base_s;
+    handler = state.target.ram_base_s + 0x301u;
+    if (!mm_memmap_write_ram_raw(&state.map,
+                                 state.target.ram_base_s + MM_VECT_SVCALL * 4u,
+                                 4u, handler) ||
+        !mm_execution_exception_enter(cpu, &state.map, scs,
+                                      MM_VECT_SVCALL,
+                                      state.target.flash_base_s + 2u,
+                                      cpu->xpsr, MM_SECURE, 0) ||
+        cpu->mode != MM_HANDLER || cpu->r[15] != handler ||
+        cpu->exc_depth != 1u || cpu->msp_s != state.target.ram_base_s + 0xfe0u ||
+        !mm_memmap_read(&state.map, MM_SECURE, cpu->msp_s + 24u, 4u,
+                        &handler) ||
+        handler != state.target.flash_base_s + 2u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_destroy(&state);
+    return 0;
+}
+
 int main(void)
 {
     struct mm_execution_state state;
     struct mmio_region external_regions[2];
     if (test_exception_fpu_and_secure_state_helpers() != 0) {
         fprintf(stderr, "execution_state_test: exception state helpers failed\n");
+        return 1;
+    }
+    if (test_shared_exception_entry() != 0) {
+        fprintf(stderr, "execution_state_test: shared exception entry failed\n");
         return 1;
     }
     if (test_single_live_session_and_signal_clock() != 0) {
