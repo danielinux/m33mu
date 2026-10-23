@@ -6036,7 +6036,7 @@ int main(int argc, char **argv)
                 boot_mode_local = (enum mm_boot_mode)g_boot_override_mode;
                 g_boot_override_pending = MM_FALSE;
             }
-            mm_memmap_init(&execution.map, execution.regions, sizeof(execution.regions) / sizeof(execution.regions[0]));
+            mm_execution_state_init_memory_map(&execution);
             g_timeout_map = &execution.map;
 #ifdef M33MU_HAS_ONNXRUNTIME
             g_npu_out_dump = opt_npu_out_dump;
@@ -6056,10 +6056,7 @@ int main(int argc, char **argv)
             mm_stsafe_reset_all();
             mm_tropic01_reset_all();
 #endif
-            mm_memmap_configure_flash(&execution.map, &execution.target, flash, MM_TRUE);
-            mm_memmap_configure_flash(&execution.map, &execution.target, flash, MM_FALSE);
-            mm_memmap_configure_ram(&execution.map, &execution.target, ram, MM_TRUE);
-            mm_memmap_configure_ram(&execution.map, &execution.target, ram, MM_FALSE);
+            (void)mm_execution_state_configure_memory(&execution);
 #ifdef M33MU_HAS_ONNXRUNTIME
             if (opt_npu_model != 0) {
                 struct npu_onnx_model *npu_model = 0;
@@ -6072,8 +6069,7 @@ int main(int argc, char **argv)
             execution.core_sys.dwt.vcycles = &execution.clock.virtual_cycles;
             execution.core_sys.dwt.ctrl = 0u;
             execution.core_sys.dwt.cyccnt_base = 0u;
-            mm_code_cache_init(&execution.code_cache, &execution.map);
-            mm_memmap_set_code_cache(&execution.map, &execution.code_cache);
+            mm_execution_state_init_code_cache(&execution);
             {
                 if (opt_boot_offset) {
                     boot_offset_local = boot_offset;

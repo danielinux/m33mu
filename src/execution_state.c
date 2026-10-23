@@ -78,6 +78,41 @@ int mm_execution_state_load_elf(struct mm_execution_state *state,
                                       flash_offset, result);
 }
 
+void mm_execution_state_init_memory_map(struct mm_execution_state *state)
+{
+    if (state == 0) {
+        return;
+    }
+    mm_memmap_init(&state->map, state->regions,
+                   sizeof(state->regions) / sizeof(state->regions[0]));
+}
+
+mm_bool mm_execution_state_configure_memory(struct mm_execution_state *state)
+{
+    mm_bool ok;
+    if (state == 0 || state->storage.flash == 0 || state->storage.ram == 0) {
+        return MM_FALSE;
+    }
+    ok = mm_memmap_configure_flash(&state->map, &state->target,
+                                   state->storage.flash, MM_TRUE);
+    ok = mm_memmap_configure_flash(&state->map, &state->target,
+                                   state->storage.flash, MM_FALSE) && ok;
+    ok = mm_memmap_configure_ram(&state->map, &state->target,
+                                 state->storage.ram, MM_TRUE) && ok;
+    ok = mm_memmap_configure_ram(&state->map, &state->target,
+                                 state->storage.ram, MM_FALSE) && ok;
+    return ok;
+}
+
+void mm_execution_state_init_code_cache(struct mm_execution_state *state)
+{
+    if (state == 0) {
+        return;
+    }
+    mm_code_cache_init(&state->code_cache, &state->map);
+    mm_memmap_set_code_cache(&state->map, &state->code_cache);
+}
+
 void mm_execution_state_reset_cores(struct mm_execution_state *state,
                                     mm_u32 core_count,
                                     mm_u32 vtor_s,

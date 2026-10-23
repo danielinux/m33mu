@@ -82,6 +82,7 @@ static int test_session_bounded_elf_load(void)
     struct mm_execution_state state;
     struct mm_image_load_result result;
     mm_u8 image[88] = { 0 };
+    mm_u32 loaded_word = 0u;
     mm_execution_state_init(&state);
     if (!mm_execution_state_select_target(&state, "stm32h563") ||
         !mm_execution_state_allocate_storage(&state)) {
@@ -111,6 +112,18 @@ static int test_session_bounded_elf_load(void)
                                     sizeof(image), 0u, &result) != 0 ||
         result.start != state.target.flash_base_s || result.loaded != 4u ||
         memcmp(state.storage.flash, image + 84u, 4u) != 0) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_init_memory_map(&state);
+    if (!mm_execution_state_configure_memory(&state) ||
+        !mm_memmap_read(&state.map, MM_SECURE, state.target.flash_base_s,
+                        4u, &loaded_word) || loaded_word != 0x47702001u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    mm_execution_state_init_code_cache(&state);
+    if (state.map.code_cache != &state.code_cache) {
         mm_execution_state_destroy(&state);
         return 1;
     }

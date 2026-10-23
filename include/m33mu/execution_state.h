@@ -49,6 +49,11 @@ void mm_execution_state_destroy(struct mm_execution_state *state);
 mm_bool mm_execution_state_select_target(struct mm_execution_state *state,
                                          const char *cpu_name);
 mm_bool mm_execution_state_allocate_storage(struct mm_execution_state *state);
+/* Preserve CLI setup phases: initialize map storage before target resets, then
+ * bind flash/RAM views and code cache after storage has been allocated. */
+void mm_execution_state_init_memory_map(struct mm_execution_state *state);
+mm_bool mm_execution_state_configure_memory(struct mm_execution_state *state);
+void mm_execution_state_init_code_cache(struct mm_execution_state *state);
 /* Load bounded ELF32/ARM PT_LOAD records into the state's owned buffers. */
 int mm_execution_state_load_elf(struct mm_execution_state *state,
                                 const mm_u8 *image,
