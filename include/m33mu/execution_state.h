@@ -214,6 +214,16 @@ mm_u64 mm_execution_state_signal_cycles_until_event(
     const struct mm_execution_state *state);
 mm_u64 mm_execution_state_signal_now_ns(
     const struct mm_execution_state *state);
+/* Configure and prepare the process-global signal engine through its active
+ * production session. These fail or no-op for any non-active session. */
+mm_bool mm_execution_state_signal_set_cpu_hz(
+    struct mm_execution_state *state,
+    mm_u64 hz);
+mm_bool mm_execution_state_signal_prepare_for_run(
+    struct mm_execution_state *state);
+mm_bool mm_execution_state_signal_check_trigger(
+    struct mm_execution_state *state,
+    mm_u32 pc);
 mm_bool mm_execution_state_apply_reset_vector(
     struct mm_execution_state *state,
     enum mm_sec_state boot_security);

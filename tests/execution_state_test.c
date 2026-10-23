@@ -522,11 +522,20 @@ static int test_single_live_session_and_signal_clock(void)
     if (mm_execution_state_init(&second) ||
         mm_execution_state_signal_cycles_until_event(&second) !=
             (mm_u64)-1 ||
-        mm_execution_state_signal_now_ns(&second) != 0u) {
+        mm_execution_state_signal_now_ns(&second) != 0u ||
+        mm_execution_state_signal_set_cpu_hz(&second, 64000000u) ||
+        mm_execution_state_signal_prepare_for_run(&second) ||
+        mm_execution_state_signal_check_trigger(&second, 0u)) {
         mm_execution_state_destroy(&first);
         return 1;
     }
-    mm_signal_set_cpu_hz(64000000u);
+    if (!mm_execution_state_signal_set_cpu_hz(&first, 64000000u) ||
+        mm_execution_state_signal_set_cpu_hz(&first, 0u) ||
+        !mm_execution_state_signal_prepare_for_run(&first) ||
+        !mm_execution_state_signal_check_trigger(&first, 0u)) {
+        mm_execution_state_destroy(&first);
+        return 1;
+    }
     mm_execution_state_advance_cycles(&first, 0u, 64000000u,
                                       MM_FALSE, 0u);
     if (mm_execution_state_signal_now_ns(&first) != 1000000000u ||

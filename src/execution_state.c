@@ -496,6 +496,38 @@ mm_u64 mm_execution_state_signal_now_ns(
     return mm_signal_now_ns();
 }
 
+mm_bool mm_execution_state_signal_set_cpu_hz(
+    struct mm_execution_state *state,
+    mm_u64 hz)
+{
+    if (state == 0 || state != g_active_execution_state || hz == 0u) {
+        return MM_FALSE;
+    }
+    mm_signal_set_cpu_hz(hz);
+    return MM_TRUE;
+}
+
+mm_bool mm_execution_state_signal_prepare_for_run(
+    struct mm_execution_state *state)
+{
+    if (state == 0 || state != g_active_execution_state) {
+        return MM_FALSE;
+    }
+    mm_signal_prepare_for_run();
+    return MM_TRUE;
+}
+
+mm_bool mm_execution_state_signal_check_trigger(
+    struct mm_execution_state *state,
+    mm_u32 pc)
+{
+    if (state == 0 || state != g_active_execution_state) {
+        return MM_FALSE;
+    }
+    mm_signal_check_trigger(pc);
+    return MM_TRUE;
+}
+
 mm_bool mm_execution_state_apply_reset_vector(
     struct mm_execution_state *state,
     enum mm_sec_state boot_security)

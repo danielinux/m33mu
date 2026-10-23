@@ -6023,7 +6023,7 @@ int main(int argc, char **argv)
             gdb.vcycles = &execution.clock.virtual_cycles;
             gdb.cpu_hz = cpu_hz;
             g_core_locked = MM_FALSE;           /* a reset ends a lockup */
-            mm_signal_set_cpu_hz(cpu_hz);
+            (void)mm_execution_state_signal_set_cpu_hz(&execution, cpu_hz);
             if (fault_clock_count > 0u) {
                 mm_u8 i;
                 if (fault_clock_count > (mm_u8)(sizeof(fault_clocks) / sizeof(fault_clocks[0]))) {
@@ -6045,7 +6045,7 @@ int main(int argc, char **argv)
             g_npu_out_dump = opt_npu_out_dump;
 #endif
             mm_execution_state_reset_soc(&execution);
-            mm_signal_prepare_for_run();
+            (void)mm_execution_state_signal_prepare_for_run(&execution);
             mm_spiflash_reset_all();
 #ifdef M33MU_HAS_LIBTPMS
             mm_tpm_tis_reset_all();
@@ -6577,7 +6577,7 @@ int main(int argc, char **argv)
                     last_hz = hz_now;
                     sync_granularity = cpu_hz / 100000u;
                     if (sync_granularity == 0) sync_granularity = 1u;
-                    mm_signal_set_cpu_hz(cpu_hz);
+                    (void)mm_execution_state_signal_set_cpu_hz(&execution, cpu_hz);
                     printf("[CLOCK] CPU %llu Hz\n", (unsigned long long)cpu_hz);
                     gdb.cpu_hz = cpu_hz;
                 }
@@ -7080,7 +7080,9 @@ handle_pending:
 
                             execution.cores[0].cpu.r[13] = mm_cpu_get_active_sp(&execution.cores[0].cpu);
 
-                            mm_signal_check_trigger(execution.cores[0].cpu.r[15] & ~1u);
+                            (void)mm_execution_state_signal_check_trigger(
+                                &execution,
+                                execution.cores[0].cpu.r[15] & ~1u);
                             (void)mm_tb_run(tb, &exec_ctx, &done, &tb_bkpt_hit, &tb_bkpt_imm, &ops_executed);
                             if (ops_executed != 0u) {
                                 mm_execution_state_advance_cycles(
