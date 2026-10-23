@@ -2,9 +2,34 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+#include <string.h>
+
 #include "m33mu/execution_clock.h"
 #include "m33mu/signal.h"
 #include "m33mu/timer.h"
+
+void mm_execution_clock_reset(struct mm_execution_clock *clock)
+{
+    if (clock != 0) {
+        memset(clock, 0, sizeof(*clock));
+    }
+}
+
+void mm_execution_clock_advance(struct mm_scs *scs,
+                                const struct mm_target_cfg *cfg,
+                                mm_u64 cycles,
+                                mm_bool check_signal_trigger,
+                                mm_u32 trigger_pc,
+                                struct mm_execution_clock *clock)
+{
+    if (clock == 0) {
+        return;
+    }
+    mm_execution_advance_cycles(scs, cfg, cycles, check_signal_trigger,
+                                trigger_pc, &clock->cycle_total,
+                                &clock->virtual_cycles,
+                                &clock->cycles_since_poll);
+}
 
 void mm_execution_advance_cycles(struct mm_scs *scs,
                                  const struct mm_target_cfg *cfg,

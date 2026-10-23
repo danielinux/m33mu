@@ -8,6 +8,22 @@
 #include "m33mu/scs.h"
 #include "m33mu/target.h"
 
+/* Scheduler-owned time counters for one production execution. */
+struct mm_execution_clock {
+    mm_u64 cycle_total;
+    mm_u64 virtual_cycles;
+    mm_u64 vcycles_last_sync;
+    mm_u64 cycles_since_poll;
+};
+
+void mm_execution_clock_reset(struct mm_execution_clock *clock);
+void mm_execution_clock_advance(struct mm_scs *scs,
+                                const struct mm_target_cfg *cfg,
+                                mm_u64 cycles,
+                                mm_bool check_signal_trigger,
+                                mm_u32 trigger_pc,
+                                struct mm_execution_clock *clock);
+
 /* Advance the production virtual cycle clock and cycle-driven peripherals.
  * The counter pointers may be null for callers that do not track that view. */
 void mm_execution_advance_cycles(struct mm_scs *scs,
