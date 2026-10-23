@@ -210,7 +210,6 @@ static mm_u64 deadline_ns(mm_u64 vcycles, mm_u64 host0_ns, mm_u64 cpu_hz)
 
 static int load_file_at(const char *path, mm_u8 *dst, size_t max_len, mm_u32 offset, size_t *loaded);
 void mm_system_request_reset(void);
-static void record_bus_fault(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 addr, mm_u32 bfsr_bits);
 static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struct mm_scs *scs, mm_u32 fault_pc, mm_u32 fault_xpsr);
 static struct mm_decoded decode_t32_fast(const struct mm_fetch_result *fetch,
                                          const struct mm_cpu *cpu,
@@ -3068,16 +3067,16 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
         if (fp_saved) {
             for (i = 0; i < 16; ++i) {
                 if (!mm_memmap_read(map, info.target_sec, fp_sp + (mm_u32)(i * 4u), 4u, &cpu->s[i])) {
-                    record_bus_fault(scs, info.target_sec, fp_sp + (mm_u32)(i * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                    mm_execution_exception_record_bus_fault(scs, info.target_sec, fp_sp + (mm_u32)(i * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                     return raise_hard_fault(cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
                 }
             }
             if (!mm_memmap_read(map, info.target_sec, fp_sp + (16u * 4u), 4u, &cpu->fpscr)) {
-                record_bus_fault(scs, info.target_sec, fp_sp + (16u * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                mm_execution_exception_record_bus_fault(scs, info.target_sec, fp_sp + (16u * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                 return raise_hard_fault(cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
             }
             if (!mm_memmap_read(map, info.target_sec, fp_sp + (17u * 4u), 4u, &fp_reserved)) {
-                record_bus_fault(scs, info.target_sec, fp_sp + (17u * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                mm_execution_exception_record_bus_fault(scs, info.target_sec, fp_sp + (17u * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                 return raise_hard_fault(cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
             }
             (void)fp_reserved;
@@ -3096,7 +3095,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
         cpu->exc_cross_domain[cpu->exc_depth]) {
         for (i = 0; i < 8; ++i) {
             if (!mm_memmap_read(map, info.target_sec, callee_sp + (mm_u32)(i * 4u), 4u, &cpu->r[4 + i])) {
-                record_bus_fault(scs, info.target_sec, callee_sp + (mm_u32)(i * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                mm_execution_exception_record_bus_fault(scs, info.target_sec, callee_sp + (mm_u32)(i * 4u), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                 return raise_hard_fault(cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
             }
             cpu->exc_callee_saved[cpu->exc_depth][i] = 0u;
@@ -3105,7 +3104,7 @@ static mm_bool exc_return_unstack(struct mm_cpu *cpu,
     }
     for (i = 0; i < 8; ++i) {
         if (!mm_memmap_read(map, info.target_sec, basic_sp + (mm_u32)(i * 4), 4u, &frame[i])) {
-            record_bus_fault(scs, info.target_sec, basic_sp + (mm_u32)(i * 4), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+            mm_execution_exception_record_bus_fault(scs, info.target_sec, basic_sp + (mm_u32)(i * 4), BFSR_UNSTKERR | BFSR_PRECISERR | BFSR_BFARVALID);
             return raise_hard_fault(cpu, map, scs, cpu->r[15] & ~1u, cpu->xpsr);
         }
     }
@@ -3778,7 +3777,7 @@ static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struc
         for (i = 0; i < 8; ++i) {
             if (!mm_memmap_write(map, stack_sec, sp_frame + (mm_u32)(i * 4u), 4u, frame[i])) {
                 printf("HardFault: stacking failed at 0x%08lx\n", (unsigned long)(sp_frame + (mm_u32)(i * 4u)));
-                record_bus_fault(scs, sec, sp_frame + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                mm_execution_exception_record_bus_fault(scs, sec, sp_frame + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                 g_core_lockup = MM_TRUE;   /* a HardFault that cannot be taken */
                 return MM_FALSE;
             }
@@ -3789,17 +3788,17 @@ static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struc
                     if (!mm_memmap_write(map, stack_sec, sp_fp + (mm_u32)(i * 4u), 4u, cpu->s[i])) {
                         printf("HardFault: FP stacking failed at 0x%08lx\n",
                                (unsigned long)(sp_fp + (mm_u32)(i * 4u)));
-                        record_bus_fault(scs, sec, sp_fp + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                        mm_execution_exception_record_bus_fault(scs, sec, sp_fp + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                         g_core_lockup = MM_TRUE;   /* a HardFault that cannot be taken */
                         return MM_FALSE;
                     }
                 }
                 if (!mm_memmap_write(map, stack_sec, sp_fp + (16u * 4u), 4u, cpu->fpscr)) {
-                    record_bus_fault(scs, sec, sp_fp + (16u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                    mm_execution_exception_record_bus_fault(scs, sec, sp_fp + (16u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                     return MM_FALSE;
                 }
                 if (!mm_memmap_write(map, stack_sec, sp_fp + (17u * 4u), 4u, 0u)) {
-                    record_bus_fault(scs, sec, sp_fp + (17u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                    mm_execution_exception_record_bus_fault(scs, sec, sp_fp + (17u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                     return MM_FALSE;
                 }
             } else {
@@ -3810,12 +3809,12 @@ static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struc
         if (addl_state) {
             for (i = 0; i < 8; ++i) {
                 if (!mm_memmap_write(map, stack_sec, sp_addl + (mm_u32)(i * 4u), 4u, cpu->r[4 + i])) {
-                    record_bus_fault(scs, sec, sp_addl + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                    mm_execution_exception_record_bus_fault(scs, sec, sp_addl + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                     return MM_FALSE;
                 }
             }
             if (!mm_memmap_write(map, stack_sec, sp_addl + (8u * 4u), 4u, 0u)) {
-                record_bus_fault(scs, sec, sp_addl + (8u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                mm_execution_exception_record_bus_fault(scs, sec, sp_addl + (8u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                 return MM_FALSE;
             }
         }
@@ -3864,21 +3863,6 @@ static mm_bool raise_hard_fault(struct mm_cpu *cpu, struct mm_memmap *map, struc
     return MM_TRUE;
 }
 
-static void record_bus_fault(struct mm_scs *scs, enum mm_sec_state sec, mm_u32 addr, mm_u32 bfsr_bits)
-{
-    mm_u32 *cfsr;
-    mm_u32 *bfar;
-
-    if (scs == 0) {
-        return;
-    }
-    cfsr = mm_scs_cfsr_ptr(scs, sec);
-    bfar = mm_scs_bfar_ptr(scs, sec);
-    *cfsr |= bfsr_bits;
-    if ((bfsr_bits & BFSR_BFARVALID) != 0u) {
-        *bfar = addr;
-    }
-}
 
 /* Generic exception entry for synchronous SVC and asynchronous PendSV/SysTick/faults. */
 static mm_bool enter_exception(struct mm_cpu *cpu, struct mm_memmap *map, struct mm_scs *scs, mm_u32 exc_num, mm_u32 return_pc, mm_u32 xpsr_in);
@@ -4390,7 +4374,7 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
                 if (!mm_memmap_write(map, sec, sp_frame + (mm_u32)(i * 4u), 4u, frame[i])) {
                     printf("HardFault: stacking failed at 0x%08lx\n",
                            (unsigned long)(sp_frame + (mm_u32)(i * 4u)));
-                    record_bus_fault(scs, sec, sp_frame + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                    mm_execution_exception_record_bus_fault(scs, sec, sp_frame + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                     return raise_hard_fault(cpu, map, scs, return_pc, xpsr_in);
                 }
             }
@@ -4400,16 +4384,16 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
                         if (!mm_memmap_write(map, sec, sp_fp + (mm_u32)(i * 4u), 4u, cpu->s[i])) {
                             printf("HardFault: FP stacking failed at 0x%08lx\n",
                                    (unsigned long)(sp_fp + (mm_u32)(i * 4u)));
-                            record_bus_fault(scs, sec, sp_fp + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                            mm_execution_exception_record_bus_fault(scs, sec, sp_fp + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                             return raise_hard_fault(cpu, map, scs, return_pc, xpsr_in);
                         }
                     }
                     if (!mm_memmap_write(map, sec, sp_fp + (16u * 4u), 4u, cpu->fpscr)) {
-                        record_bus_fault(scs, sec, sp_fp + (16u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                        mm_execution_exception_record_bus_fault(scs, sec, sp_fp + (16u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                         return raise_hard_fault(cpu, map, scs, return_pc, xpsr_in);
                     }
                     if (!mm_memmap_write(map, sec, sp_fp + (17u * 4u), 4u, 0u)) {
-                        record_bus_fault(scs, sec, sp_fp + (17u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                        mm_execution_exception_record_bus_fault(scs, sec, sp_fp + (17u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                         return raise_hard_fault(cpu, map, scs, return_pc, xpsr_in);
                     }
                 } else {
@@ -4420,12 +4404,12 @@ static mm_bool enter_exception_ex(struct mm_cpu *cpu,
             if (addl_state) {
                 for (i = 0; i < 8; ++i) {
                     if (!mm_memmap_write(map, sec, sp_addl + (mm_u32)(i * 4u), 4u, cpu->r[4 + i])) {
-                        record_bus_fault(scs, sec, sp_addl + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                        mm_execution_exception_record_bus_fault(scs, sec, sp_addl + (mm_u32)(i * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                         return raise_hard_fault(cpu, map, scs, return_pc, xpsr_in);
                     }
                 }
                 if (!mm_memmap_write(map, sec, sp_addl + (8u * 4u), 4u, 0u)) {
-                    record_bus_fault(scs, sec, sp_addl + (8u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
+                    mm_execution_exception_record_bus_fault(scs, sec, sp_addl + (8u * 4u), BFSR_STKERR | BFSR_PRECISERR | BFSR_BFARVALID);
                     return raise_hard_fault(cpu, map, scs, return_pc, xpsr_in);
                 }
             }

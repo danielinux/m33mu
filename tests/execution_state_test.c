@@ -949,6 +949,20 @@ static int test_exception_fpu_and_secure_state_helpers(void)
     }
     if (!cpu.exc_cross_domain[2]) return 1;
     mm_execution_exception_save_secure_callee_regs(&cpu, MM_EXC_STACK_MAX);
+    scs.cfsr_s = 0x10u;
+    scs.bfar_s = 0x11111111u;
+    mm_execution_exception_record_bus_fault(&scs, MM_SECURE,
+                                             0x20001234u, 1u << 15);
+    if (scs.cfsr_s != (0x10u | (1u << 15)) ||
+        scs.bfar_s != 0x20001234u) return 1;
+    scs.cfsr_ns = 0u;
+    scs.bfar_ns = 0x22222222u;
+    mm_execution_exception_record_bus_fault(&scs, MM_NONSECURE,
+                                             0x30004321u, 1u << 11);
+    if (scs.cfsr_ns != (1u << 11) || scs.bfar_ns != 0x22222222u) {
+        return 1;
+    }
+    mm_execution_exception_record_bus_fault(0, MM_SECURE, 0u, 0u);
     return 0;
 }
 

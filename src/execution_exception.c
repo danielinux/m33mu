@@ -8,6 +8,7 @@
 #define CPACR_CP11_SHIFT 22u
 #define FPCCR_LSPEN (1u << 30)
 #define FPCCR_ASPEN (1u << 31)
+#define BFSR_BFARVALID (1u << 15)
 
 mm_u32 mm_execution_exception_cpacr_for_sec(
     const struct mm_scs *scs,
@@ -91,4 +92,19 @@ void mm_execution_exception_save_secure_callee_regs(
         cpu->r[4 + i] = 0u;
     }
     cpu->exc_cross_domain[depth] = MM_TRUE;
+}
+
+void mm_execution_exception_record_bus_fault(
+    struct mm_scs *scs,
+    enum mm_sec_state sec,
+    mm_u32 addr,
+    mm_u32 bfsr_bits)
+{
+    mm_u32 *cfsr;
+    mm_u32 *bfar;
+    if (scs == 0) return;
+    cfsr = mm_scs_cfsr_ptr(scs, sec);
+    bfar = mm_scs_bfar_ptr(scs, sec);
+    *cfsr |= bfsr_bits;
+    if ((bfsr_bits & BFSR_BFARVALID) != 0u) *bfar = addr;
 }

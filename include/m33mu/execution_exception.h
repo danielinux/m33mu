@@ -26,5 +26,10 @@ mm_bool mm_execution_exception_additional_state_required(
 void mm_execution_exception_save_secure_callee_regs(
     struct mm_cpu *cpu,
     int depth);
+void mm_execution_exception_record_bus_fault(
+    struct mm_scs *scs,
+    enum mm_sec_state sec,
+    mm_u32 addr,
+    mm_u32 bfsr_bits);
 
 #endif /* M33MU_EXECUTION_EXCEPTION_H */
