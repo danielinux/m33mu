@@ -61,3 +61,15 @@ target_link_options(web_session_wasm_smoke PRIVATE
   -sENVIRONMENT=node
   -sSTACK_SIZE=1048576
 )
+
+add_executable(m33mu_web_api web_wasm_abi.c)
+target_link_libraries(m33mu_web_api PRIVATE m33mu_wasm_core)
+target_link_options(m33mu_web_api PRIVATE
+  --no-entry
+  -sMODULARIZE=1
+  -sEXPORT_ES6=1
+  -sEXPORT_NAME=createM33muModule
+  -sENVIRONMENT=web,worker,node
+  -sEXPORTED_FUNCTIONS=_malloc,_free,_mm_web_abi_create,_mm_web_abi_load,_mm_web_abi_step,_mm_web_abi_reset,_mm_web_abi_gpio_input,_mm_web_abi_last_error,_mm_web_abi_last_instruction_count,_mm_web_abi_last_stopped,_mm_web_abi_cpu_reg,_mm_web_abi_cycle_low,_mm_web_abi_cycle_high,_mm_web_abi_xpsr,_mm_web_abi_msp_s,_mm_web_abi_msp_ns,_mm_web_abi_psp_s,_mm_web_abi_psp_ns,_mm_web_abi_security_state,_mm_web_abi_mode,_mm_web_abi_sleeping,_mm_web_abi_destroy
+  -sEXPORTED_RUNTIME_METHODS=cwrap,HEAPU8
+)

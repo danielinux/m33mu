@@ -14,7 +14,7 @@ This is a development status page, not a claim that the browser workbench exists
 | Native library | `m33mu_lib` is assembled from a broad source glob and links optional host libraries | The dedicated Emscripten target excludes host modules and builds a static core. |
 | Emscripten | `emcc` 6.0.5 and Node 24 are installed in the reviewed environment | `cmake/wasm` builds; Node/WASM loader and session smokes pass. This is not yet a worker API or browser app. |
 | Session isolation | GPIO readers, memory-map lookup and multiple peripheral models use global/static state | First browser version supports one active emulator session per worker. Parallel sessions require a later state-ownership refactor. |
-| Native regression | PUF zeroize expectation was updated in `7188fb9`; current serial CTest passes 105 enabled tests (one disabled) | Includes native session coverage, CLI ELF boot, WASM core build, and Node/WASM loader/session smokes. |
+| Native regression | PUF zeroize expectation was updated in `7188fb9`; current serial CTest passes 106 enabled tests (one disabled) | Includes native session coverage, CLI ELF boot, WASM core and worker builds, and Node/WASM loader/session/worker smokes. |
 
 ## GPIO and board connectivity
 
@@ -33,7 +33,7 @@ The signal hooks provide digital `0/1/Z` output observation and digital level in
 ## Other browser-facing capabilities
 
 - CPU, TrustZone and UART state are available through native emulator internals, but there is no supported typed browser API.
-- A first public H563 API now exists in `include/m33mu/web.h`: bounded ELF loading, CPU snapshot, reset, bounded instruction execution, immediate digital input and output-pad observation. It is exercised natively and under Node/WASM, but does not yet provide production-equivalent exception scheduling, timestamped GPIO events, UART, or worker RPC. No web canvas, adopted analog solver, circuit instrument, or browser regression fixture exists yet.
+- A first public H563 API now exists in `include/m33mu/web.h`: bounded ELF loading, CPU snapshot, reset, bounded instruction execution, immediate digital input and output-pad observation. The ES-module worker in `web/worker/` implements initial v1 RPC and 512-instruction yielding slices, and runs under a Node Worker-like harness against the generated Emscripten module. Production-equivalent exception scheduling, timestamped GPIO events, output event streaming, UART and analog solving remain incomplete. No web canvas, adopted analog solver, circuit instrument, or browser UI regression fixture exists yet.
 - No ngspice executable or development headers are installed. A system `libngspice.so.0` runtime is present, but it is native Linux only and cannot establish a WASM build path.
 - The public EEcircuit `eecircuit-engine` API inspected at upstream `eelab-dev/EEcircuit-engine` exposes `setNetList()` and whole-run `runSim()`. Its implementation runs `source test.cir`, `destroy all`, `run`, then exports the completed `out.raw`; that interface does not expose incremental transient stepping or mid-run source updates. It is not suitable as-is for a coupled live worker. The package is MIT, but its ngspice WASM build and bundled model licenses still need separate audit before reuse.
 - CircuitJS1 TypeScript is GPL-2.0-or-later. Its `CircuitMatrix` is a promising computational component, while `CirSim` imports menus, mouse handling, scopes, serializers, and model/UI classes. No standalone interactive kernel extraction or license combination review has passed.
