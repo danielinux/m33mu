@@ -11,6 +11,7 @@
 #include "m33mu/exec_helpers.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/timer.h"
+#include "m33mu/vector.h"
 
 void mm_execution_state_init(struct mm_execution_state *state)
 {
@@ -347,6 +348,23 @@ void mm_execution_state_reset_cores(struct mm_execution_state *state,
         state->cores[1].it_remaining = 0u;
         state->cores[1].it_cond = 0u;
     }
+}
+
+mm_bool mm_execution_state_apply_reset_vector(
+    struct mm_execution_state *state,
+    enum mm_sec_state boot_security)
+{
+    mm_u32 i;
+    if (state == 0 ||
+        !mm_vector_apply_reset(&state->cores[0].cpu, &state->map,
+                               boot_security)) {
+        return MM_FALSE;
+    }
+    for (i = 0u; i < state->target.core_count && i < 2u; ++i) {
+        state->cores[i].scs.vtor_s = state->cores[i].cpu.vtor_s;
+        state->cores[i].scs.vtor_ns = state->cores[i].cpu.vtor_ns;
+    }
+    return MM_TRUE;
 }
 
 mm_bool mm_execution_state_wake_sleeping_core(

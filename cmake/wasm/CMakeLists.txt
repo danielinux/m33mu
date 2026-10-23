@@ -13,8 +13,9 @@ file(GLOB M33MU_WASM_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_LIST_DIR}/../../cpu/*/*.c"
 )
 
-# Host-facing modules stay outside the browser core. A future session API will
-# provide browser-owned storage and explicit GPIO/UART callbacks.
+# Host-facing modules stay outside the browser core. The production session
+# owner is compiled below; a WASM entry point and worker protocol remain future
+# work, while browser GPIO/UART callbacks are supplied through target runtime.
 set(M33MU_WASM_HOST_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/../../src/main.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/gdbstub.c"

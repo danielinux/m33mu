@@ -6483,21 +6483,17 @@ int main(int argc, char **argv)
                 } else if (force_ns_boot) {
                     execution.cores[0].scs.sau_ctrl = 0x1u | 0x2u;
                 }
-                if (!mm_vector_apply_reset(&execution.cores[0].cpu, &execution.map, boot_sec)) {
+                if (!mm_execution_state_apply_reset_vector(&execution,
+                                                           boot_sec)) {
                     fprintf(stderr, "failed to apply reset\n");
                     rc = 1;
                     goto cleanup;
                 }
             }
-            /* Keep SCS VTOR banks in sync with CPU reset values so exception dispatch uses VTOR_S/VTOR_NS. */
-            execution.cores[0].scs.vtor_s = execution.cores[0].cpu.vtor_s;
-            execution.cores[0].scs.vtor_ns = execution.cores[0].cpu.vtor_ns;
             if (execution.target.core_count > 1u) {
                 if (cpu_name != 0 && strcmp(cpu_name, "rp2350") == 0) {
                     execution.cores[1].scs.sau_ctrl = 0x1u | 0x2u;
                 }
-                execution.cores[1].scs.vtor_s = execution.cores[1].cpu.vtor_s;
-                execution.cores[1].scs.vtor_ns = execution.cores[1].cpu.vtor_ns;
             }
 
             if (opt_gdb) {

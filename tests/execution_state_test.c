@@ -514,6 +514,25 @@ static int test_session_bounded_elf_load(void)
         mm_execution_state_destroy(&state);
         return 1;
     }
+    write_le32(state.storage.flash,
+               state.target.ram_base_s + state.target.ram_size_s);
+    write_le32(state.storage.flash + 4u,
+               state.target.flash_base_s + 0x101u);
+    mm_execution_state_reset_cores(&state, state.target.core_count,
+                                   state.target.flash_base_s,
+                                   state.target.flash_base_ns);
+    mm_scs_init(&state.cores[0].scs, 0x410fc241u);
+    if (!mm_execution_state_apply_reset_vector(&state, MM_SECURE) ||
+        mm_cpu_get_active_sp(&state.cores[0].cpu) !=
+            state.target.ram_base_s + state.target.ram_size_s ||
+        state.cores[0].cpu.r[15] != (state.target.flash_base_s + 0x101u) ||
+        state.cores[0].cpu.mode != MM_THREAD ||
+        state.cores[0].cpu.sec_state != MM_SECURE ||
+        state.cores[0].scs.vtor_s != state.cores[0].cpu.vtor_s ||
+        state.cores[0].scs.vtor_ns != state.cores[0].cpu.vtor_ns) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
     mm_execution_state_destroy(&state);
     return 0;
 }

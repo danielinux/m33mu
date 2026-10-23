@@ -151,6 +151,9 @@ void mm_execution_state_reset_cores(struct mm_execution_state *state,
                                     mm_u32 core_count,
                                     mm_u32 vtor_s,
                                     mm_u32 vtor_ns);
+mm_bool mm_execution_state_apply_reset_vector(
+    struct mm_execution_state *state,
+    enum mm_sec_state boot_security);
 
 /* Apply the production WFI/WFE wake rules to one owned core. */
 mm_bool mm_execution_state_wake_sleeping_core(
