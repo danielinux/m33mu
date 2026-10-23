@@ -1,6 +1,6 @@
 # WASM execution extraction notes
 
-**Status:** in progress; shared in-memory ELF32/ARM loader implemented, production session/stepping API still absent. Reviewed at local `master` HEAD `cf73f9e`.
+**Status:** in progress; shared in-memory ELF32/ARM loader implemented, production session/stepping API still absent. Reviewed at local `master` HEAD `278b14e`.
 
 ## Current paths
 
