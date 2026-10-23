@@ -91,11 +91,24 @@ int main(void)
         ".end",
         NULL
     };
+    char *bjt_circuit[] = {
+        "ngspice wasm default-BJT operating point",
+        "VCC vcc 0 dc 12",
+        "RB vcc base 220k",
+        "RC vcc collector 1k",
+        "Q1 collector base 0 QDEFAULT",
+        ".model QDEFAULT NPN(IS=1e-13 BF=100 BR=1 NF=1 NR=1 VAF=0 VAR=0 IKF=0 IKR=0 ISE=0 ISC=0 CJE=0 CJC=0 TF=0 TR=0)",
+        ".op",
+        ".end",
+        NULL
+    };
     char out_name[] = "tran1.out";
     char time_name[] = "tran1.time";
     char divider_out_name[] = "v(out)";
     char diode_voltage_name[] = "v(out)";
     char diode_current_name[] = "i(v1)";
+    char bjt_collector_name[] = "v(collector)";
+    char bjt_base_name[] = "v(base)";
     pvector_info out_vector;
     pvector_info time_vector;
     double *out;
@@ -109,6 +122,10 @@ int main(void)
     double diode_source_i;
     double diode_voltage_error;
     double diode_current_error;
+    double bjt_collector_voltage;
+    double bjt_base_voltage;
+    double bjt_collector_error;
+    double bjt_base_error;
     int i;
 
     ngSpice_nospinit();
@@ -244,5 +261,33 @@ int main(void)
            diode_voltage_error, diode_current_error);
     if (ngSpice_Reset() != 0 || ngGet_Vec_Info(diode_voltage_name) != NULL)
         return 21;
+
+    ngSpice_nospinit();
+    ngSpice_nospiceinit();
+    if (ngSpice_Init(no_output, no_output, controlled_exit,
+                     NULL, NULL, NULL, NULL) != 0)
+        return 23;
+    ngSpice_Command("set no_mem_check");
+    if (ngSpice_Circ(bjt_circuit) != 0 || ngSpice_Command("op") != 0)
+        return 24;
+    out_vector = ngGet_Vec_Info(bjt_collector_name);
+    if (!out_vector || !out_vector->v_realdata || out_vector->v_length < 1)
+        return 25;
+    bjt_collector_voltage = out_vector->v_realdata[out_vector->v_length - 1];
+    time_vector = ngGet_Vec_Info(bjt_base_name);
+    if (!time_vector || !time_vector->v_realdata || time_vector->v_length < 1)
+        return 26;
+    bjt_base_voltage = time_vector->v_realdata[time_vector->v_length - 1];
+    bjt_collector_error = fabs(bjt_collector_voltage - 6.835467162288057) /
+                          6.835467162288057;
+    bjt_base_error = fabs(bjt_base_voltage - 0.63802917018) / 0.63802917018;
+    if (bjt_collector_error > 1e-5 || bjt_base_error > 1e-5)
+        return 27;
+    printf("PASS: default-NPN operating point collector=%.12g V, base=%.12g V "
+           "(Perun relative errors %.5g / %.5g)\n",
+           bjt_collector_voltage, bjt_base_voltage,
+           bjt_collector_error, bjt_base_error);
+    if (ngSpice_Reset() != 0 || ngGet_Vec_Info(bjt_collector_name) != NULL)
+        return 28;
     return 0;
 }

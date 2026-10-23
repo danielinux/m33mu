@@ -2,7 +2,7 @@
 // run-web-perun-acceptance-probe.sh; Perun source is not imported into m33mu.
 import { writeFileSync } from 'node:fs';
 import { readCircuit } from '@perun/format';
-import { CapacitorElm, DiodeElm, ResistorElm, VoltageElm } from '../../../packages/elements/src/index.ts';
+import { CapacitorElm, DiodeElm, ResistorElm, TransistorElm, VoltageElm } from '../../../packages/elements/src/index.ts';
 import { describe, expect, it } from 'vitest';
 
 const resultPath = process.env.M33MU_PERUN_ACCEPTANCE_RESULT!;
@@ -10,6 +10,7 @@ const tau = 1000 * 10e-6;
 const dividerText = `$ 1 5.0E-6 10 50 5.0 50\nv 96 320 96 96 0 0 40.0 5.0 0.0\nw 96 96 256 96 0\nr 256 96 256 208 0 2000.0\nr 256 208 256 320 0 3000.0\nw 96 320 256 320 0\ng 96 320 96 352 0\n`;
 const rcText = `$ 1 1.0E-6 10 50 5.0 50\nv 96 320 96 96 0 0 40.0 1.0 0.0\nr 96 96 256 96 0 1000.0\nc 256 96 256 320 0 1.0E-5 0.0\nw 96 320 256 320 0\ng 96 320 96 352 0\n`;
 const diodeText = `$ 1 5.0E-6 10 50 5.0 50\nv 96 320 96 96 0 0 40.0 5.0 0.0\nd 96 96 256 96 2 default\nr 256 96 256 320 0 1000.0\nw 96 320 256 320 0\ng 96 320 96 352 0\n`;
+const bjtText = `$ 1 5.0E-6 10 50 5.0 50\nR 352 96 352 64 0 0 40.0 12.0 0.0 0.0 0.5\nr 352 96 352 224 0 1000.0\nw 352 96 208 96 0\nr 208 96 208 240 0 220000.0\nw 208 240 304 240 0\nt 304 240 352 240 0 1 0 0 100 default\ng 352 256 352 288 0\n`;
 
 describe('pinned Perun linear acceptance', () => {
   it('meets the DC divider and 1 us RC analytic criteria', () => {
@@ -74,6 +75,26 @@ describe('pinned Perun linear acceptance', () => {
     expect(diodeVoltageRelativeError).toBeLessThanOrEqual(1e-5);
     expect(diodeCurrentRelativeError).toBeLessThanOrEqual(1e-5);
 
+    const bjtCircuit = readCircuit(bjtText);
+    expect(bjtCircuit.warnings).toEqual([]);
+    const transistor = bjtCircuit.elements.find((e): e is TransistorElm =>
+      e instanceof TransistorElm)!;
+    const collectorLoad = bjtCircuit.elements.find((e): e is ResistorElm =>
+      e instanceof ResistorElm && e.resistance === 1000)!;
+    const baseBias = bjtCircuit.elements.find((e): e is ResistorElm =>
+      e instanceof ResistorElm && e.resistance === 220000)!;
+    expect(transistor.modelName).toBe('default');
+    expect(bjtCircuit.sim.step(10)).toBe(10);
+    const bjtCollectorV = collectorLoad.volts[1]!;
+    const bjtBaseV = baseBias.volts[1]!;
+    const ngspiceBjtCollectorV = 6.83546662765;
+    const ngspiceBjtBaseV = 0.638027855019;
+    const bjtCollectorRelativeError =
+      Math.abs(bjtCollectorV - ngspiceBjtCollectorV) / ngspiceBjtCollectorV;
+    const bjtBaseRelativeError = Math.abs(bjtBaseV - ngspiceBjtBaseV) / ngspiceBjtBaseV;
+    expect(bjtCollectorRelativeError).toBeLessThanOrEqual(1e-5);
+    expect(bjtBaseRelativeError).toBeLessThanOrEqual(1e-5);
+
     writeFileSync(resultPath, JSON.stringify({
       perunRevision: '067d1c9c59e27f72f6498ec224f3735d0da6364a',
       divider: { sourceV: 5, upperOhm: 2000, lowerOhm: 3000,
@@ -87,6 +108,12 @@ describe('pinned Perun linear acceptance', () => {
         forwardRelativeError: diodeVoltageRelativeError, perunCurrentA: diodeCurrentA,
         ngspiceCurrentA: ngspiceDiodeCurrentA,
         currentRelativeError: diodeCurrentRelativeError, tolerance: 1e-5 },
+      defaultNpnBias: { supplyV: 12, collectorOhm: 1000, baseBiasOhm: 220000,
+        perunModel: transistor.modelName, beta: transistor.beta,
+        perunCollectorV: bjtCollectorV, ngspiceCollectorV: ngspiceBjtCollectorV,
+        collectorRelativeError: bjtCollectorRelativeError, perunBaseV: bjtBaseV,
+        ngspiceBaseV: ngspiceBjtBaseV, baseRelativeError: bjtBaseRelativeError,
+        tolerance: 1e-5 },
     }, null, 2));
   });
 });
