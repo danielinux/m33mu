@@ -1,6 +1,6 @@
 # Web workbench P0 tracker
 
-Updated 2026-10-23 (HEAD `5b5b150`). Keep this checklist current as P0 work advances.
+Updated 2026-10-23 (scheduler implementation HEAD `9718aae`). Keep this checklist current as P0 work advances.
 
 ## Completed
 
@@ -9,7 +9,7 @@ Updated 2026-10-23 (HEAD `5b5b150`). Keep this checklist current as P0 work adva
 - [x] Re-run full CTest with the real H563 WFI/EXTI worker fixture registered: **107/107 enabled tests pass** (one disabled), including the worker's timestamped PA6 event, architectural interrupt wake and success BKPT.
 - [x] Prove architectural WFI wake in the browser worker, not only time advancement: `scripts/test-web-worker-wfi.sh` builds a real H563 PA6 rising-edge EXTI firmware fixture, queues a timestamped GPIO edge, and verifies the worker dispatches the interrupt and reaches the firmware success BKPT. The focused `wasm_worker_wfi_exti_test` passes.
 - [x] Compare CLI and public-worker execution on a byte-identical generated H563 ELF. The CLI is forced to single-instruction dispatch; after one MOV both paths report PC `0x0c00000b`, r0 `1`, and secure MSP `0x30080000`. `wasm_worker_api_test` performs the parity check and passes.
-- [x] Match the active-core GPIO/interrupt instruction boundary to the production scheduler. Web stepping now dispatches already pending IRQs before cycle charge, applies due GPIO input after cycle advancement, executes that instruction, then polls target devices. A new active H563 EXTI fixture schedules PA6 for the next cycle and proves r4 increments before handler entry; the old implementation fails this assertion (`0` instead of `1`), while the fix reaches handler BKPT. `web_session_test`, `wasm_worker_wfi_exti_test`, and `wasm_worker_active_exti_boundary_test` pass.
+- [x] Match the active-core GPIO/interrupt instruction boundary to the production scheduler. Web stepping now dispatches already pending IRQs before cycle charge, applies due GPIO input after cycle advancement, executes that instruction, then polls target devices. A new active H563 EXTI fixture schedules PA6 for the next cycle and proves r4 increments before handler entry; the old implementation fails this assertion (`0` instead of `1`), while the fix reaches handler BKPT. IRQ entry consumes one scheduler work unit; the worker regression proves a one-unit step can dispatch without advancing cycles or executing the handler. `web_session_test`, `wasm_worker_wfi_exti_test`, and `wasm_worker_active_exti_boundary_test` pass.
 
 - [x] Establish live shared-clock H563 firmware/analog feedback with an external solver evaluation harness. `scripts/run-web-live-coupling-probe.sh` builds the public WASM API and a toggling H563 EXTI fixture, then runs pinned Perun at 64 MHz / 15.625 ns per solver step. Four RC threshold crossings at cycles 557/678/799/920 schedule PA6 EXTI and produce PA5 feedback edges at cycles 569/690/811/932; WASM and solver finish at cycle 940 and firmware reaches its success BKPT. The reproducible trace is `web/fixtures/solver/perun-live-coupling.json`. No Perun code is imported or packaged. This completes the narrow live-causality proof only; worker yielding, rollback, solver accuracy tolerance, broader model parity and license packaging remain open.
 
