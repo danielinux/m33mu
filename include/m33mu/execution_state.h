@@ -225,6 +225,13 @@ void mm_execution_state_advance_cycles(
 mm_bool mm_execution_state_advance_for_instruction(
     struct mm_execution_state *state,
     mm_u32 core_index);
+/* Charge the cycles the core stood still while the flash controller erased
+ * or programmed (--flash-timing), at the given CPU rate. Returns the cycles
+ * charged; zero when no flash operation stalled the core. */
+mm_u64 mm_execution_state_charge_flash_stall(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    mm_u64 cpu_hz);
 mm_u64 mm_execution_state_signal_cycles_until_event(
     const struct mm_execution_state *state);
 mm_u64 mm_execution_state_signal_now_ns(

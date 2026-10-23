@@ -53,6 +53,9 @@ struct mm_web_step_result {
     mm_bool system_reset;
     mm_bool deadline_reached;   /* mm_web_run_until only */
     mm_bool pad_changed;        /* a pad drive or configuration changed */
+    mm_bool lockup;             /* unrecoverable fault: core locked up, as the
+                                 * CLI reports it; stopped until reset */
+    mm_u32 lockup_pc;
     enum mm_web_error error;
 };
 

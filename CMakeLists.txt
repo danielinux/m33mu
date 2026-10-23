@@ -642,6 +642,10 @@ if(M33MU_BUILD_TESTS)
       target_link_libraries("${test_name}" PRIVATE m)
     endif()
   endforeach()
+  # Native web-session runner for the web acceptance matrix.
+  add_executable(web_parity_runner "${CMAKE_SOURCE_DIR}/web/tools/web_parity_runner.c")
+  target_link_libraries(web_parity_runner PRIVATE m33mu_lib)
+  target_compile_options(web_parity_runner PRIVATE ${M33MU_COMMON_WARN_FLAGS} ${M33MU_COMMON_OPT_FLAGS})
   find_package(Python3 COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
     add_test(NAME sigc_python_test
@@ -729,6 +733,16 @@ if(M33MU_BUILD_TESTS)
           "${CMAKE_SOURCE_DIR}/scripts/test-web-worker-active-exti.sh")
       set_tests_properties(wasm_worker_active_exti_boundary_test PROPERTIES
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+      )
+      add_test(NAME web_acceptance_matrix_test
+        COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
+          "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
+          "M33MU_CLI=$<TARGET_FILE:m33mu>"
+          "M33MU_PARITY_RUNNER=$<TARGET_FILE:web_parity_runner>"
+          "${CMAKE_SOURCE_DIR}/scripts/test-web-acceptance-matrix.sh")
+      set_tests_properties(web_acceptance_matrix_test PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        RUN_SERIAL TRUE
       )
       add_test(NAME wasm_worker_demos_test
         COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}

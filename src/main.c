@@ -1499,17 +1499,6 @@ static mm_bool hold_lockup(mm_bool opt_gdb, struct mm_gdb_stub *gdb, mm_bool *do
     return MM_TRUE;
 }
 
-/* Cycles the core stood still while the flash controller erased or
- * programmed (--flash-timing): it fetches from that flash, so it waits,
- * while SysTick and the peripherals keep counting. */
-static mm_u64 flash_stall_cycles(mm_u64 cpu_hz)
-{
-    mm_u64 us = mm_flash_ops_take_stall_us();
-    if (us == 0u || cpu_hz == 0u) {
-        return 0u;
-    }
-    return (us * cpu_hz) / 1000000u;
-}
 static mm_bool parse_usb_spec(const char *spec, char *udc_out, size_t udc_len);
 static struct mm_decoded decode_t32_fast(const struct mm_fetch_result *fetch,
                                          const struct mm_cpu *cpu,
@@ -6268,13 +6257,8 @@ handle_pending:
                                     &execution, 0u, (mm_u64)ops_executed,
                                     MM_FALSE, 0u);
                             }
-                            {
-                                mm_u64 stall = flash_stall_cycles(cpu_hz);
-                                if (stall != 0u) {
-                                    mm_execution_state_advance_cycles(
-                                        &execution, 0u, stall, MM_FALSE, 0u);
-                                }
-                            }
+                            (void)mm_execution_state_charge_flash_stall(
+                                &execution, 0u, cpu_hz);
                             if (mm_flash_ops_cut_fired(0)) {
                                 /* Power is off: run nothing more. */
                                 if (!opt_gdb) {
@@ -6409,14 +6393,9 @@ handle_pending:
                     mm_bool trace_started = MM_FALSE;
                     mm_bool fault_skip = MM_FALSE;
                     (void)pc_before_exec;
-                    {
-                        /* the previous instruction's flash operation, if any */
-                        mm_u64 stall = flash_stall_cycles(cpu_hz);
-                        if (stall != 0u) {
-                            mm_execution_state_advance_cycles(
-                                &execution, 0u, stall, MM_FALSE, 0u);
-                        }
-                    }
+                    /* the previous instruction's flash operation, if any */
+                    (void)mm_execution_state_charge_flash_stall(
+                        &execution, 0u, cpu_hz);
                     (void)mm_execution_state_advance_for_instruction(
                         &execution, 0u);
                     if (opt_gdb || opt_tui) {

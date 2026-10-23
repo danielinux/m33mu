@@ -166,6 +166,16 @@ unsigned int mm_web_abi_last_stopped(void)
     return g_last_step.stopped ? 1u : 0u;
 }
 
+unsigned int mm_web_abi_last_lockup(void)
+{
+    return g_last_step.lockup ? 1u : 0u;
+}
+
+unsigned int mm_web_abi_last_lockup_pc(void)
+{
+    return g_last_step.lockup_pc;
+}
+
 unsigned int mm_web_abi_last_system_reset(void)
 {
     return g_last_step.system_reset ? 1u : 0u;

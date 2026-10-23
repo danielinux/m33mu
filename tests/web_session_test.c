@@ -385,6 +385,37 @@ done:
     return failed;
 }
 
+/* An undefined instruction whose HardFault cannot be taken locks the core up,
+ * as the CLI reports it, instead of failing the session. */
+static int test_lockup(void)
+{
+    mm_u8 image[96];
+    struct mm_web_session *session;
+    struct mm_web_step_result step;
+    enum mm_web_error error;
+    int failed = 1;
+    (void)make_h563_elf(image);
+    put_le16(image + 92u, 0xde00u); /* udf #0, HardFault vector left at 0 */
+    session = mm_web_create(0, &error);
+    if (session == 0 || mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK) goto done;
+    error = mm_web_step_instructions(session, 100000u, &step);
+    if (error != MM_WEB_OK || !step.stopped || !step.lockup) {
+        fprintf(stderr, "web_session_test: lockup error=%d stopped=%u lockup=%u pc=0x%08lx\n",
+                (int)error, (unsigned)step.stopped, (unsigned)step.lockup, (unsigned long)step.lockup_pc);
+        goto done;
+    }
+    if (mm_web_step_instructions(session, 1u, &step) != MM_WEB_OK || !step.lockup ||
+        mm_web_reset(session) != MM_WEB_OK ||
+        mm_web_step_instructions(session, 1u, &step) != MM_WEB_OK || step.lockup) {
+        fprintf(stderr, "web_session_test: lockup did not persist until reset\n");
+        goto done;
+    }
+    failed = 0;
+done:
+    mm_web_destroy(session);
+    return failed;
+}
+
 /* A core in WFI with no wake source still advances to a run deadline, since
  * the host circuit may produce the wake event. */
 static int test_run_until_sleeping(void)
@@ -808,6 +839,7 @@ int main(void)
     }
     if (test_run_until_pad_changes() != 0) return 1;
     if (test_run_until_sleeping() != 0) return 1;
+    if (test_lockup() != 0) return 1;
     puts("web_session_test: ok");
     return 0;
 }

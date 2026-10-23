@@ -62,6 +62,8 @@ struct mm_web_session {
     mm_bool gpio_output_overflow;
     struct mm_web_pad_state pads[MM_WEB_PAD_BANKS][MM_WEB_PAD_PINS];
     mm_bool pad_changed;
+    mm_bool locked_up;
+    mm_u32 lockup_pc;
 };
 
 static struct mm_web_session *g_web_active_session;
@@ -622,6 +624,7 @@ enum mm_web_error mm_web_load_elf(struct mm_web_session *session,
     (void)mm_execution_state_signal_prepare_for_run(&session->execution);
     session->loaded = MM_TRUE;
     session->stopped = MM_FALSE;
+    session->locked_up = MM_FALSE;
     return MM_WEB_OK;
 }
 
@@ -661,12 +664,27 @@ static enum mm_web_error web_reinitialize(
     }
     (void)mm_execution_state_signal_prepare_for_run(&session->execution);
     session->stopped = MM_FALSE;
+    session->locked_up = MM_FALSE;
     return MM_WEB_OK;
 }
 
 enum mm_web_error mm_web_reset(struct mm_web_session *session)
 {
     return web_reinitialize(session, MM_TRUE);
+}
+
+static void web_lockup(struct mm_web_session *session,
+                       mm_u32 pc,
+                       struct mm_web_step_result *result_out)
+{
+    session->stopped = MM_TRUE;
+    session->locked_up = MM_TRUE;
+    session->lockup_pc = pc;
+    result_out->stopped = MM_TRUE;
+    result_out->lockup = MM_TRUE;
+    result_out->lockup_pc = pc;
+    result_out->pad_changed = session->pad_changed;
+    result_out->error = MM_WEB_OK;
 }
 
 /* Cycle of the first instruction boundary at or after the run deadline. */
@@ -704,6 +722,8 @@ static enum mm_web_error web_execute_budgeted(
     if (!session->loaded) return MM_WEB_NOT_BOOTED;
     if (session->stopped) {
         result_out->stopped = MM_TRUE;
+        result_out->lockup = session->locked_up;
+        result_out->lockup_pc = session->lockup_pc;
         return MM_WEB_OK;
     }
     state = &session->execution;
@@ -797,6 +817,9 @@ static enum mm_web_error web_execute_budgeted(
                 continue;
             }
         }
+        /* the previous instruction's flash operation, if any */
+        (void)mm_execution_state_charge_flash_stall(
+            state, 0u, mm_target_cpu_hz(&state->target));
         if (!mm_execution_state_advance_for_instruction(state, 0u)) {
             result_out->error = MM_WEB_INITIALIZATION_FAILED;
             return result_out->error;
@@ -830,6 +853,12 @@ static enum mm_web_error web_execute_budgeted(
             result_out->error = MM_WEB_EXECUTION_FAULT;
             return result_out->error;
         }
+        if (session->pending_error == MM_WEB_EXECUTION_FAULT) {
+            /* A fault whose exception entry itself failed (for example,
+             * stacking to an invalid SP): the CLI reports a lockup. */
+            web_lockup(session, state->cores[0].cpu.r[15] & ~1u, result_out);
+            return MM_WEB_OK;
+        }
         if (session->pending_error != MM_WEB_OK) {
             result_out->error = session->pending_error;
             return result_out->error;
@@ -839,14 +868,23 @@ static enum mm_web_error web_execute_budgeted(
                 mm_execution_state_raise_undefined(
                     state, 0u, web_raise_usage_fault, &fetch, &decoded);
             if (fault_status != MM_EXECUTION_FAULT_HANDLED) {
-                result_out->error = session->pending_error != MM_WEB_OK ?
-                    session->pending_error : MM_WEB_EXECUTION_FAULT;
-                return result_out->error;
+                if (session->pending_error != MM_WEB_OK &&
+                    session->pending_error != MM_WEB_EXECUTION_FAULT) {
+                    result_out->error = session->pending_error;
+                    return result_out->error;
+                }
+                /* Like the CLI: an undefined instruction whose fault cannot
+                 * be taken locks the core up. */
+                web_lockup(session, fetch.pc_fetch, result_out);
+                return MM_WEB_OK;
             }
             continue;
         }
-        if (outcome == MM_EXECUTION_INSTRUCTION_FETCH_FAULT_UNHANDLED ||
-            outcome == MM_EXECUTION_INSTRUCTION_INVALID) {
+        if (outcome == MM_EXECUTION_INSTRUCTION_FETCH_FAULT_UNHANDLED) {
+            web_lockup(session, state->cores[0].cpu.r[15] & ~1u, result_out);
+            return MM_WEB_OK;
+        }
+        if (outcome == MM_EXECUTION_INSTRUCTION_INVALID) {
             result_out->error = MM_WEB_EXECUTION_FAULT;
             return result_out->error;
         }

@@ -90,6 +90,8 @@ export function attachM33muWorker(scope, createModule) {
         instructionCount: wrap('mm_web_abi_last_instruction_count', 'number', []),
         stopped: wrap('mm_web_abi_last_stopped', 'number', []),
         systemReset: wrap('mm_web_abi_last_system_reset', 'number', []),
+        lockup: wrap('mm_web_abi_last_lockup', 'number', []),
+        lockupPc: wrap('mm_web_abi_last_lockup_pc', 'number', []),
         reg: wrap('mm_web_abi_cpu_reg', 'number', ['number', 'number']),
         cycles: wrap('mm_web_abi_cycle_low', 'number', ['number']),
         cyclesHigh: wrap('mm_web_abi_cycle_high', 'number', ['number']),
@@ -166,6 +168,14 @@ export function attachM33muWorker(scope, createModule) {
     };
   }
 
+  function reportLockup(requestId) {
+    if (api.lockup() === 0) return false;
+    const pc = (api.lockupPc() >>> 0).toString(16).padStart(8, '0');
+    postEvent('fault', { requestId, code: 'LOCKUP',
+      message: `Core locked up at PC 0x${pc}: a fault could not be taken; reset or reload to continue` });
+    return true;
+  }
+
   function emitState(requestId, stopped = false, extra = {}) {
     postEvent('state', { requestId, ...snapshot(), stopped, ...extra });
   }
@@ -198,6 +208,7 @@ export function attachM33muWorker(scope, createModule) {
     }
     const stopped = api.stopped() !== 0;
     const systemReset = api.systemReset() !== 0;
+    reportLockup(requestId);
     const state = snapshot();
     const sleepDeadlinePending = state.sleeping &&
       api.hasPendingDeadline(session) !== 0;
@@ -291,7 +302,10 @@ export function attachM33muWorker(scope, createModule) {
       simulatedPerWall: (report.timeNs - started.sim) * 1e-9 / (wallMs * 1e-3),
       sliceSimulatedNs: report.timeNs - sim0
     });
-    if (bench.mcu) emitState(requestId, report.mcuStopped, { paused: report.reachedTarget });
+    if (bench.mcu) {
+      if (report.mcuStopped) reportLockup(requestId);
+      emitState(requestId, report.mcuStopped, { paused: report.reachedTarget });
+    }
     if (!report.reachedTarget && !report.mcuStopped && generation === runGeneration) {
       scope.setTimeout(() => benchSlice(generation, requestId, targetNs, started), 0);
     }
@@ -346,9 +360,11 @@ export function attachM33muWorker(scope, createModule) {
         const status = api.step(session, budget);
         if (!drainGpioOutput(requestId)) return;
         if (status !== 0) throw errorFromCode(status);
+        const lockup = reportLockup(requestId);
         const result = {
           instructions: api.instructionCount(),
           stopped: api.stopped() !== 0,
+          lockup,
           systemReset: api.systemReset() !== 0,
           ...snapshot()
         };

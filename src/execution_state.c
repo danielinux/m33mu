@@ -14,6 +14,7 @@
 #include "m33mu/timer.h"
 #include "m33mu/vector.h"
 #include "m33mu/signal.h"
+#include "m33mu/flash_ops.h"
 
 static struct mm_execution_state *g_active_execution_state;
 
@@ -556,6 +557,29 @@ mm_bool mm_execution_state_advance_for_instruction(
         state, core_index, 1u, MM_TRUE,
         state->cores[core_index].cpu.r[15] & ~1u);
     return MM_TRUE;
+}
+
+mm_u64 mm_execution_state_charge_flash_stall(
+    struct mm_execution_state *state,
+    mm_u32 core_index,
+    mm_u64 cpu_hz)
+{
+    /* The core fetches from the flash being written, so it waits while
+     * SysTick and the peripherals keep counting. */
+    mm_u64 us;
+    mm_u64 cycles;
+    if (state == 0 || core_index >= 2u) {
+        return 0u;
+    }
+    us = mm_flash_ops_take_stall_us();
+    if (us == 0u || cpu_hz == 0u) {
+        return 0u;
+    }
+    cycles = (us * cpu_hz) / 1000000u;
+    if (cycles != 0u) {
+        mm_execution_state_advance_cycles(state, core_index, cycles, MM_FALSE, 0u);
+    }
+    return cycles;
 }
 
 mm_u64 mm_execution_state_signal_cycles_until_event(
