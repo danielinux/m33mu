@@ -301,7 +301,7 @@ static int test_session_execute_decoded(void)
     return 0;
 }
 
-static int test_session_run_decoded(void)
+static int test_session_step_decoded(void)
 {
     struct mm_execution_state state;
     struct mm_execute_ctx context;
@@ -330,7 +330,7 @@ static int test_session_run_decoded(void)
     state.cores[0].it_cond = MM_COND_EQ;
     state.cores[0].cpu.xpsr = itstate_set(0u, 0x08u);
 
-    outcome = mm_execution_state_run_decoded(
+    outcome = mm_execution_state_step_decoded(
         &state, 0u, &context, &fetch, &decoded, MM_FALSE, &exec_status);
     if (outcome != MM_EXECUTION_INSTRUCTION_SKIPPED ||
         exec_status != MM_EXEC_CONTINUE || state.cores[0].cpu.r[0] != 7u ||
@@ -341,7 +341,7 @@ static int test_session_run_decoded(void)
 
     decoded.kind = MM_OP_NOP;
     state.cores[0].it_remaining = 0u;
-    outcome = mm_execution_state_run_decoded(
+    outcome = mm_execution_state_step_decoded(
         &state, 0u, &context, &fetch, &decoded, MM_TRUE, &exec_status);
     if (outcome != MM_EXECUTION_INSTRUCTION_EXECUTED ||
         exec_status != MM_EXEC_OK || done) {
@@ -353,7 +353,7 @@ static int test_session_run_decoded(void)
     decoded.imm = ((mm_u32)MM_COND_EQ << 4) | 0x08u;
     state.cores[0].it_remaining = 1u;
     state.cores[0].cpu.r[15] = 0x1003u;
-    outcome = mm_execution_state_run_decoded(
+    outcome = mm_execution_state_step_decoded(
         &state, 0u, &context, &fetch, &decoded, MM_FALSE, &exec_status);
     if (outcome != MM_EXECUTION_INSTRUCTION_EXECUTED ||
         exec_status != MM_EXEC_OK) {
@@ -547,6 +547,28 @@ static int test_session_bounded_elf_load(void)
             return 1;
         }
     }
+    {
+        struct mm_execute_ctx context;
+        enum mm_exec_status exec_status = MM_EXEC_CONTINUE;
+        enum mm_execution_instruction_outcome outcome;
+        mm_bool done = MM_FALSE;
+        memset(&context, 0, sizeof(context));
+        context.done = &done;
+        outcome = mm_execution_state_step_decoded(
+            &state, 0u, &context, &fetch, &decoded, MM_TRUE,
+            &exec_status);
+        if (outcome != MM_EXECUTION_INSTRUCTION_EXECUTED ||
+            exec_status != MM_EXEC_OK || done ||
+            state.cores[0].cpu.r[0] != 1u ||
+            state.cores[0].cpu.r[15] != state.target.flash_base_s + 3u) {
+            fprintf(stderr, "bounded step: outcome=%d status=%d done=%u r0=%08x pc=%08x expected=%08x\n",
+                    (int)outcome, (int)exec_status, (unsigned)done,
+                    state.cores[0].cpu.r[0], state.cores[0].cpu.r[15],
+                    state.target.flash_base_s + 3u);
+            mm_execution_state_destroy(&state);
+            return 1;
+        }
+    }
     state.cores[0].cpu.r[15] = 0xdead0001u;
     fetch_fault_handler_calls = 0u;
     fetch_fault_handler_addr = 0xdead0000u;
@@ -632,7 +654,7 @@ int main(void)
         fprintf(stderr, "execution_state_test: decoded execution failed\n");
         return 1;
     }
-    if (test_session_run_decoded() != 0) {
+    if (test_session_step_decoded() != 0) {
         fprintf(stderr, "execution_state_test: decoded instruction decision failed\n");
         return 1;
     }

@@ -7457,7 +7457,7 @@ handle_pending:
                             calltrace_handle_decoded(&execution.cores[0].cpu,
                                                      &f, &d);
                         }
-                        instruction_outcome = mm_execution_state_run_decoded(
+                        instruction_outcome = mm_execution_state_step_decoded(
                             &execution, 0u, &exec_ctx, &f, &d, execute_it,
                             &exec_res);
                         if (instruction_outcome ==

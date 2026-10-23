@@ -136,9 +136,9 @@ enum mm_execution_instruction_outcome {
     MM_EXECUTION_INSTRUCTION_YIELDED
 };
 
-/* Apply the production IT skip rule, otherwise execute through the shared
- * executor. The architectural instruction decision stays session-owned. */
-enum mm_execution_instruction_outcome mm_execution_state_run_decoded(
+/* Complete one decoded instruction. A worker may call this once per budgeted
+ * instruction after fetch/decode and policy hooks have completed. */
+enum mm_execution_instruction_outcome mm_execution_state_step_decoded(
     struct mm_execution_state *state,
     mm_u32 core_index,
     struct mm_execute_ctx *context,

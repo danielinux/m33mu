@@ -250,7 +250,7 @@ enum mm_exec_status mm_execution_state_execute_decoded(
     return status;
 }
 
-enum mm_execution_instruction_outcome mm_execution_state_run_decoded(
+enum mm_execution_instruction_outcome mm_execution_state_step_decoded(
     struct mm_execution_state *state,
     mm_u32 core_index,
     struct mm_execute_ctx *context,
