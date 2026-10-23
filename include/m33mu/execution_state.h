@@ -34,6 +34,21 @@ typedef struct mm_decoded (*mm_execution_decode_fn)(
     const struct mm_fetch_result *fetch,
     const struct mm_cpu *cpu,
     const struct mm_scs *scs);
+typedef mm_bool (*mm_execution_mem_fault_fn)(
+    struct mm_cpu *cpu,
+    struct mm_memmap *map,
+    struct mm_scs *scs,
+    mm_u32 fault_pc,
+    mm_u32 fault_xpsr,
+    mm_u32 addr,
+    mm_bool is_exec);
+
+enum mm_execution_fetch_status {
+    MM_EXECUTION_FETCH_INVALID = 0,
+    MM_EXECUTION_FETCH_READY,
+    MM_EXECUTION_FETCH_FAULT_HANDLED,
+    MM_EXECUTION_FETCH_FAULT_UNHANDLED
+};
 
 /* Owned architectural, memory and scheduler state for a single emulation
  * session. Target peripheral instances and signal state remain to be moved. */
@@ -79,6 +94,14 @@ mm_bool mm_execution_state_fetch_decode(
     struct mm_execution_state *state,
     mm_execution_fpu_access_fn fpu_access_allowed,
     mm_execution_decode_fn decode,
+    struct mm_fetch_result *fetch_out,
+    struct mm_decoded *decoded_out,
+    mm_bool *fpu_ok_out);
+enum mm_execution_fetch_status mm_execution_state_fetch_decode_or_fault(
+    struct mm_execution_state *state,
+    mm_execution_fpu_access_fn fpu_access_allowed,
+    mm_execution_decode_fn decode,
+    mm_execution_mem_fault_fn raise_mem_fault,
     struct mm_fetch_result *fetch_out,
     struct mm_decoded *decoded_out,
     mm_bool *fpu_ok_out);

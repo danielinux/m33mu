@@ -127,6 +127,36 @@ mm_bool mm_execution_state_fetch_decode(
     return MM_TRUE;
 }
 
+enum mm_execution_fetch_status mm_execution_state_fetch_decode_or_fault(
+    struct mm_execution_state *state,
+    mm_execution_fpu_access_fn fpu_access_allowed,
+    mm_execution_decode_fn decode,
+    mm_execution_mem_fault_fn raise_mem_fault,
+    struct mm_fetch_result *fetch_out,
+    struct mm_decoded *decoded_out,
+    mm_bool *fpu_ok_out)
+{
+    struct mm_execution_core_state *core;
+    if (state == 0 || state->active_core >= 2u || raise_mem_fault == 0 ||
+        fetch_out == 0 || decoded_out == 0 || fpu_ok_out == 0) {
+        return MM_EXECUTION_FETCH_INVALID;
+    }
+    core = &state->cores[state->active_core];
+    if (mm_execution_state_fetch_decode(state, fpu_access_allowed, decode,
+                                        fetch_out, decoded_out, fpu_ok_out)) {
+        return MM_EXECUTION_FETCH_READY;
+    }
+    if (!fetch_out->fault) {
+        return MM_EXECUTION_FETCH_INVALID;
+    }
+    if (raise_mem_fault(&core->cpu, &state->map, &core->scs,
+                        core->cpu.r[15] & ~1u, core->cpu.xpsr,
+                        fetch_out->fault_addr, MM_TRUE)) {
+        return MM_EXECUTION_FETCH_FAULT_HANDLED;
+    }
+    return MM_EXECUTION_FETCH_FAULT_UNHANDLED;
+}
+
 mm_bool mm_execution_state_should_execute(struct mm_execution_state *state,
                                           mm_u32 core_index,
                                           const struct mm_decoded *decoded)

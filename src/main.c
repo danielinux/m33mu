@@ -7251,6 +7251,7 @@ handle_pending:
                 {
                     struct mm_fetch_result f;
                     struct mm_decoded d;
+                    enum mm_execution_fetch_status fetch_status;
                     mm_bool execute_it;
                     mm_u32 pc_before_exec = 0;
                     mm_bool fpu_ok = MM_TRUE;
@@ -7313,29 +7314,31 @@ handle_pending:
                         continue;
                     }
 
-                    (void)mm_execution_state_fetch_decode(&execution,
-                                                          fpu_access_allowed,
-                                                          decode_t32_fast,
-                                                          &f, &d,
-                                                          &fpu_ok);
-                    if (f.fault) {
-                        if (!raise_mem_fault(&execution.cores[0].cpu, &execution.map, &execution.cores[0].scs, execution.cores[0].cpu.r[15] & ~1u, execution.cores[0].cpu.xpsr, f.fault_addr, MM_TRUE)) {
-                            printf("Fault on fetch at 0x%08lx (PC=0x%08lx SP=0x%08lx LR=0x%08lx xPSR=0x%08lx)\n",
-                                    (unsigned long)f.fault_addr,
-                                    (unsigned long)execution.cores[0].cpu.r[15],
-                                    (unsigned long)mm_cpu_get_active_sp(&execution.cores[0].cpu),
-                                    (unsigned long)execution.cores[0].cpu.r[14],
-                                    (unsigned long)execution.cores[0].cpu.xpsr);
-                            g_core_lockup = MM_TRUE;
-                            g_core_lockup_sig = 11;
-                            if (trace_started) {
-                                mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
-                                mm_trace_end_step(&execution.cores[0].cpu);
-                                record_window_step(&execution.cores[0].cpu, &execution.map);
-                            }
-                            done = MM_TRUE;     /* or locked up, see hold_lockup() */
-                            continue;
+                    fetch_status = mm_execution_state_fetch_decode_or_fault(
+                        &execution, fpu_access_allowed, decode_t32_fast,
+                        raise_mem_fault, &f, &d, &fpu_ok);
+                    if (fetch_status == MM_EXECUTION_FETCH_INVALID) {
+                        rc = 1;
+                        goto cleanup;
+                    }
+                    if (fetch_status == MM_EXECUTION_FETCH_FAULT_UNHANDLED) {
+                        printf("Fault on fetch at 0x%08lx (PC=0x%08lx SP=0x%08lx LR=0x%08lx xPSR=0x%08lx)\n",
+                               (unsigned long)f.fault_addr,
+                               (unsigned long)execution.cores[0].cpu.r[15],
+                               (unsigned long)mm_cpu_get_active_sp(&execution.cores[0].cpu),
+                               (unsigned long)execution.cores[0].cpu.r[14],
+                               (unsigned long)execution.cores[0].cpu.xpsr);
+                        g_core_lockup = MM_TRUE;
+                        g_core_lockup_sig = 11;
+                        if (trace_started) {
+                            mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
+                            mm_trace_end_step(&execution.cores[0].cpu);
+                            record_window_step(&execution.cores[0].cpu, &execution.map);
                         }
+                        done = MM_TRUE;     /* or locked up, see hold_lockup() */
+                        continue;
+                    }
+                    if (fetch_status == MM_EXECUTION_FETCH_FAULT_HANDLED) {
                         if (trace_started) {
                             mmio_bus_end_step(&execution.map.mmio, mm_trace_get_undo_sink());
                             mm_trace_end_step(&execution.cores[0].cpu);

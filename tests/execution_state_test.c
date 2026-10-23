@@ -6,6 +6,27 @@
 
 static char target_setup_order[16];
 static size_t target_setup_count;
+static mm_u32 fetch_fault_handler_calls;
+static mm_bool fetch_fault_handler_result;
+static mm_u32 fetch_fault_handler_addr;
+
+static mm_bool test_fetch_fault_handler(struct mm_cpu *cpu,
+                                        struct mm_memmap *map,
+                                        struct mm_scs *scs,
+                                        mm_u32 fault_pc,
+                                        mm_u32 fault_xpsr,
+                                        mm_u32 addr,
+                                        mm_bool is_exec)
+{
+    if (cpu == 0 || map == 0 || scs == 0 ||
+        fault_pc != fetch_fault_handler_addr ||
+        addr != fetch_fault_handler_addr || fault_xpsr != cpu->xpsr ||
+        !is_exec) {
+        return MM_FALSE;
+    }
+    fetch_fault_handler_calls++;
+    return fetch_fault_handler_result;
+}
 
 static void note_target_setup(char value)
 {
@@ -233,8 +254,11 @@ static int test_session_bounded_elf_load(void)
 {
     struct mm_execution_state state;
     struct mm_image_load_result result;
+    struct mm_fetch_result fetch;
+    struct mm_decoded decoded;
     mm_u8 image[88] = { 0 };
     mm_u32 loaded_word = 0u;
+    mm_bool fpu_ok = MM_FALSE;
     mm_execution_state_init(&state);
     if (!mm_execution_state_select_target(&state, "stm32h563") ||
         !mm_execution_state_allocate_storage(&state)) {
@@ -285,9 +309,6 @@ static int test_session_bounded_elf_load(void)
     state.cores[0].cpu.r[15] = state.target.flash_base_s | 1u;
     mm_scs_init(&state.cores[0].scs, 0x410fc241u);
     {
-        struct mm_fetch_result fetch;
-        struct mm_decoded decoded;
-        mm_bool fpu_ok = MM_FALSE;
         if (!mm_execution_state_fetch_decode(&state, test_fpu_allowed,
                                              test_decode, &fetch, &decoded,
                                              &fpu_ok) ||
@@ -303,6 +324,25 @@ static int test_session_bounded_elf_load(void)
             mm_execution_state_destroy(&state);
             return 1;
         }
+    }
+    state.cores[0].cpu.r[15] = 0xdead0001u;
+    fetch_fault_handler_calls = 0u;
+    fetch_fault_handler_addr = 0xdead0000u;
+    fetch_fault_handler_result = MM_FALSE;
+    if (mm_execution_state_fetch_decode_or_fault(
+            &state, test_fpu_allowed, test_decode, test_fetch_fault_handler,
+            &fetch, &decoded, &fpu_ok) != MM_EXECUTION_FETCH_FAULT_UNHANDLED ||
+        !fetch.fault || fetch_fault_handler_calls != 1u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    fetch_fault_handler_result = MM_TRUE;
+    if (mm_execution_state_fetch_decode_or_fault(
+            &state, test_fpu_allowed, test_decode, test_fetch_fault_handler,
+            &fetch, &decoded, &fpu_ok) != MM_EXECUTION_FETCH_FAULT_HANDLED ||
+        !fetch.fault || fetch_fault_handler_calls != 2u) {
+        mm_execution_state_destroy(&state);
+        return 1;
     }
     memset(&result, 0xA5, sizeof(result));
     if (mm_execution_state_load_elf(&state, image, sizeof(image),
