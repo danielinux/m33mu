@@ -72,8 +72,18 @@ int main(void)
         ".end",
         NULL
     };
+    char *divider_circuit[] = {
+        "ngspice wasm DC divider accuracy",
+        "V1 in 0 dc 5",
+        "R1 in out 2k",
+        "R2 out 0 3k",
+        ".op",
+        ".end",
+        NULL
+    };
     char out_name[] = "tran1.out";
     char time_name[] = "tran1.time";
+    char divider_out_name[] = "v(out)";
     pvector_info out_vector;
     pvector_info time_vector;
     double *out;
@@ -170,5 +180,24 @@ int main(void)
         return 13;
     printf("PASS: reset released transient vectors and a second init/run/reset succeeded "
            "(sync calls=%d, samples=%d)\n", sync_calls, count);
+
+    ngSpice_nospinit();
+    ngSpice_nospiceinit();
+    if (ngSpice_Init(no_output, no_output, controlled_exit,
+                     NULL, NULL, NULL, NULL) != 0)
+        return 14;
+    ngSpice_Command("set no_mem_check");
+    if (ngSpice_Circ(divider_circuit) != 0 || ngSpice_Command("op") != 0)
+        return 15;
+    out_vector = ngGet_Vec_Info(divider_out_name);
+    if (!out_vector || !out_vector->v_realdata || out_vector->v_length < 1 ||
+        fabs(out_vector->v_realdata[out_vector->v_length - 1] - 3.0) / 3.0 > 1e-6)
+        return 16;
+    printf("PASS: 5 V / 2 kOhm / 3 kOhm divider = %.12g V "
+           "(relative error %.5g)\n",
+           out_vector->v_realdata[out_vector->v_length - 1],
+           fabs(out_vector->v_realdata[out_vector->v_length - 1] - 3.0) / 3.0);
+    if (ngSpice_Reset() != 0 || ngGet_Vec_Info(divider_out_name) != NULL)
+        return 17;
     return 0;
 }
