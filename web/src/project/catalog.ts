@@ -8,7 +8,7 @@ export const PITCH = 25.4;
 
 export type PartKind =
   | 'breadboard' | 'resistor' | 'capacitor' | 'led' | 'diode' | 'switch'
-  | 'npn' | 'nmos' | 'supply' | 'ground';
+  | 'npn' | 'nmos' | 'opamp' | 'supply' | 'ground';
 
 export type ParamSpec = {
   key: string;
@@ -118,10 +118,31 @@ export const CATALOG: Record<PartKind, PartDef> = {
       { id: 's', x: 2 * PITCH, y: 0, label: 'S' }],
     devices: (id, _p, net) => [{ kind: 'nmos', id, d: net('d'), g: net('g'), s: net('s'), model: MODELS.nmosGeneric }]
   },
+  opamp: {
+    kind: 'opamp', title: 'Op-amp (rail-limited macro model)',
+    params: [
+      { key: 'gain', label: 'Open-loop gain', unit: '', min: 1, max: 1e7 },
+      { key: 'rOut', label: 'Output resistance', unit: 'Ω', min: 0.001, max: 1e6 },
+      { key: 'rIn', label: 'Differential input resistance', unit: 'Ω', min: 1, max: 1e15 },
+      { key: 'headroom', label: 'Rail headroom', unit: 'V', min: 0, max: 10 }
+    ],
+    defaults: { ...MODELS.opampGeneric },
+    terminals: () => [
+      { id: 'plus', x: 0, y: 0, label: 'IN+' },
+      { id: 'minus', x: 0, y: 2 * PITCH, label: 'IN−' },
+      { id: 'out', x: 4 * PITCH, y: PITCH, label: 'OUT' },
+      { id: 'vcc', x: 2 * PITCH, y: -PITCH, label: 'V+' },
+      { id: 'vee', x: 2 * PITCH, y: 3 * PITCH, label: 'V−' }
+    ],
+    devices: (id, p, net) => [{ kind: 'opamp', id, plus: net('plus'), minus: net('minus'),
+      out: net('out'), vcc: net('vcc'), vee: net('vee'),
+      model: { gain: Number(p.gain), rOut: Number(p.rOut), rIn: Number(p.rIn),
+        headroom: Number(p.headroom) } }]
+  },
   supply: {
     kind: 'supply', title: 'DC supply',
     params: [{ key: 'volts', label: 'Voltage', unit: 'V', min: -50, max: 50,
-      choices: [{ value: '3.3', label: '3.3 V' }, { value: '5', label: '5 V' }] }],
+      choices: [{ value: '1', label: '1 V' }, { value: '3.3', label: '3.3 V' }, { value: '5', label: '5 V' }] }],
     defaults: { volts: '3.3' },
     terminals: () => [{ id: 'p', x: 0, y: 0, label: '+' }, { id: 'n', x: PITCH, y: 0, label: '−' }],
     devices: (id, p, net) => [{ kind: 'vsource', id, p: net('p'), n: net('n'), volts: Number(p.volts) }]

@@ -90,6 +90,17 @@ export function PartGlyph({ part, brightness, pressed }: { part: Part; brightnes
         <Leads part={part} />
       </g>
     );
+  case 'opamp':
+    return (
+      <g>
+        <path d={`M ${P * 0.45} ${-P * 0.55} L ${P * 3.55} ${P} L ${P * 0.45} ${P * 2.55} Z`}
+          className="supply-body" />
+        <text x={P * 0.8} y={P * 0.15} className="part-label light">+</text>
+        <text x={P * 0.8} y={P * 2.05} className="part-label light">−</text>
+        <text x={P * 2} y={P * 1.05} className="part-label light">{part.id}</text>
+        <Leads part={part} />
+      </g>
+    );
   case 'supply':
     return (
       <g>

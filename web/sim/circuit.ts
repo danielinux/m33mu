@@ -73,7 +73,7 @@ type Compiled = {
 //  pad:       [vCinPrev, iCinPrev, driveCode, pullCode, digital]
 const STATE_SLOTS: Record<DeviceSpec['kind'], number> = {
   ground: 0, resistor: 0, capacitor: 2, inductor: 1, vsource: 0, isource: 0,
-  diode: 1, led: 1, switch: 1, npn: 2, pnp: 2, nmos: 2, pmos: 2, pad: 5
+  diode: 1, led: 1, switch: 1, npn: 2, pnp: 2, nmos: 2, pmos: 2, opamp: 0, pad: 5
 };
 
 const DRIVE_CODE: Record<PadDrive, number> = { z: 0, low: 1, high: 2 };
@@ -182,6 +182,7 @@ export class Circuit {
       case 'diode': case 'led': terms = [spec.a, spec.k]; break;
       case 'npn': case 'pnp': terms = [spec.c, spec.b, spec.e]; break;
       case 'nmos': case 'pmos': terms = [spec.d, spec.g, spec.s]; break;
+      case 'opamp': terms = [spec.plus, spec.minus, spec.out, spec.vcc, spec.vee]; break;
       case 'pad': terms = [spec.node]; break;
       }
       pending.push({ kind: spec.kind, spec, n: terms.map(net), state: stateSize });
@@ -266,6 +267,10 @@ export class Circuit {
       const sign = vdsN < 0 ? -1 : 1;
       const vgs = vdsN < 0 ? vgsN - vdsN : vgsN;
       return sign * p * this.mos(s.model.vto * p, s.model.kp, s.model.lambda, vgs, Math.abs(vdsN)).id;
+    }
+    case 'opamp': {
+      const target = this.opampTarget(d.n, s.model.gain, s.model.headroom, this.x).target;
+      return (target - this.v(d.n[2])) / s.model.rOut;
     }
     default: return 0;
     }
@@ -416,6 +421,27 @@ export class Circuit {
     if (pull === 1) i += (p.vdd - vp) / p.rPull;
     else if (pull === 2) i += -vp / p.rPull;
     return i;
+  }
+
+  /** Smoothly limit open-loop output to the supply rails. The derivative is
+   * used in the Newton stamp, including changes in the supply voltages. */
+  private opampTarget(n: number[], gain: number, headroom: number, x: Float64Array) {
+    const plus = this.v(n[0], x);
+    const minus = this.v(n[1], x);
+    const hi = this.v(n[3], x);
+    const lo = this.v(n[4], x);
+    const mid = (hi + lo) / 2;
+    const rawSpan = (hi - lo) / 2 - headroom;
+    const span = Math.max(rawSpan, 1e-6);
+    const z = Math.max(-30, Math.min(30, gain * (plus - minus) / span));
+    const t = Math.tanh(z);
+    const sech2 = 1 - t * t;
+    const dSpan = rawSpan > 1e-6 ? t - z * sech2 : 0;
+    return {
+      target: mid + span * t,
+      derivative: [gain * sech2, -gain * sech2, 0,
+        (1 + dSpan) / 2, (1 - dSpan) / 2]
+    };
   }
 
   // ---------------------------------------------------------------- stamping
@@ -576,6 +602,27 @@ export class Circuit {
         const vd = vs + p * vds;
         this.stampNonlinear(nodes, [id, 0, -id], [jd, [0, 0, 0], jd.map((g) => -g)], [vd, vg, vs]);
         this.conductance(dI, sI, GMIN);
+        break;
+      }
+      case 'opamp': {
+        const op = this.opampTarget(n, s.model.gain, s.model.headroom, x);
+        const source = (op.target - this.v(n[2], x)) / s.model.rOut;
+        const dSource = op.derivative.map((v, j) =>
+          (v - (j === 2 ? 1 : 0)) / s.model.rOut);
+        const input = (this.v(n[0], x) - this.v(n[1], x)) / s.model.rIn;
+        const dInput = [1 / s.model.rIn, -1 / s.model.rIn, 0, 0, 0];
+        // Output current is drawn from VCC when sourcing and returned to VEE
+        // when sinking. Smooth the zero-current split for Newton continuity.
+        const magnitude = Math.hypot(source, 1e-12);
+        const high = (source + magnitude) / 2;
+        const low = (source - magnitude) / 2;
+        const highSlope = (1 + source / magnitude) / 2;
+        const lowSlope = 1 - highSlope;
+        this.stampNonlinear(n,
+          [input, -input, -source, high, low],
+          [dInput, dInput.map((v) => -v), dSource.map((v) => -v),
+            dSource.map((v) => v * highSlope), dSource.map((v) => v * lowSlope)],
+          n.map((i) => this.v(i, x)));
         break;
       }
       default: break;

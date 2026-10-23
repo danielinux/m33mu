@@ -65,3 +65,12 @@ test('NPN example saturates and sinks the LED current', () => {
   c.operatingPoint();
   assert.ok(c.deviceCurrent('led1') < 1e-6, 'LED off with the base open');
 });
+
+test('op-amp example provides closed-loop gain two', () => {
+  const { compiled } = load('opamp-gain');
+  const c = new Circuit(compiled.netlist);
+  c.operatingPoint();
+  const out = compiled.terminalNet.get('part:u1:out')!;
+  assert.ok(Math.abs(c.nodeVoltage(out) - 2) < 0.002,
+    `loaded output ${c.nodeVoltage(out)}`);
+});

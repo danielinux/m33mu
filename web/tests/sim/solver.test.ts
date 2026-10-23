@@ -87,6 +87,72 @@ test('NMOS on-state matches ngspice 47 LEVEL=1 within 1e-5', () => {
   assert.ok(rel(c.deviceCurrent('rl'), 0.00985624426605022) < 1e-5);
 });
 
+test('rail-limited op-amp follows a closed-loop gain and supplies load current', () => {
+  const c = new Circuit({ schemaVersion: 1, devices: [
+    { kind: 'vsource', id: 'vcc', p: 'vcc', n: '0', volts: 5 },
+    { kind: 'vsource', id: 'vin', p: 'in', n: '0', volts: 1 },
+    { kind: 'resistor', id: 'rf', a: 'out', b: 'fb', ohms: 10e3 },
+    { kind: 'resistor', id: 'rg', a: 'fb', b: '0', ohms: 10e3 },
+    { kind: 'resistor', id: 'load', a: 'out', b: '0', ohms: 1000 },
+    { kind: 'opamp', id: 'u1', plus: 'in', minus: 'fb', out: 'out', vcc: 'vcc', vee: '0',
+      model: MODELS.opampGeneric }
+  ] });
+  c.operatingPoint();
+  assert.ok(Math.abs(c.nodeVoltage('out') - 2) < 0.002, `output ${c.nodeVoltage('out')}`);
+  assert.ok(c.deviceCurrent('u1') > 0.002, 'op-amp sources load and feedback current');
+  assert.ok(Math.abs(c.deviceCurrent('vcc') - c.deviceCurrent('u1')) < 1e-8,
+    'supply current tracks output current');
+});
+
+test('op-amp output saturates inside both supply rails', () => {
+  for (const vin of [-1, 6]) {
+    const c = new Circuit({ schemaVersion: 1, devices: [
+      { kind: 'vsource', id: 'vcc', p: 'vcc', n: '0', volts: 5 },
+      { kind: 'vsource', id: 'vin', p: 'in', n: '0', volts: vin },
+      { kind: 'resistor', id: 'load', a: 'out', b: '0', ohms: 1000 },
+      { kind: 'opamp', id: 'u1', plus: 'in', minus: 'out', out: 'out', vcc: 'vcc', vee: '0',
+        model: MODELS.opampGeneric }
+    ] });
+    c.operatingPoint();
+    const output = c.nodeVoltage('out');
+    assert.ok(output >= -1e-6 && output <= 4.8, `output ${output}`);
+    assert.ok(Math.abs(output - (vin < 0 ? 0.196 : 4.706)) < 0.05, `output ${output}`);
+  }
+});
+
+test('op-amp inverting feedback and capacitive load survive snapshot/restore', () => {
+  const c = new Circuit({ schemaVersion: 1, devices: [
+    { kind: 'vsource', id: 'vp', p: 'vcc', n: '0', volts: 5 },
+    { kind: 'vsource', id: 'vn', p: '0', n: 'vee', volts: 5 },
+    { kind: 'vsource', id: 'vin', p: 'in', n: '0', volts: 1 },
+    { kind: 'switch', id: 'sw', a: 'in', b: 'rin', closed: false },
+    { kind: 'resistor', id: 'ri', a: 'rin', b: 'fb', ohms: 10e3 },
+    { kind: 'resistor', id: 'rf', a: 'out', b: 'fb', ohms: 20e3 },
+    { kind: 'capacitor', id: 'cl', a: 'out', b: '0', farads: 1e-6 },
+    { kind: 'opamp', id: 'u1', plus: '0', minus: 'fb', out: 'out', vcc: 'vcc', vee: 'vee',
+      model: MODELS.opampGeneric }
+  ] });
+  c.operatingPoint();
+  assert.ok(Math.abs(c.nodeVoltage('out')) < 1e-5);
+  c.setSwitch('sw', true);
+  const before = c.snapshot();
+  c.advanceTo(20e-6);
+  const first = c.nodeVoltage('out');
+  assert.ok(first < -0.5 && first > -2, `transient output ${first}`);
+  c.restore(before);
+  c.advanceTo(20e-6);
+  assert.equal(c.nodeVoltage('out'), first);
+  c.advanceTo(200e-6);
+  assert.ok(Math.abs(c.nodeVoltage('out') + 2) < 0.004, `settled output ${c.nodeVoltage('out')}`);
+});
+
+test('op-amp rejects invalid model parameters', () => {
+  assert.throws(() => new Circuit({ schemaVersion: 1, devices: [
+    { kind: 'opamp', id: 'bad', plus: 'p', minus: 'n', out: 'o', vcc: 'vcc', vee: 'vee',
+      model: { gain: 0, rOut: 0, rIn: -1, headroom: -0.1 } }
+  ] }), /op-amp model needs/);
+});
+
 test('LED forward drop and current through 330 ohm from 3.3 V', () => {
   const c = new Circuit({ schemaVersion: 1, devices: [
     { kind: 'vsource', id: 'v', p: 'vcc', n: '0', volts: 3.3 },

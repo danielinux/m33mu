@@ -6,35 +6,42 @@
       "name": "H563 LED blink (PA5, CN7 pin 10)",
       "project": "h563-blink.m33mu.json",
       "firmware": "h563-blink.elf",
-      "description": "SysTick firmware toggles PA5 every 100 ms; 330 \u03a9 and a red LED to ground. LED brightness follows the solved current."
+      "description": "SysTick firmware toggles PA5 every 100 ms; 330 Ω and a red LED to ground. LED brightness follows the solved current."
     },
     {
       "id": "h563-button",
       "name": "H563 RC button to EXTI (PA6, CN9 pin 1)",
       "project": "h563-button.m33mu.json",
       "firmware": "h563-button.elf",
-      "description": "Hold the push button: a 10 k\u03a9/100 k\u03a9 divider charges 100 nF on PA6; each Schmitt crossing interrupts the firmware, which mirrors PA6 onto the PA5 LED."
+      "description": "Hold the push button: a 10 kΩ/100 kΩ divider charges 100 nF on PA6; each Schmitt crossing interrupts the firmware, which mirrors PA6 onto the PA5 LED."
     },
     {
       "id": "divider",
       "name": "DC divider",
       "project": "divider.m33mu.json",
       "firmware": null,
-      "description": "Analog only: 5 V across 2 k\u03a9 + 3 k\u03a9; the midpoint must read 3 V."
+      "description": "Analog only: 5 V across 2 kΩ + 3 kΩ; the midpoint must read 3 V."
     },
     {
       "id": "rc-switch",
       "name": "RC charge through a switch",
       "project": "rc-switch.m33mu.json",
       "firmware": null,
-      "description": "Analog only: hold the button to charge 10 \u00b5F through 1 k\u03a9 (\u03c4 = 10 ms); release and it holds its charge."
+      "description": "Analog only: hold the button to charge 10 µF through 1 kΩ (τ = 10 ms); release and it holds its charge."
     },
     {
       "id": "npn-led",
       "name": "NPN low-side LED switch",
       "project": "npn-led.m33mu.json",
       "firmware": null,
-      "description": "Analog only: the button drives 10 k\u03a9 into a 2N3904-like base; the transistor saturates and sinks the LED current through 220 \u03a9."
+      "description": "Analog only: the button drives 10 kΩ into a 2N3904-like base; the transistor saturates and sinks the LED current through 220 Ω."
+    },
+    {
+      "id": "opamp-gain",
+      "name": "Op-amp non-inverting gain ×2",
+      "project": "opamp-gain.m33mu.json",
+      "firmware": null,
+      "description": "Analog only: 1 V input, 5 V single supply and 10 kΩ/10 kΩ feedback produce about 2 V at the loaded output. The macro model has finite rail swing and output resistance."
     }
   ]
 }

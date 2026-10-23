@@ -138,7 +138,7 @@ try {
     await page.waitForSelector('g[data-part="r1"]');
     assert.equal(await page.locator('g[data-wire]').count(), 1);
     const bad = join(tmpdir(), `m33mu-bad-project-${process.pid}.json`);
-    writeFileSync(bad, JSON.stringify({ ...saved, parts: [{ ...saved.parts[0], kind: 'opamp' }] }));
+    writeFileSync(bad, JSON.stringify({ ...saved, parts: [{ ...saved.parts[0], kind: 'regulator' }] }));
     await page.getByTestId('open-input').setInputFiles(bad);
     await page.waitForFunction(() => /unsupported component/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
     assert.equal(await page.locator('g[data-part="r1"]').count(), 1, 'rejected project leaves the bench untouched');
@@ -185,6 +185,14 @@ try {
     await page.locator('g[data-part="r2"]').click();
     await page.waitForFunction(() => /3 V/.test(document.querySelector('.inspector')?.textContent ?? ''));
     await shot('05-divider-inspector');
+  });
+
+  await check('op-amp example runs and reports its loaded output', async () => {
+    await page.getByTestId('examples').selectOption('opamp-gain');
+    await page.getByTestId('run').click();
+    await page.locator('g[data-part="u1"]').click();
+    await page.waitForFunction(() => /OUT/.test(document.querySelector('.inspector')?.textContent ?? '') &&
+      /2 V/.test(document.querySelector('.inspector')?.textContent ?? ''));
   });
 
   await check('worker destroy and recreate in the browser', async () => {

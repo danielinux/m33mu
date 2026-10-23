@@ -46,7 +46,9 @@ Acceptance evidence (`node web/tests/run-unit.mjs`, CTest `web_sim_unit_test`):
 
 The live fixture is `web/fixtures/solver/bench-rc-exti.json` (CTest `wasm_worker_bench_rc_exti_test`, `scripts/test-web-bench.sh`). Replay from a fresh firmware load is bit-identical. Thermal voltage uses the SPICE nominal 300.15 K so that matched ngspice operating points agree.
 
-Limits: no adaptive model temperature, no junction or gate capacitance, no op-amp, regulator or transformer models yet, dense LU (intended for breadboard-sized circuits up to a few hundred unknowns). These remain P2 items.
+P2 extension: `opamp` is a five-terminal macro model with differential input resistance, finite output resistance, open-loop gain and a smooth output limit inside the supply rails. Output current is sourced from VCC or returned to VEE with a continuous current split around zero. The checked-in gain-two example and solver fixtures cover closed-loop DC gain, loaded rail saturation, supply current, capacitive-load transient and exact snapshot/restore. This model has no bandwidth, slew rate, input offset, common-mode range, current limit or temperature behavior; it is not a vendor IC model.
+
+Limits: no adaptive model temperature, no junction or gate capacitance, no regulator or transformer models yet, dense LU (intended for breadboard-sized circuits up to a few hundred unknowns). These remain P2 items.
 
 ## Previous decision (2026-10-23, superseded)
 

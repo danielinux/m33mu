@@ -24,7 +24,7 @@ type BenchStats = {
 };
 
 const hex = (v: number) => `0x${(v >>> 0).toString(16).padStart(8, '0')}`;
-const PALETTE: PartKind[] = ['breadboard', 'resistor', 'capacitor', 'led', 'diode', 'switch', 'npn', 'nmos', 'supply', 'ground'];
+const PALETTE: PartKind[] = ['breadboard', 'resistor', 'capacitor', 'led', 'diode', 'switch', 'npn', 'nmos', 'opamp', 'supply', 'ground'];
 
 async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource);

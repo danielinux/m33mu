@@ -12,6 +12,8 @@ export type DiodeModel = {
 
 export type BjtModel = { is: number; bf: number; br: number };
 export type MosModel = { vto: number; kp: number; lambda: number };
+/** Five-terminal, rail-limited op-amp macro model. */
+export type OpampModel = { gain: number; rOut: number; rIn: number; headroom: number };
 
 export type PadDrive = 'high' | 'low' | 'z';
 export type PadPull = 'up' | 'down' | 'none';
@@ -32,6 +34,8 @@ export type DeviceSpec =
       model: BjtModel }
   | { kind: 'nmos' | 'pmos'; id: string; d: string; g: string; s: string;
       model: MosModel }
+  | { kind: 'opamp'; id: string; plus: string; minus: string; out: string;
+      vcc: string; vee: string; model: OpampModel }
   | { kind: 'pad'; id: string; node: string; pad: PadElectrical };
 
 /** Finite electrical model of an MCU pad. Values are documented
@@ -69,7 +73,8 @@ export const MODELS = {
   npn2n3904: { is: 6.734e-15, bf: 416.4, br: 0.7371 } as BjtModel,
   pnp2n3906: { is: 1.41e-15, bf: 180.7, br: 4.977 } as BjtModel,
   nmosGeneric: { vto: 1.5, kp: 0.02, lambda: 0 } as MosModel,
-  pmosGeneric: { vto: -1.5, kp: 0.02, lambda: 0 } as MosModel
+  pmosGeneric: { vto: -1.5, kp: 0.02, lambda: 0 } as MosModel,
+  opampGeneric: { gain: 1e5, rOut: 20, rIn: 1e9, headroom: 0.2 } as OpampModel
 };
 
 export function defaultPad(socPad: string, vdd = 3.3): PadElectrical {
@@ -89,6 +94,7 @@ function terminals(d: DeviceSpec): string[] {
   case 'diode': case 'led': return [d.a, d.k];
   case 'npn': case 'pnp': return [d.c, d.b, d.e];
   case 'nmos': case 'pmos': return [d.d, d.g, d.s];
+  case 'opamp': return [d.plus, d.minus, d.out, d.vcc, d.vee];
   case 'pad': return [d.node];
   }
 }
@@ -123,7 +129,7 @@ export function validateNetlist(netlist: unknown): string[] {
     if (ids.has(d.id)) errors.push(`Duplicate device id ${d.id}`);
     ids.add(d.id);
     const known = ['ground', 'resistor', 'capacitor', 'inductor', 'vsource', 'isource',
-      'diode', 'led', 'switch', 'npn', 'pnp', 'nmos', 'pmos', 'pad'];
+      'diode', 'led', 'switch', 'npn', 'pnp', 'nmos', 'pmos', 'opamp', 'pad'];
     if (!known.includes(d.kind)) {
       errors.push(`${d.id}: unsupported device kind ${String((d as { kind: unknown }).kind)}`);
       continue;
@@ -159,6 +165,13 @@ export function validateNetlist(netlist: unknown): string[] {
           !(finite(d.model.lambda) && d.model.lambda >= 0)) {
         errors.push(`${d.id}: MOS model needs finite vto, kp > 0, lambda >= 0`);
       }
+      break;
+    case 'opamp':
+      if (!d.model || !positive(d.model.gain) || !positive(d.model.rOut) ||
+          !positive(d.model.rIn) || !(finite(d.model.headroom) && d.model.headroom >= 0)) {
+        errors.push(`${d.id}: op-amp model needs gain, rOut, rIn > 0 and headroom >= 0`);
+      }
+      if (d.vcc === d.vee) errors.push(`${d.id}: supply rails must differ`);
       break;
     case 'pad': {
       const p = d.pad;
