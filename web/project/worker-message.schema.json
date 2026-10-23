@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://m33mu.dev/schemas/worker-message-v1.json",
+  "title": "m33mu Web Worker RPC Message",
+  "oneOf": [
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/response"},
+    {"$ref": "#/$defs/event"}
+  ],
+  "$defs": {
+    "request": {"type": "object", "additionalProperties": false, "required": ["schemaVersion", "kind", "requestId", "operation", "payload"], "properties": {"schemaVersion": {"const": 1}, "kind": {"const": "request"}, "requestId": {"type": "integer", "minimum": 1}, "operation": {"enum": ["loadFirmware", "run", "pause", "step", "reset", "gpioWrite"]}, "payload": {"type": "object"}}},
+    "response": {"type": "object", "additionalProperties": false, "required": ["schemaVersion", "kind", "requestId", "ok"], "properties": {"schemaVersion": {"const": 1}, "kind": {"const": "response"}, "requestId": {"type": "integer", "minimum": 1}, "ok": {"type": "boolean"}, "result": {}, "error": {"type": "object", "additionalProperties": false, "required": ["code", "message"], "properties": {"code": {"type": "string"}, "message": {"type": "string"}}}}},
+    "event": {"type": "object", "additionalProperties": false, "required": ["schemaVersion", "kind", "sequence", "event", "payload"], "properties": {"schemaVersion": {"const": 1}, "kind": {"const": "event"}, "sequence": {"type": "integer", "minimum": 1}, "event": {"enum": ["state", "gpio", "uart", "fault", "traceChunk", "capabilities"]}, "payload": {"type": "object"}}}
+  }
+}

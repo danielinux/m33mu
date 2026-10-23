@@ -24,7 +24,8 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [ ] Reconcile verified CN7/10 and CN9/1 signal mappings with the sprite's provisional ZIO contact anchors; record exact schematic revision and keep wiring disabled until the geometry match is confirmed.
 - [ ] Run ngspice WASM and CircuitJS TypeScript incremental transient spikes, or record a concrete toolchain/license blocker. Test changes during a transient, pause/resume, state preservation, reproducibility and worker yielding.
 - [ ] Demonstrate causal firmware-output changes and analog threshold crossings with stated time tolerance. The PR #15 block-delivery timing alone does not meet the analog coupling contract.
-- [ ] Complete board-pad, capability and worker-message schemas; validate project schema behavior with representative valid/invalid projects; finish third-party license audit.
+- [x] Define versioned board-pad, capability and worker-message JSON Schemas. The H563 board override follows the board-pad contract; full schema-level valid/invalid fixture validation remains open because no JSON Schema validator is installed in the environment.
+- [ ] Run project-schema positive/negative fixture validation and finish the third-party license audit.
 
 ## Not started
 

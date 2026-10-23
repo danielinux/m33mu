@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://m33mu.dev/schemas/capabilities-v1.json",
+  "title": "m33mu Web Backend Capabilities",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "cpu", "firmwareFormats", "sessionCount", "features"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "cpu": {"type": "string", "minLength": 1},
+    "firmwareFormats": {"type": "array", "uniqueItems": true, "items": {"enum": ["elf", "bin", "hex", "uf2"]}},
+    "sessionCount": {"type": "integer", "minimum": 1},
+    "features": {
+      "type": "object",
+      "additionalProperties": {"type": "boolean"},
+      "properties": {
+        "instructionStep": {"type": "boolean"}, "runPause": {"type": "boolean"},
+        "reset": {"type": "boolean"}, "uart": {"type": "boolean"},
+        "gpioRead": {"type": "boolean"}, "gpioWrite": {"type": "boolean"},
+        "analogPadVoltage": {"type": "boolean"}, "adc": {"type": "boolean"},
+        "sourceDebug": {"type": "boolean"}
+      }
+    }
+  }
+}
