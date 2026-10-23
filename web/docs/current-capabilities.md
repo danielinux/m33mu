@@ -14,7 +14,7 @@ This is a development status page, not a claim that the browser workbench exists
 | Native library | `m33mu_lib` is assembled from a broad source glob and links optional host libraries | The dedicated Emscripten target excludes host modules and builds a static core. |
 | Emscripten | `emcc` 6.0.5 and Node 24 are installed in the reviewed environment | `cmake/wasm` builds; Node/WASM loader and session smokes pass. This is not yet a worker API or browser app. |
 | Session isolation | GPIO readers, memory-map lookup and multiple peripheral models use global/static state | First browser version supports one active emulator session per worker. Parallel sessions require a later state-ownership refactor. |
-| Native regression | PUF zeroize expectation was updated in `7188fb9`; current serial CTest passes 108 enabled tests (one disabled) | Includes native session coverage, CLI ELF boot, WASM core and worker builds, and Node/WASM loader/session/worker smokes. |
+| Native regression | PUF zeroize expectation was updated in `7188fb9`; current serial CTest at `f4c0b3b` passes 109 enabled tests (one disabled) | Includes reset request state, native session coverage, CLI ELF boot, WASM core and worker builds, and Node/WASM loader/session/worker smokes. |
 
 ## GPIO and board connectivity
 
