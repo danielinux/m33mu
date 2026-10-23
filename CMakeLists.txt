@@ -601,6 +601,13 @@ if(M33MU_BUILD_TESTS)
     set_tests_properties(sigc_python_test PROPERTIES
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
+    add_test(NAME cli_elf_loader_test
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/scripts/test_cli_elf_loader.py"
+        "$<TARGET_FILE:m33mu>")
+    set_tests_properties(cli_elf_loader_test PROPERTIES
+      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
   endif()
   find_program(M33MU_EMCC emcc)
   find_program(M33MU_EMCMAKE emcmake)
