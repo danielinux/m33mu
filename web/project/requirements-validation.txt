@@ -1,0 +1,2 @@
+# Schema-check tooling only; not a runtime dependency of the workbench.
+jsonschema>=4.18,<5

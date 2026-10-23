@@ -24,10 +24,10 @@ Updated 2026-10-23. Keep this checklist current as P0 work advances.
 - [ ] Reconcile verified CN7/10 and CN9/1 signal mappings with the sprite's provisional ZIO contact anchors; record exact schematic revision and keep wiring disabled until the geometry match is confirmed.
 - [ ] Run ngspice WASM and CircuitJS TypeScript incremental transient spikes, or record a concrete toolchain/license blocker. Test changes during a transient, pause/resume, state preservation, reproducibility and worker yielding.
 - [ ] Demonstrate causal firmware-output changes and analog threshold crossings with stated time tolerance. The PR #15 block-delivery timing alone does not meet the analog coupling contract.
-- [x] Define versioned board-pad, capability and worker-message JSON Schemas. The H563 board override follows the board-pad contract; full schema-level valid/invalid fixture validation remains open because no JSON Schema validator is installed in the environment.
+- [x] Define versioned board-pad, capability and worker-message JSON Schemas. `scripts/validate-web-schemas.py` validates all four Draft 2020-12 schemas and passes four valid and three invalid fixtures, including rejection of an electrically enabled contact without artwork verification.
 - [x] Inventory currently supplied artwork and upstream pin evidence in `THIRD_PARTY.md`; no solver code, device models, artwork files, or runtime packages have been imported. License audit at actual solver adoption remains a gate.
 - [x] Inspect the public EEcircuit engine API and source: it runs the full netlist (`destroy all`, `run`, export raw data) with no public incremental stepping/source-update API, so it fails the interactive co-simulation contract as-is. CircuitJS1's TypeScript matrix code is separable in principle, but its `CirSim` controller is coupled to UI classes; extraction still needs a measured spike.
-- [ ] Run project-schema positive/negative fixture validation and finish the third-party license audit.
+- [ ] Finish the third-party license audit when selecting/importing a solver and adding runtime dependencies or models.
 
 ## Not started
 
