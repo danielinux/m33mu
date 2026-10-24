@@ -104,7 +104,7 @@ static mm_bool flexcomm_clocked(const struct flexcomm_inst *fc)
 static void flexcomm_uart_ensure_open(struct flexcomm_inst *fc)
 {
     if (fc == 0) return;
-    if (fc->uart_io.fd >= 0) return;
+    if (mm_uart_io_is_open(&fc->uart_io)) return;
     if (mm_uart_io_open(&fc->uart_io, fc->base)) {
         if (mm_tui_is_active()) {
             mm_tui_attach_uart(fc->uart_label, fc->uart_io.name);

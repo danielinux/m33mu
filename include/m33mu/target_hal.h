@@ -47,6 +47,7 @@ struct mm_uart_backend_ops {
 
 void mm_uart_io_init(struct mm_uart_io *io);
 mm_bool mm_uart_io_open(struct mm_uart_io *io, mm_u32 base);
+mm_bool mm_uart_io_is_open(const struct mm_uart_io *io);
 void mm_uart_io_close(struct mm_uart_io *io);
 void mm_uart_io_queue_tx(struct mm_uart_io *io, mm_u8 byte);
 mm_bool mm_uart_io_flush(struct mm_uart_io *io);

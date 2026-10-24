@@ -75,7 +75,7 @@ static mm_u32 sercom_get_mode(const struct sercom_inst *sc)
 
 static void usart_ensure_open(struct sercom_inst *sc)
 {
-    if (sc->uart_io.fd >= 0) return;
+    if (mm_uart_io_is_open(&sc->uart_io)) return;
     if (mm_uart_io_open(&sc->uart_io, sc->base)) {
         if (mm_tui_is_active()) {
             mm_tui_attach_uart(sc->uart_label, sc->uart_io.name);

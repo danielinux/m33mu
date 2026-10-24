@@ -111,6 +111,12 @@ void mm_uart_io_init(struct mm_uart_io *io)
 
 static mm_bool uart_offer_instance(mm_u32 base);
 
+/* A UART is open on a pty/stdio (fd >= 0) or a registered backend (fd -2). */
+mm_bool mm_uart_io_is_open(const struct mm_uart_io *io)
+{
+    return (io != 0 && (io->fd >= 0 || io->backend_ops != 0)) ? MM_TRUE : MM_FALSE;
+}
+
 mm_bool mm_uart_io_open(struct mm_uart_io *io, mm_u32 base)
 {
     const struct mm_uart_backend_binding *binding;

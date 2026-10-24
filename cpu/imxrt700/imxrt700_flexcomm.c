@@ -111,7 +111,7 @@ static mm_u32 fc_mode(const struct fc_inst *fc)
 
 static void uart_ensure_open(struct fc_inst *fc)
 {
-    if (fc->uart_io.fd >= 0) {
+    if (mm_uart_io_is_open(&fc->uart_io)) {
         return;
     }
     if (mm_uart_io_open(&fc->uart_io, fc->dev->base)) {
