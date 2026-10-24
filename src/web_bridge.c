@@ -20,6 +20,14 @@
 #include "m33mu/i2c_bus.h"
 #include "m33mu/spi_bus.h"
 #include "m33mu/vector.h"
+#include "m33mu/spiflash.h"
+#include "m33mu/ta100.h"
+#ifdef M33MU_HAS_RUST_PLUGINS
+#include "m33mu/atecc608.h"
+#include "m33mu/se050.h"
+#include "m33mu/stsafe.h"
+#include "m33mu/tropic01.h"
+#endif
 
 #define MM_WEB_DEFAULT_IMAGE_LIMIT (32u * 1024u * 1024u)
 #define MM_WEB_CPUID 0x410fc241u
@@ -1414,10 +1422,79 @@ size_t mm_web_uart_write(struct mm_web_session *session, size_t index,
     return n;
 }
 
+static mm_bool web_spec_kind(const char *spec, const char *kind,
+                              const char **rest_out)
+{
+    size_t n = strlen(kind);
+    if (strncmp(spec, kind, n) != 0 || spec[n] != ':') return MM_FALSE;
+    *rest_out = spec + n + 1u;
+    return MM_TRUE;
+}
+
+enum mm_web_error mm_web_attach_device(struct mm_web_session *session,
+                                       const char *spec)
+{
+    const char *rest = 0;
+    if (session == 0 || spec == 0) return MM_WEB_INVALID_ARGUMENT;
+    if (session != g_web_active_session) return MM_WEB_INITIALIZATION_FAILED;
+    if (web_spec_kind(spec, "spiflash", &rest)) {
+        struct mm_spiflash_cfg cfg;
+        if (!mm_spiflash_parse_spec(rest, &cfg)) return MM_WEB_INVALID_ARGUMENT;
+        return mm_spiflash_register_cfg(&cfg) ? MM_WEB_OK : MM_WEB_INITIALIZATION_FAILED;
+    }
+    if (web_spec_kind(spec, "ta100", &rest)) {
+#ifdef M33MU_HAS_WOLFSSL
+        struct mm_ta100_cfg cfg;
+        if (!mm_ta100_parse_spec(rest, &cfg)) return MM_WEB_INVALID_ARGUMENT;
+        return mm_ta100_register_cfg(&cfg) ? MM_WEB_OK : MM_WEB_INITIALIZATION_FAILED;
+#else
+        return MM_WEB_UNSUPPORTED_TARGET;
+#endif
+    }
+#ifdef M33MU_HAS_RUST_PLUGINS
+#define WEB_RUST_DEVICE(name)                                              \
+    if (web_spec_kind(spec, #name, &rest)) {                               \
+        struct mm_##name##_cfg cfg;                                         \
+        if (!mm_##name##_parse_spec(rest, &cfg)) return MM_WEB_INVALID_ARGUMENT; \
+        return mm_##name##_register_cfg(&cfg) ? MM_WEB_OK                  \
+                                              : MM_WEB_INITIALIZATION_FAILED; \
+    }
+    WEB_RUST_DEVICE(atecc608)
+    WEB_RUST_DEVICE(se050)
+    WEB_RUST_DEVICE(stsafe)
+    WEB_RUST_DEVICE(tropic01)
+#undef WEB_RUST_DEVICE
+#else
+    if (web_spec_kind(spec, "atecc608", &rest) || web_spec_kind(spec, "se050", &rest) ||
+        web_spec_kind(spec, "stsafe", &rest) || web_spec_kind(spec, "tropic01", &rest)) {
+        return MM_WEB_UNSUPPORTED_TARGET;
+    }
+#endif
+    return MM_WEB_INVALID_ARGUMENT;
+}
+
+void mm_web_detach_devices(struct mm_web_session *session)
+{
+    if (session == 0 || session != g_web_active_session) return;
+    mm_spiflash_shutdown_all();
+#ifdef M33MU_HAS_WOLFSSL
+    mm_ta100_shutdown_all();
+#endif
+#ifdef M33MU_HAS_RUST_PLUGINS
+    mm_atecc608_shutdown_all();
+    mm_se050_shutdown_all();
+    mm_stsafe_shutdown_all();
+    mm_tropic01_shutdown_all();
+#endif
+    mm_i2c_bus_shutdown_all();
+    mm_spi_bus_clear();
+}
+
 void mm_web_destroy(struct mm_web_session *session)
 {
     if (session == 0) return;
     if (session == g_web_active_session) {
+        mm_web_detach_devices(session);
         web_detach_uarts(session);
         mm_i2c_bus_set_host(0);
         mm_spi_bus_set_host(0);

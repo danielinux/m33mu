@@ -47,6 +47,8 @@ struct mm_spi_host {
 
 void mm_spi_bus_set_host(const struct mm_spi_host *host);
 mm_bool mm_spi_bus_register_device(const struct mm_spi_device *dev);
+/* Forget every registered device (their owners free their own state). */
+void mm_spi_bus_clear(void);
 mm_u8 mm_spi_bus_xfer(int bus, mm_u8 out);
 void mm_spi_bus_end(int bus);
 void mm_spi_bus_poll_cs(int bus);

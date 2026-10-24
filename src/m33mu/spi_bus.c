@@ -42,6 +42,11 @@ mm_bool mm_spi_bus_register_device(const struct mm_spi_device *dev)
     return MM_TRUE;
 }
 
+void mm_spi_bus_clear(void)
+{
+    g_spi_device_count = 0;
+}
+
 static struct mm_spi_device *spi_bus_select(int bus)
 {
     size_t i;

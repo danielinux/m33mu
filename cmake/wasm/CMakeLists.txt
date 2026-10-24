@@ -63,6 +63,30 @@ if(M33MU_WOLFSSL_SRC)
   target_link_libraries(m33mu_wasm_core PUBLIC m33mu_wasm_wolfcrypt)
 endif()
 
+# Optional Rust secure-element simulators (ATECC608, SE050, STSAFE-A120,
+# TROPIC01) built for wasm32-unknown-emscripten from third_party. Needs cargo
+# and `rustup target add wasm32-unknown-emscripten`.
+option(M33MU_WASM_RUST_SE "Link the Rust secure-element simulators" OFF)
+if(M33MU_WASM_RUST_SE)
+  find_program(M33MU_CARGO cargo REQUIRED)
+  set(_rs_ws "${CMAKE_CURRENT_LIST_DIR}/../../third_party/wolfssl-simulators")
+  set(_rs_out "${CMAKE_BINARY_DIR}/rust/wasm32-unknown-emscripten/release")
+  set(_rs_libs "${_rs_out}/libatecc608_sim.a" "${_rs_out}/libse050_sim.a"
+               "${_rs_out}/libstsafe_a120_sim.a" "${_rs_out}/libtropic01_sim.a")
+  file(GLOB_RECURSE _rs_srcs CONFIGURE_DEPENDS "${_rs_ws}/*/src/*.rs" "${_rs_ws}/*/Cargo.toml")
+  add_custom_command(OUTPUT ${_rs_libs}
+    COMMAND "${M33MU_CARGO}" build --release --target wasm32-unknown-emscripten
+            --target-dir "${CMAKE_BINARY_DIR}/rust"
+    WORKING_DIRECTORY "${_rs_ws}"
+    DEPENDS ${_rs_srcs}
+    COMMENT "Building Rust secure-element simulators for WASM"
+    VERBATIM)
+  add_custom_target(m33mu_wasm_rust_se DEPENDS ${_rs_libs})
+  add_dependencies(m33mu_wasm_core m33mu_wasm_rust_se)
+  target_compile_definitions(m33mu_wasm_core PUBLIC M33MU_HAS_RUST_PLUGINS=1)
+  target_link_libraries(m33mu_wasm_core PUBLIC ${_rs_libs})
+endif()
+
 # Run the same production-session regression suite under Node/WASM. This is a
 # session API smoke, not a browser worker or UI test.
 add_executable(execution_state_wasm_smoke
@@ -91,7 +115,7 @@ target_link_options(m33mu_web_api PRIVATE
   -sEXPORT_ES6=1
   -sEXPORT_NAME=createM33muModule
   -sENVIRONMENT=web,worker,node
-  -sEXPORTED_FUNCTIONS=_malloc,_free,_mm_web_abi_version,_mm_web_abi_features,_mm_web_abi_create,_mm_web_abi_create_cpu,_mm_web_abi_read_memory,_mm_web_abi_write_memory,_mm_web_abi_load,_mm_web_abi_step,_mm_web_abi_run_slice,_mm_web_abi_run_until,_mm_web_abi_last_deadline_reached,_mm_web_abi_last_pad_changed,_mm_web_abi_cancel_gpio_inputs,_mm_web_abi_pad_state,_mm_web_abi_gpio_output_config,_mm_web_abi_has_pending_deadline,_mm_web_abi_reset,_mm_web_abi_gpio_input,_mm_web_abi_gpio_output_next,_mm_web_abi_gpio_output_pad,_mm_web_abi_gpio_output_level,_mm_web_abi_gpio_output_time_low,_mm_web_abi_gpio_output_time_high,_mm_web_abi_last_error,_mm_web_abi_last_instruction_count,_mm_web_abi_last_stopped,_mm_web_abi_last_system_reset,_mm_web_abi_last_lockup,_mm_web_abi_last_lockup_pc,_mm_web_abi_cpu_reg,_mm_web_abi_cycle_low,_mm_web_abi_cycle_high,_mm_web_abi_xpsr,_mm_web_abi_msp_s,_mm_web_abi_msp_ns,_mm_web_abi_psp_s,_mm_web_abi_psp_ns,_mm_web_abi_security_state,_mm_web_abi_mode,_mm_web_abi_sleeping,_mm_web_abi_cpu_hz,_mm_web_abi_virtual_time_low,_mm_web_abi_virtual_time_high,_mm_web_abi_destroy,_mm_web_abi_uart_count,_mm_web_abi_uart_label,_mm_web_abi_uart_base,_mm_web_abi_uart_read,_mm_web_abi_uart_overflow,_mm_web_abi_uart_write,_mm_web_abi_enable_bus_host
+  -sEXPORTED_FUNCTIONS=_malloc,_free,_mm_web_abi_version,_mm_web_abi_features,_mm_web_abi_create,_mm_web_abi_create_cpu,_mm_web_abi_read_memory,_mm_web_abi_write_memory,_mm_web_abi_load,_mm_web_abi_step,_mm_web_abi_run_slice,_mm_web_abi_run_until,_mm_web_abi_last_deadline_reached,_mm_web_abi_last_pad_changed,_mm_web_abi_cancel_gpio_inputs,_mm_web_abi_pad_state,_mm_web_abi_gpio_output_config,_mm_web_abi_has_pending_deadline,_mm_web_abi_reset,_mm_web_abi_gpio_input,_mm_web_abi_gpio_output_next,_mm_web_abi_gpio_output_pad,_mm_web_abi_gpio_output_level,_mm_web_abi_gpio_output_time_low,_mm_web_abi_gpio_output_time_high,_mm_web_abi_last_error,_mm_web_abi_last_instruction_count,_mm_web_abi_last_stopped,_mm_web_abi_last_system_reset,_mm_web_abi_last_lockup,_mm_web_abi_last_lockup_pc,_mm_web_abi_cpu_reg,_mm_web_abi_cycle_low,_mm_web_abi_cycle_high,_mm_web_abi_xpsr,_mm_web_abi_msp_s,_mm_web_abi_msp_ns,_mm_web_abi_psp_s,_mm_web_abi_psp_ns,_mm_web_abi_security_state,_mm_web_abi_mode,_mm_web_abi_sleeping,_mm_web_abi_cpu_hz,_mm_web_abi_virtual_time_low,_mm_web_abi_virtual_time_high,_mm_web_abi_destroy,_mm_web_abi_uart_count,_mm_web_abi_uart_label,_mm_web_abi_uart_base,_mm_web_abi_uart_read,_mm_web_abi_uart_overflow,_mm_web_abi_uart_write,_mm_web_abi_enable_bus_host,_mm_web_abi_attach_device,_mm_web_abi_detach_devices
   -sEXPORTED_RUNTIME_METHODS=cwrap,HEAPU8
   # Target RAM/flash backing ranges from a few hundred KiB (H5) to several
   # MiB (RP2350 flash, i.MX RT700 SRAM).

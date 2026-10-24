@@ -71,7 +71,10 @@ unsigned int mm_web_abi_features(void)
 {
     unsigned int features = 0u;
 #ifdef M33MU_HAS_WOLFSSL
-    features |= MM_WEB_FEATURE_WOLFCRYPT;
+    features |= MM_WEB_FEATURE_WOLFCRYPT | MM_WEB_FEATURE_TA100;
+#endif
+#ifdef M33MU_HAS_RUST_PLUGINS
+    features |= MM_WEB_FEATURE_RUST_SE;
 #endif
     return features;
 }
@@ -392,4 +395,14 @@ unsigned int mm_web_abi_uart_write(void *session, unsigned int index,
 void mm_web_abi_destroy(void *session)
 {
     mm_web_destroy((struct mm_web_session *)session);
+}
+
+int mm_web_abi_attach_device(void *session, const char *spec)
+{
+    return (int)mm_web_attach_device((struct mm_web_session *)session, spec);
+}
+
+void mm_web_abi_detach_devices(void *session)
+{
+    mm_web_detach_devices((struct mm_web_session *)session);
 }

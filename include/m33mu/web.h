@@ -84,6 +84,8 @@ struct mm_web_gpio_output_event {
 
 /* mm_web_abi_features() bits. */
 #define MM_WEB_FEATURE_WOLFCRYPT 1u /* crypto peripheral models are live */
+#define MM_WEB_FEATURE_TA100     2u /* "ta100:" devices can be attached */
+#define MM_WEB_FEATURE_RUST_SE   4u /* atecc608/se050/stsafe/tropic01 */
 
 #define MM_WEB_RUN_STOP_ON_PAD_CHANGE 1u
 
@@ -208,6 +210,16 @@ struct mm_web_bus_host {
     void (*spi_end)(void *opaque, int bus);
     void *opaque;
 };
+/* Attach a simulated bus device using the CLI device syntax without the
+ * leading dashes, e.g. "se050:I2C1:addr=0x48", "atecc608:SPI1:cs=PA4",
+ * "ta100:SPI1:cs=PB5", "tropic01:SPI2:cs=PB12", "stsafe:I2C2" or
+ * "spiflash:SPI1:file=/flash.bin:size=4096:cs=PB0". Devices compiled out of
+ * this build return MM_WEB_UNSUPPORTED_TARGET. */
+enum mm_web_error mm_web_attach_device(struct mm_web_session *session,
+                                       const char *spec);
+/* Remove every attached device (also done by mm_web_destroy). */
+void mm_web_detach_devices(struct mm_web_session *session);
+
 enum mm_web_error mm_web_set_bus_host(struct mm_web_session *session,
                                       const struct mm_web_bus_host *host);
 void mm_web_destroy(struct mm_web_session *session);
