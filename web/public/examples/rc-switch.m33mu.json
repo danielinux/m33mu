@@ -138,23 +138,27 @@
     }
   ],
   "instruments": {
-    "scope": {
-      "channels": [
-        {
-          "kind": "voltage",
-          "at": {
-            "kind": "part",
-            "part": "c1",
-            "terminal": "a"
+    "scopes": [
+      {
+        "id": "scope1",
+        "name": "Scope 1",
+        "channels": [
+          {
+            "kind": "voltage",
+            "at": {
+              "kind": "part",
+              "part": "c1",
+              "terminal": "a"
+            }
+          },
+          {
+            "kind": "current",
+            "part": "r1"
           }
-        },
-        {
-          "kind": "current",
-          "part": "r1"
-        }
-      ],
-      "windowNs": 50000000
-    }
+        ],
+        "windowNs": 50000000
+      }
+    ]
   },
   "solver": {
     "lookaheadNs": 50000,

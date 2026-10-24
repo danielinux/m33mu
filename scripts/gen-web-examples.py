@@ -41,7 +41,7 @@ def project(pid, name, parts, wires, channels, window_ns, firmware=None, sample_
         "schemaVersion": 2, "projectId": pid, "name": name, "simulator": sim,
         "boards": [{"id": "board1", "cpu": "stm32h563", "layoutRevision": LAYOUT, "x": 0, "y": 0}],
         "parts": parts, "wires": wires,
-        "instruments": {"scope": {"channels": channels, "windowNs": window_ns}},
+        "instruments": {"scopes": [{"id": "scope1", "name": "Scope 1", "channels": channels, "windowNs": window_ns}]},
         "solver": {"lookaheadNs": lookahead_ns, "sampleNs": sample_ns},
         "ui": {"zoom": zoom, "panX": pan[0], "panY": pan[1]},
     }

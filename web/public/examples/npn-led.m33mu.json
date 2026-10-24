@@ -198,23 +198,27 @@
     }
   ],
   "instruments": {
-    "scope": {
-      "channels": [
-        {
-          "kind": "current",
-          "part": "led1"
-        },
-        {
-          "kind": "voltage",
-          "at": {
-            "kind": "part",
-            "part": "q1",
-            "terminal": "c"
+    "scopes": [
+      {
+        "id": "scope1",
+        "name": "Scope 1",
+        "channels": [
+          {
+            "kind": "current",
+            "part": "led1"
+          },
+          {
+            "kind": "voltage",
+            "at": {
+              "kind": "part",
+              "part": "q1",
+              "terminal": "c"
+            }
           }
-        }
-      ],
-      "windowNs": 10000000
-    }
+        ],
+        "windowNs": 10000000
+      }
+    ]
   },
   "solver": {
     "lookaheadNs": 50000,

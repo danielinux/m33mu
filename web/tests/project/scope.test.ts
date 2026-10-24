@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ScopeAcquisitionEngine, ScopeBuffer } from '../../src/instruments/Scope.tsx';
-import { emptyProject, parseProject, serializeProject } from '../../src/project/model.ts';
+import { emptyProject, newScope, parseProject, serializeProject } from '../../src/project/model.ts';
 
 test('scope locates rising and falling edges between samples', () => {
   const b = new ScopeBuffer();
@@ -41,17 +41,17 @@ test('held scope snapshot survives live writes and ring wrap', () => {
 
 test('scope trigger is saved and invalid settings are rejected', () => {
   const p = emptyProject();
-  p.instruments.scope.trigger = { channel: 1, edge: 'falling', level: 1.25 };
-  assert.deepEqual(parseProject(serializeProject(p)).instruments.scope.trigger, p.instruments.scope.trigger);
+  p.instruments.scopes[0].trigger = { channel: 1, edge: 'falling', level: 1.25 };
+  assert.deepEqual(parseProject(serializeProject(p)).instruments.scopes[0].trigger, p.instruments.scopes[0].trigger);
   const bad = JSON.parse(serializeProject(p));
-  bad.instruments.scope.trigger.level = Infinity;
+  bad.instruments.scopes[0].trigger.level = Infinity;
   assert.throws(() => parseProject(JSON.stringify(bad)), /Scope trigger needs/);
-  p.instruments.scope.acquisition = 'single';
-  assert.equal(parseProject(serializeProject(p)).instruments.scope.acquisition, 'single');
+  p.instruments.scopes[0].acquisition = 'single';
+  assert.equal(parseProject(serializeProject(p)).instruments.scopes[0].acquisition, 'single');
   const invalidMode = JSON.parse(serializeProject(p));
-  invalidMode.instruments.scope.acquisition = 'loop';
+  invalidMode.instruments.scopes[0].acquisition = 'loop';
   assert.throws(() => parseProject(JSON.stringify(invalidMode)), /Scope acquisition must/);
-  p.instruments.scope.trigger = null;
+  p.instruments.scopes[0].trigger = null;
   assert.throws(() => serializeProject(p), /need a trigger/);
 });
 
@@ -90,4 +90,22 @@ test('acquisition refuses a window after its pretrigger samples were lost', () =
   b.append(new Float64Array([90, 1, 0]), 3, [0, 1]);
   b.start = 1; b.length = 2; b.dropped = 1;
   assert.equal(engine.observe(b), null);
+});
+
+test('legacy single scope migrates and multiple scopes round trip', () => {
+  const p = emptyProject();
+  const legacy = JSON.parse(serializeProject(p));
+  legacy.instruments = { scope: { channels: [null, null], windowNs: 5000, trigger: null, acquisition: 'auto' } };
+  const migrated = parseProject(JSON.stringify(legacy));
+  assert.equal(migrated.instruments.scopes.length, 1);
+  assert.equal(migrated.instruments.scopes[0].id, 'scope1');
+  assert.equal(migrated.instruments.scopes[0].windowNs, 5000);
+  p.instruments.scopes.push({ ...newScope(p), name: 'Bus' });
+  p.instruments.terminals = ['USART3', 'USART1'];
+  const back = parseProject(serializeProject(p));
+  assert.deepEqual(back.instruments.scopes.map((s) => s.id), ['scope1', 'scope2']);
+  assert.deepEqual(back.instruments.terminals, ['USART3', 'USART1']);
+  const dup = JSON.parse(serializeProject(p));
+  dup.instruments.scopes[1].id = 'scope1';
+  assert.throws(() => parseProject(JSON.stringify(dup)), /Duplicate id scope1/);
 });

@@ -46,11 +46,33 @@ export type Project = {
   boards: BoardInstance[];
   parts: Part[];
   wires: Wire[];
-  instruments: { scope: { channels: (ProbeTarget | null)[]; windowNs: number;
-    trigger?: ScopeTrigger | null; acquisition?: ScopeAcquisition } };
+  instruments: {
+    scopes: ScopeConfig[];
+    /** UART labels that have a terminal tab, e.g. "USART3". */
+    terminals?: string[];
+  };
   solver: { lookaheadNs: number; sampleNs: number };
   ui: { zoom: number; panX: number; panY: number };
 };
+
+export type ScopeConfig = {
+  id: string;
+  name: string;
+  channels: (ProbeTarget | null)[];
+  windowNs: number;
+  trigger?: ScopeTrigger | null;
+  acquisition?: ScopeAcquisition;
+};
+
+export const MAX_SCOPES = 8;
+
+export function newScope(project: Project | null): ScopeConfig {
+  const used = new Set(project?.instruments.scopes.map((s) => s.id) ?? []);
+  let n = 1;
+  while (used.has(`scope${n}`)) n++;
+  return { id: `scope${n}`, name: `Scope ${n}`, channels: [null, null], windowNs: 200_000,
+    trigger: null, acquisition: 'auto' };
+}
 
 export const H563_LAYOUT_REVISION = 'MB1404 H563ZI-C01';
 export const MAX_PROJECT_BYTES = 64 * 1024 * 1024;
@@ -66,7 +88,7 @@ export function emptyProject(): Project {
     boards: [{ id: 'board1', cpu: 'stm32h563', layoutRevision: H563_LAYOUT_REVISION, x: 0, y: 0 }],
     parts: [],
     wires: [],
-    instruments: { scope: { channels: [null, null], windowNs: 200_000, trigger: null, acquisition: 'auto' } },
+    instruments: { scopes: [newScope(null)], terminals: ['USART3'] },
     solver: { lookaheadNs: 50_000, sampleNs: 1000 },
     ui: { zoom: 0.5, panX: 40, panY: 20 }
   };
@@ -176,26 +198,42 @@ export function validateProject(value: unknown): Project {
     }
     if (typeof w.color !== 'string') fail(`Wire ${w.id}: color must be a string`);
   }
-  const scope = p.instruments?.scope;
-  if (!isObject(scope) || !Array.isArray(scope.channels) || scope.channels.length !== 2 ||
-      !finite(scope.windowNs) || scope.windowNs <= 0) {
-    fail('instruments.scope needs two channels and a positive windowNs');
+  const inst = p.instruments as unknown as Record<string, unknown>;
+  if (!isObject(inst)) fail('instruments must be an object');
+  // Projects saved before multi-scope support had a single `scope`.
+  if (inst.scopes === undefined && isObject(inst.scope)) {
+    inst.scopes = [{ id: 'scope1', name: 'Scope 1', ...(inst.scope as object) }];
   }
-  for (const ch of scope.channels) {
-    if (ch === null) continue;
-    if (ch.kind === 'voltage') checkRef(ch.at, 'Scope channel');
-    else if (ch.kind !== 'current' || typeof ch.part !== 'string') fail('Scope channel target invalid');
+  delete inst.scope;
+  if (!Array.isArray(inst.scopes) || inst.scopes.length > MAX_SCOPES) {
+    fail(`instruments.scopes must be an array of at most ${MAX_SCOPES}`);
   }
-  if (scope.trigger !== undefined && scope.trigger !== null &&
-      (!isObject(scope.trigger) || (scope.trigger.channel !== 0 && scope.trigger.channel !== 1) ||
-       !['rising', 'falling'].includes(String(scope.trigger.edge)) || !finite(scope.trigger.level))) {
-    fail('Scope trigger needs CH1 or CH2, a rising/falling edge and a finite level');
+  for (const scope of p.instruments.scopes) {
+    unique(scope?.id, 'Scope');
+    if (!isObject(scope) || typeof scope.name !== 'string' || !Array.isArray(scope.channels) ||
+        scope.channels.length !== 2 || !finite(scope.windowNs) || scope.windowNs <= 0) {
+      fail('Each scope needs a name, two channels and a positive windowNs');
+    }
+    for (const ch of scope.channels) {
+      if (ch === null) continue;
+      if (ch.kind === 'voltage') checkRef(ch.at, 'Scope channel');
+      else if (ch.kind !== 'current' || typeof ch.part !== 'string') fail('Scope channel target invalid');
+    }
+    if (scope.trigger !== undefined && scope.trigger !== null &&
+        (!isObject(scope.trigger) || (scope.trigger.channel !== 0 && scope.trigger.channel !== 1) ||
+         !['rising', 'falling'].includes(String(scope.trigger.edge)) || !finite(scope.trigger.level))) {
+      fail('Scope trigger needs CH1 or CH2, a rising/falling edge and a finite level');
+    }
+    if (scope.acquisition !== undefined && !['auto', 'normal', 'single'].includes(String(scope.acquisition))) {
+      fail('Scope acquisition must be auto, normal or single');
+    }
+    if (scope.acquisition !== undefined && scope.acquisition !== 'auto' && !scope.trigger) {
+      fail('Normal and single scope acquisition need a trigger');
+    }
   }
-  if (scope.acquisition !== undefined && !['auto', 'normal', 'single'].includes(String(scope.acquisition))) {
-    fail('Scope acquisition must be auto, normal or single');
-  }
-  if (scope.acquisition !== undefined && scope.acquisition !== 'auto' && !scope.trigger) {
-    fail('Normal and single scope acquisition need a trigger');
+  if (inst.terminals !== undefined && (!Array.isArray(inst.terminals) || inst.terminals.length > 32 ||
+      !inst.terminals.every((t) => typeof t === 'string' && /^[A-Z0-9_]{1,15}$/.test(t)))) {
+    fail('instruments.terminals must list UART labels');
   }
   if (!isObject(p.solver) || !finite(p.solver.lookaheadNs) || p.solver.lookaheadNs <= 0 ||
       !finite(p.solver.sampleNs) || p.solver.sampleNs <= 0) {

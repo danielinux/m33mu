@@ -116,20 +116,24 @@
     }
   ],
   "instruments": {
-    "scope": {
-      "channels": [
-        {
-          "kind": "voltage",
-          "at": {
-            "kind": "part",
-            "part": "r2",
-            "terminal": "a"
-          }
-        },
-        null
-      ],
-      "windowNs": 1000000
-    }
+    "scopes": [
+      {
+        "id": "scope1",
+        "name": "Scope 1",
+        "channels": [
+          {
+            "kind": "voltage",
+            "at": {
+              "kind": "part",
+              "part": "r2",
+              "terminal": "a"
+            }
+          },
+          null
+        ],
+        "windowNs": 1000000
+      }
+    ]
   },
   "solver": {
     "lookaheadNs": 50000,

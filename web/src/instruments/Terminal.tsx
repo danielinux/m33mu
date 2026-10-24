@@ -21,11 +21,13 @@ type Props = {
   uart: UartInfo;
   text: string;
   lost: boolean;
+  /** Green-on-black CRT styling. */
+  crt: boolean;
   onSend(text: string): void;
   onClear(): void;
 };
 
-export function Terminal({ uart, text, lost, onSend, onClear }: Props) {
+export function Terminal({ uart, text, lost, crt, onSend, onClear }: Props) {
   const [line, setLine] = useState('');
   const [ending, setEnding] = useState<'\r' | '\n' | '\r\n' | ''>('\r');
   const out = useRef<HTMLPreElement>(null);
@@ -34,7 +36,7 @@ export function Terminal({ uart, text, lost, onSend, onClear }: Props) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [text]);
   return (
-    <section className="terminal" aria-label={`${uart.label} terminal`} data-testid={`terminal-${uart.label}`}>
+    <section className={crt ? 'terminal crt' : 'terminal'} aria-label={`${uart.label} terminal`} data-testid={`terminal-${uart.label}`}>
       <header>
         <strong>{uart.label}</strong>
         <span className="muted">0x{uart.base.toString(16).padStart(8, '0')}</span>
@@ -42,7 +44,7 @@ export function Terminal({ uart, text, lost, onSend, onClear }: Props) {
         <span className="spacer" />
         <button type="button" onClick={onClear}>Clear</button>
       </header>
-      <pre ref={out}>{text}</pre>
+      <div className="tube"><pre ref={out}>{text}<span className="cursor">█</span></pre></div>
       <form onSubmit={(e) => { e.preventDefault(); onSend(line + ending); setLine(''); }}>
         <input value={line} onChange={(e) => setLine(e.target.value)} placeholder={`Send to ${uart.label}`}
           aria-label={`Send to ${uart.label}`} />

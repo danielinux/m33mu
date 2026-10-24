@@ -92,23 +92,27 @@
     }
   ],
   "instruments": {
-    "scope": {
-      "channels": [
-        {
-          "kind": "voltage",
-          "at": {
-            "kind": "board",
-            "board": "board1",
-            "contact": "CN7-10"
+    "scopes": [
+      {
+        "id": "scope1",
+        "name": "Scope 1",
+        "channels": [
+          {
+            "kind": "voltage",
+            "at": {
+              "kind": "board",
+              "board": "board1",
+              "contact": "CN7-10"
+            }
+          },
+          {
+            "kind": "current",
+            "part": "led1"
           }
-        },
-        {
-          "kind": "current",
-          "part": "led1"
-        }
-      ],
-      "windowNs": 1000000000
-    }
+        ],
+        "windowNs": 1000000000
+      }
+    ]
   },
   "solver": {
     "lookaheadNs": 1000000,

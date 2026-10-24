@@ -43,15 +43,15 @@ def main():
               f"v2 example {path.name}")
     v2_bad = json.loads((ROOT / "web" / "public" / "examples" /
                          "opamp-gain.m33mu.json").read_text(encoding="utf-8"))
-    v2_bad["instruments"]["scope"]["trigger"] = {
+    v2_bad["instruments"]["scopes"][0]["trigger"] = {
         "channel": 2, "edge": "up", "level": "1 V"}
     check(project_v2_schema, v2_bad, False, "invalid v2 scope trigger")
     v2_bad_mode = json.loads(json.dumps(v2_bad))
-    v2_bad_mode["instruments"]["scope"]["trigger"] = None
-    v2_bad_mode["instruments"]["scope"]["acquisition"] = "loop"
+    v2_bad_mode["instruments"]["scopes"][0]["trigger"] = None
+    v2_bad_mode["instruments"]["scopes"][0]["acquisition"] = "loop"
     check(project_v2_schema, v2_bad_mode, False, "invalid v2 acquisition mode")
     v2_no_trigger = json.loads(json.dumps(v2_bad_mode))
-    v2_no_trigger["instruments"]["scope"]["acquisition"] = "single"
+    v2_no_trigger["instruments"]["scopes"][0]["acquisition"] = "single"
     check(project_v2_schema, v2_no_trigger, False, "single acquisition without a trigger")
 
     pad_schema = load_schema("board-pad.schema.json")

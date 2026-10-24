@@ -3,13 +3,12 @@ import { BenchCanvas, type Selection, type Tool } from './canvas/BenchCanvas.tsx
 import { Inspector, type McuPadInfo, type Observation } from './Inspector.tsx';
 import { DiagnosticsPanel } from './DiagnosticsPanel.tsx';
 import { appendDiagnostic, type DiagnosticEntry, type DiagnosticSeverity, type DiagnosticSource } from './diagnostics.ts';
-import { Scope, ScopeAcquisitionEngine, ScopeBuffer } from './instruments/Scope.tsx';
+import { ScopeInstrument, type ScopeSink } from './instruments/ScopeInstrument.tsx';
 import { appendTerminal, Terminal, type UartInfo } from './instruments/Terminal.tsx';
-import { decodeSigc, SIGC_MAX_BYTES, SigcError } from './instruments/sigc.ts';
 import { CATALOG, formatSi, type PartKind, type Rotation } from './project/catalog.ts';
 import { commit, createHistory, redo, replace, undo } from './project/history.ts';
 import {
-  type Project, type ProbeTarget, type ScopeAcquisition, type ScopeTrigger, MAX_FIRMWARE_BYTES, ProjectError, emptyProject, parseProject,
+  type Project, type ProbeTarget, type ScopeConfig, MAX_FIRMWARE_BYTES, MAX_SCOPES, newScope, ProjectError, emptyProject, parseProject,
   refKey, serializeProject
 } from './project/model.ts';
 import { type BoardLayout, allTerminals, compileCircuit } from './project/netgraph.ts';
@@ -72,17 +71,14 @@ export function App() {
   const [pressed, setPressed] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('Place parts from the palette, wire them to CN7-10 (PA5) or CN9-1 (PA6), load an ELF and run.');
   const [fault, setFault] = useState('');
-  const [scopeVersion, setScopeVersion] = useState(0);
-  const [scopePreview, setScopePreview] = useState<[string, string] | null>(null);
-  const [heldScope, setHeldScope] = useState<{ buffer: ScopeBuffer; labels: [string, string]; units: [string, string];
-    kind: 'manual' | 'normal' | 'single'; triggerTime?: number } | null>(null);
   const [realTime, setRealTime] = useState(true);
   const [examples, setExamples] = useState<{ id: string; name: string; project: string; firmware: string | null; description: string }[]>([]);
-  const scope = useRef(new ScopeBuffer());
-  const scopeAcquisition = useRef(new ScopeAcquisitionEngine());
-  const manualScopeHold = useRef(false);
-  const scopeMetadata = useRef<{ labels: [string, string]; units: [string, string] }>({ labels: ['—', '—'], units: ['V', 'V'] });
-  const scopeMap = useRef<(number | null)[]>([null, null]);
+  const scopeSinks = useRef(new Map<string, ScopeSink>());
+  const scopeColumns = useRef(new Map<string, (number | null)[]>());
+  const registerScope = useCallback((id: string, sink: ScopeSink | null) => {
+    if (sink) scopeSinks.current.set(id, sink); else scopeSinks.current.delete(id);
+  }, []);
+  const resetScopes = () => { for (const sink of scopeSinks.current.values()) sink.reset(); };
   const client = useRef<WorkerClient | null>(null);
 
   useEffect(() => {
@@ -113,17 +109,30 @@ export function App() {
   }
 
   const [uarts, setUarts] = useState<UartInfo[]>([]);
-  const [openUarts, setOpenUarts] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('m33mu.openUarts') ?? '["USART3"]'); } catch { return ['USART3']; }
-  });
+  // USART3 is the NUCLEO-H563ZI ST-LINK virtual COM port.
+  const openUarts = project.instruments.terminals ?? ['USART3'];
   const [uartText, setUartText] = useState<Record<number, string>>({});
   const [uartLost, setUartLost] = useState<Set<number>>(new Set());
-  const [dockTab, setDockTab] = useState<string>('scope');
+  const [dockTab, setDockTab] = useState<string>('scope1');
+  const [dockOpen, setDockOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('m33mu.dockOpen') !== '0'; } catch { return true; }
+  });
+  const [crt, setCrt] = useState<boolean>(() => {
+    try { return localStorage.getItem('m33mu.crt') !== '0'; } catch { return true; }
+  });
+  function setCrtMode(on: boolean) {
+    setCrt(on);
+    try { localStorage.setItem('m33mu.crt', on ? '1' : '0'); } catch { /* per-viewer convenience only */ }
+  }
+  function showDock(open: boolean) {
+    setDockOpen(open);
+    try { localStorage.setItem('m33mu.dockOpen', open ? '1' : '0'); } catch { /* per-viewer convenience only */ }
+  }
   function toggleUart(label: string) {
     const next = openUarts.includes(label) ? openUarts.filter((l) => l !== label) : [...openUarts, label];
-    setOpenUarts(next);
-    try { localStorage.setItem('m33mu.openUarts', JSON.stringify(next)); } catch { /* per-viewer convenience only */ }
-    if (!next.includes(dockTab)) setDockTab(next.includes(label) ? label : 'scope');
+    view({ ...project, instruments: { ...project.instruments, terminals: next } });
+    if (next.includes(label)) setDockTab(label);
+    else if (dockTab === label) setDockTab(project.instruments.scopes[0]?.id ?? '');
   }
   async function sendUart(index: number, text: string) {
     try {
@@ -153,14 +162,9 @@ export function App() {
     } else if (e.event === 'bench') {
       const width = p.probes.length + 1;
       if (p.samples?.length) {
-        scope.current.append(p.samples as Float64Array, width, scopeMap.current);
-        const captured = scopeAcquisition.current.observe(scope.current);
-        if (captured && !manualScopeHold.current) {
-          const meta = scopeMetadata.current;
-          setHeldScope({ buffer: scope.current.snapshotRange(captured.fromNs, captured.throughNs),
-            labels: [...meta.labels], units: [...meta.units], kind: captured.mode, triggerTime: captured.timeNs });
+        for (const [id, cols] of scopeColumns.current) {
+          scopeSinks.current.get(id)?.append(p.samples as Float64Array, width, cols);
         }
-        setScopeVersion(scope.current.version);
       }
       if (p.observation) setObservation(p.observation);
       setStats({ timeNs: Number(p.timeNs), simulatedPerWall: p.simulatedPerWall, solverSteps: p.solverSteps,
@@ -217,9 +221,9 @@ export function App() {
       const id = selection.id;
       edit({ ...project, parts: project.parts.filter((p) => p.id !== id),
         wires: project.wires.filter((w) => !(w.from.kind === 'part' && w.from.part === id) && !(w.to.kind === 'part' && w.to.part === id)),
-        instruments: { ...project.instruments, scope: { ...project.instruments.scope,
-          channels: project.instruments.scope.channels.map((c) => (c?.kind === 'current' && c.part === id) ||
-            (c?.kind === 'voltage' && c.at.kind === 'part' && c.at.part === id) ? null : c) } } }, `Deleted ${id}`);
+        instruments: { ...project.instruments, scopes: project.instruments.scopes.map((sc) => ({ ...sc,
+          channels: sc.channels.map((c) => (c?.kind === 'current' && c.part === id) ||
+            (c?.kind === 'voltage' && c.at.kind === 'part' && c.at.part === id) ? null : c) })) } }, `Deleted ${id}`);
     } else if (selection.kind === 'wire') {
       edit({ ...project, wires: project.wires.filter((w) => w.id !== selection.id) }, 'Deleted wire');
     }
@@ -237,19 +241,41 @@ export function App() {
       `Changed ${partId} ${key}`);
   }
 
+  /** Probe into the scope shown in the dock, or the first scope (creating one if needed). */
   function setProbe(channel: 0 | 1, target: ProbeTarget | null) {
-    const channels = [...project.instruments.scope.channels];
+    let scopes = project.instruments.scopes;
+    let scope = scopes.find((sc) => sc.id === dockTab) ?? scopes[0];
+    if (!scope) {
+      scope = newScope(project);
+      scopes = [scope];
+    }
+    const channels = [...scope.channels];
     channels[channel] = target;
-    edit({ ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope, channels } } },
-      `Scope CH${channel + 1} set`);
-    armScope(project, scope.current.lastTime());
+    const next = { ...scope, channels };
+    edit({ ...project, instruments: { ...project.instruments,
+      scopes: scopes.map((sc) => sc.id === next.id ? next : sc) } }, `${scope.name} CH${channel + 1} set`);
+    setDockTab(next.id);
+    showDock(true);
   }
 
-  function armScope(p: Project, afterNs: number) {
-    scopeAcquisition.current.arm(p.instruments.scope.acquisition ?? 'auto', p.instruments.scope.trigger ?? null,
-      p.instruments.scope.windowNs, afterNs);
-    manualScopeHold.current = false;
-    setHeldScope(null);
+  function updateScope(next: ScopeConfig) {
+    view({ ...project, instruments: { ...project.instruments,
+      scopes: project.instruments.scopes.map((sc) => sc.id === next.id ? next : sc) } });
+  }
+
+  function addScope() {
+    if (project.instruments.scopes.length >= MAX_SCOPES) return;
+    const scope = newScope(project);
+    // An empty scope adds no probes, so the running bench is unaffected.
+    setHistory((h) => commit(h, { ...project, instruments: { ...project.instruments,
+      scopes: [...project.instruments.scopes, scope] } }));
+    setDockTab(scope.id);
+  }
+
+  function removeScope(id: string) {
+    const scopes = project.instruments.scopes.filter((sc) => sc.id !== id);
+    setHistory((h) => commit(h, { ...project, instruments: { ...project.instruments, scopes } }));
+    if (dockTab === id) setDockTab(scopes[0]?.id ?? openUarts[0] ?? '');
   }
 
   useEffect(() => {
@@ -284,8 +310,7 @@ export function App() {
     setUarts(list.uarts);
     setFirmware({ name, hash, bytes });
     setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
-    scope.current.clear(); setScopeVersion(scope.current.version);
-    setScopePreview(null); armScope(project, 0);
+    resetScopes();
     setDiagnosticEntries([]);
     setRunState('paused');
   }
@@ -309,31 +334,35 @@ export function App() {
 
   function probesFor(p: Project) {
     const probes: { id: string; kind: 'voltage' | 'current'; net?: string; device?: string }[] = [];
-    const map: (number | null)[] = [null, null];
-    p.instruments.scope.channels.forEach((ch, i) => {
-      if (!ch) return;
-      if (ch.kind === 'voltage') {
-        const net = compiled.terminalNet.get(refKey(ch.at));
-        if (!net) return;
-        map[i] = probes.length;
-        probes.push({ id: `ch${i + 1}`, kind: 'voltage', net });
-      } else if (compiled.netlist.devices.some((d) => d.id === ch.part)) {
-        map[i] = probes.length;
-        probes.push({ id: `ch${i + 1}`, kind: 'current', device: ch.part });
-      }
-    });
-    return { probes, map };
+    const columns = new Map<string, (number | null)[]>();
+    for (const sc of p.instruments.scopes) {
+      const map: (number | null)[] = [null, null];
+      sc.channels.forEach((ch, i) => {
+        if (!ch) return;
+        const id = `${sc.id}.ch${i + 1}`;
+        if (ch.kind === 'voltage') {
+          const net = compiled.terminalNet.get(refKey(ch.at));
+          if (!net) return;
+          map[i] = probes.length;
+          probes.push({ id, kind: 'voltage', net });
+        } else if (compiled.netlist.devices.some((d) => d.id === ch.part)) {
+          map[i] = probes.length;
+          probes.push({ id, kind: 'current', device: ch.part });
+        }
+      });
+      columns.set(sc.id, map);
+    }
+    return { probes, columns };
   }
 
   async function startBench(initial: 'zero' | 'dc' = 'zero') {
     if (errors.length) throw new Error(`Fix the circuit first: ${errors[0].message}`);
     if (compiled.pads.length && !firmware) throw new Error(`The circuit uses ${compiled.pads.join(', ')}: load firmware first`);
-    const { probes, map } = probesFor(project);
-    scopeMap.current = map;
+    const { probes, columns } = probesFor(project);
+    scopeColumns.current = columns;
     await worker().request('createBench', { netlist: compiled.netlist, probes,
       options: { lookaheadNs: project.solver.lookaheadNs, sampleNs: project.solver.sampleNs, initial } });
-    scope.current.clear(); setScopeVersion(scope.current.version);
-    armScope(project, 0);
+    resetScopes();
     setBenchActive(true);
     setBenchStale(false);
   }
@@ -341,9 +370,6 @@ export function App() {
   async function run() {
     setFault('');
     try {
-      if (scopePreview) {
-        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null); armScope(project, 0);
-      }
       if (hasCircuit) {
         if (!benchActive || benchStale) await startBench();
         await worker().request('runUntil', realTime ? { maxRatio: 1 } : {});
@@ -375,8 +401,7 @@ export function App() {
     try {
       await worker().request('reset');
       setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null); setMcuPads({});
-      scope.current.clear(); setScopeVersion(scope.current.version);
-      setScopePreview(null); armScope(project, 0);
+      resetScopes();
       setRunState('paused');
       setMessage('Firmware reset; the circuit restarts from its DC operating point on the next run.');
     } catch (err) { fail(err); }
@@ -406,7 +431,7 @@ export function App() {
         ...(firmware ? { firmwareBase64: toBase64(firmware.bytes) } : {}) } };
       if (!firmware) delete p.simulator.firmwareBase64;
       download(`${p.name.replace(/[^a-zA-Z0-9_-]+/g, '-') || 'bench'}.m33mu.json`, serializeProject(p), 'application/json');
-      setMessage(`Project saved (circuit, probes, solver settings, view and embedded ELF).${scopePreview ? ' Imported waveform preview is not included.' : ''}`);
+      setMessage(`Project saved (circuit, probes, solver settings, view and embedded ELF).`);
     } catch (err) { fail(err); }
   }
 
@@ -426,14 +451,14 @@ export function App() {
         client.current?.terminate();
         client.current = null;
         setFirmware(null); setMachine(null); setRunState('idle'); setBenchActive(false);
-        scope.current.clear(); setScopeVersion(scope.current.version); setScopePreview(null); armScope(p, 0);
+        resetScopes();
       }
       const { firmwareBase64: _drop, ...simulator } = p.simulator;
       void _drop;
       setHistory(createHistory({ ...p, simulator }));
       setDiagnosticEntries([]);
-      armScope(p, 0);
       setSelection(null);
+      setDockTab(p.instruments.scopes[0]?.id ?? '');
       setMessage(`Opened ${p.name}${p.simulator.firmwareBase64 ? ' with its verified ELF' : ''}.`);
     } catch (err) { fail(err); }
   }
@@ -452,26 +477,14 @@ export function App() {
       } else {
         if (benchActive) await worker().request('destroyBench');
         setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
-        scope.current.clear(); setScopeVersion(scope.current.version);
-        setScopePreview(null); armScope(p, 0);
+        resetScopes();
         setRunState(firmware ? 'paused' : 'idle');
       }
       setHistory(createHistory(p));
       setDiagnosticEntries([]);
-      armScope(p, 0);
       setSelection(null);
+      setDockTab(p.instruments.scopes[0]?.id ?? '');
       setMessage(`${ex.name}: ${ex.description}`);
-    } catch (err) { fail(err); }
-  }
-
-  function exportCsv() {
-    download('m33mu-scope.csv', (heldScope?.buffer ?? scope.current).toCsv(['ch1', 'ch2']), 'text/csv');
-  }
-
-  function exportSigc() {
-    try {
-      download('m33mu-scope.sigc', (heldScope?.buffer ?? scope.current).toSigc(heldScope?.units ?? [u1, u2]), 'application/octet-stream');
-      setMessage('Exported voltage traces as SIGC v1 (ch1/ch2, millivolts, time relative to first sample).');
     } catch (err) { fail(err); }
   }
 
@@ -481,22 +494,6 @@ export function App() {
       runtime: diagnosticEntries, metrics: stats }, null, 2) + '\n', 'application/json');
   }
 
-  async function importSigc(file: File) {
-    setFault('');
-    try {
-      if (runState === 'running') throw new SigcError('Pause the bench before importing a SIGC preview');
-      if (file.size > SIGC_MAX_BYTES) throw new SigcError('SIGC input exceeds 8 MiB');
-      const capture = decodeSigc(new Uint8Array(await file.arrayBuffer()));
-      scope.current.loadSigc(capture);
-      armScope(project, scope.current.lastTime());
-      manualScopeHold.current = true;
-      setHeldScope({ buffer: scope.current.snapshot(), labels: [capture.traces[0].name, capture.traces[1]?.name ?? '—'],
-        units: ['V', 'V'], kind: 'manual' });
-      setScopeVersion(scope.current.version);
-      setScopePreview([capture.traces[0].name, capture.traces[1]?.name ?? '—']);
-      setMessage(`Imported ${capture.traces.length} voltage trace(s) for scope preview. Waveforms are not stored in the project; export them separately.`);
-    } catch (err) { fail(err); }
-  }
 
   // ------------------------------------------------------------ render
 
@@ -513,36 +510,6 @@ export function App() {
     const t = terminalMap.get(refKey(ch.at));
     return [`V(${t?.label ?? 'net'})`, 'V'];
   };
-  const [l1, u1] = scopePreview ? [scopePreview[0], 'V'] : channelLabel(project.instruments.scope.channels[0]);
-  const [l2, u2] = scopePreview ? [scopePreview[1], 'V'] : channelLabel(project.instruments.scope.channels[1]);
-  scopeMetadata.current = { labels: [l1, l2], units: [u1, u2] };
-  const displayScope = heldScope?.buffer ?? scope.current;
-  const displayLabels: [string, string] = heldScope?.labels ?? [l1, l2];
-  const displayUnits: [string, string] = heldScope?.units ?? [u1, u2];
-  const acquisition = project.instruments.scope.acquisition ?? 'auto';
-  function toggleScopeHold() {
-    if (heldScope?.kind === 'manual' || heldScope?.kind === 'single') armScope(project, scope.current.lastTime());
-    else if (heldScope?.kind === 'normal') {
-      manualScopeHold.current = true;
-      setHeldScope({ ...heldScope, kind: 'manual' });
-    } else {
-      manualScopeHold.current = true;
-      setHeldScope({ buffer: scope.current.snapshot(), labels: [l1, l2], units: [u1, u2], kind: 'manual' });
-    }
-  }
-  function setScopeAcquisition(mode: ScopeAcquisition) {
-    if (mode !== 'auto' && !project.instruments.scope.trigger) return;
-    const next = { ...project, instruments: { ...project.instruments,
-      scope: { ...project.instruments.scope, acquisition: mode } } };
-    view(next);
-    armScope(next, scope.current.lastTime());
-  }
-  function setScopeTrigger(trigger: ScopeTrigger | null) {
-    const next = { ...project, instruments: { ...project.instruments, scope: { ...project.instruments.scope,
-      trigger, acquisition: trigger ? acquisition : 'auto' } } };
-    view(next);
-    armScope(next, scope.current.lastTime());
-  }
   const timeNs = stats?.timeNs ?? (machine ? Number(machine.virtualTimeNs) : 0);
   const canRun = runState !== 'running' && (hasCircuit ? errors.length === 0 : !!firmware && runState !== 'stopped');
 
@@ -632,47 +599,71 @@ export function App() {
             onClear={() => setDiagnosticEntries([])} onExport={exportDiagnostics} />
         </aside>
       </div>
-      <section className="dock">
-        <nav className="dock-tabs" role="tablist">
-          <button role="tab" aria-selected={dockTab === 'scope'} className={dockTab === 'scope' ? 'active' : ''}
-            onClick={() => setDockTab('scope')}>Scope</button>
-          {uarts.filter((u) => openUarts.includes(u.label)).map((u) => (
-            <button key={u.label} role="tab" aria-selected={dockTab === u.label} data-testid={`tab-${u.label}`}
-              className={dockTab === u.label ? 'active' : ''} onClick={() => setDockTab(u.label)}>
-              {u.label}{(uartText[u.index] ?? '').length > 0 && dockTab !== u.label ? ' •' : ''}
-            </button>
+      <section className={dockOpen ? 'dock' : 'dock collapsed'}>
+        <nav className="dock-tabs" role="tablist" aria-label="Instruments">
+          {project.instruments.scopes.map((sc) => (
+            <span key={sc.id} className={dockTab === sc.id ? 'tab active' : 'tab'}>
+              <button role="tab" aria-selected={dockTab === sc.id} data-testid={`tab-${sc.id}`}
+                onClick={() => { setDockTab(sc.id); showDock(true); }}>⏦ {sc.name}</button>
+              <button className="tab-close" title={`Remove ${sc.name}`} aria-label={`Remove ${sc.name}`}
+                onClick={() => removeScope(sc.id)}>×</button>
+            </span>
           ))}
+          {uarts.filter((u) => openUarts.includes(u.label)).map((u) => (
+            <span key={u.label} className={dockTab === u.label ? 'tab active' : 'tab'}>
+              <button role="tab" aria-selected={dockTab === u.label} data-testid={`tab-${u.label}`}
+                onClick={() => { setDockTab(u.label); showDock(true); }}>
+                ▤ {u.label}{(uartText[u.index] ?? '').length > 0 && dockTab !== u.label ? ' •' : ''}
+              </button>
+              <button className="tab-close" title={`Close ${u.label}`} aria-label={`Close ${u.label}`}
+                onClick={() => toggleUart(u.label)}>×</button>
+            </span>
+          ))}
+          <button className="dock-add" onClick={addScope} disabled={project.instruments.scopes.length >= MAX_SCOPES}
+            data-testid="add-scope">+ Scope</button>
           <details className="uart-picker">
-            <summary data-testid="uart-picker">UARTs…</summary>
+            <summary data-testid="uart-picker">+ UART terminal…</summary>
             <div className="uart-menu">{uarts.length === 0 ? <p className="muted">Load firmware to list the UARTs.</p> : uarts.map((u) => (
               <label key={u.label}><input type="checkbox" checked={openUarts.includes(u.label)}
                 onChange={() => toggleUart(u.label)} data-testid={`uart-${u.label}`} /> {u.label}
                 <span className="muted"> 0x{u.base.toString(16)}</span></label>
             ))}</div>
           </details>
+          <span className="spacer" />
+          <label className="toggle" title="Green-on-black CRT look for terminals">
+            <input type="checkbox" checked={crt} onChange={(e) => setCrtMode(e.target.checked)} data-testid="crt" /> CRT
+          </label>
+          <button className="dock-toggle" onClick={() => showDock(!dockOpen)} data-testid="dock-toggle"
+            aria-expanded={dockOpen}>{dockOpen ? '▾ Hide' : '▴ Show'}</button>
         </nav>
-        <div className="dock-body" hidden={dockTab !== 'scope'}>
-          <Scope buffer={displayScope} version={heldScope ? displayScope.version : scopeVersion}
-            labels={displayLabels} units={displayUnits} captureKind={heldScope?.kind ?? null} onHold={toggleScopeHold}
-            windowNs={project.instruments.scope.windowNs}
-            trigger={project.instruments.scope.trigger ?? null} acquisition={acquisition}
-            fixedTriggerTime={heldScope?.triggerTime} onAcquisition={setScopeAcquisition}
-            onWindow={(ns) => {
-              const next = { ...project, instruments: { ...project.instruments,
-                scope: { ...project.instruments.scope, windowNs: ns } } };
-              view(next);
-              armScope(next, scope.current.lastTime());
-            }}
-            onTrigger={setScopeTrigger}
-            onExport={exportCsv} onExportSigc={exportSigc} onImportSigc={(file) => void importSigc(file)} />
-        </div>
-        {uarts.filter((u) => openUarts.includes(u.label) && dockTab === u.label).map((u) => (
+        {project.instruments.scopes.map((sc) => (
+          <div className="dock-body" key={sc.id} hidden={!dockOpen || dockTab !== sc.id} data-testid={`scope-${sc.id}`}>
+            <div className="instrument scope-case">
+              <div className="faceplate">
+                <span className="brand-plate">m33·SCOPE</span>
+                <span className="model">{sc.name}</span>
+                <span className="knob" /><span className="knob small" /><span className="knob small" />
+                <span className="power-led" data-on={runState === 'running'} />
+              </div>
+              <div className="screen">
+                <ScopeInstrument config={sc} labels={[channelLabel(sc.channels[0])[0], channelLabel(sc.channels[1])[0]]}
+                  units={[channelLabel(sc.channels[0])[1], channelLabel(sc.channels[1])[1]]}
+                  running={runState === 'running'} register={registerScope} onConfig={updateScope}
+                  onMessage={setMessage} onError={fail} />
+              </div>
+            </div>
+          </div>
+        ))}
+        {dockOpen && uarts.filter((u) => openUarts.includes(u.label) && dockTab === u.label).map((u) => (
           <div className="dock-body" key={u.label}>
-            <Terminal uart={u} text={uartText[u.index] ?? ''} lost={uartLost.has(u.index)}
+            <Terminal uart={u} text={uartText[u.index] ?? ''} lost={uartLost.has(u.index)} crt={crt}
               onSend={(text) => void sendUart(u.index, text)}
               onClear={() => setUartText((old) => ({ ...old, [u.index]: '' }))} />
           </div>
         ))}
+        {dockOpen && project.instruments.scopes.length === 0 && openUarts.length === 0 && (
+          <div className="dock-body empty"><p className="muted">Add a scope or a UART terminal.</p></div>
+        )}
       </section>
       <footer className="status">
         <span className={fault ? 'fault' : ''} data-testid="status-message">{fault || message}</span>

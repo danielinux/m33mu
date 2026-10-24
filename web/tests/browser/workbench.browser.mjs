@@ -235,7 +235,7 @@ try {
     await page.getByLabel('Trigger level').fill('1.5');
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save' }).click()]);
     const saved = JSON.parse(readFileSync(await download.path(), 'utf8'));
-    assert.deepEqual(saved.instruments.scope.trigger, { channel: 0, edge: 'rising', level: 1.5 });
+    assert.deepEqual(saved.instruments.scopes[0].trigger, { channel: 0, edge: 'rising', level: 1.5 });
     await page.getByRole('button', { name: 'Pause' }).click();
     await page.getByTestId('run').waitFor();
     const [sigc] = await Promise.all([page.waitForEvent('download'),
@@ -277,7 +277,7 @@ try {
     await page.getByTestId('scope-acquisition').selectOption('single');
     const [modeProject] = await Promise.all([page.waitForEvent('download'),
       page.getByRole('button', { name: 'Save' }).click()]);
-    assert.equal(JSON.parse(readFileSync(await modeProject.path(), 'utf8')).instruments.scope.acquisition, 'single');
+    assert.equal(JSON.parse(readFileSync(await modeProject.path(), 'utf8')).instruments.scopes[0].acquisition, 'single');
     await page.getByTestId('run').click();
     await page.getByRole('button', { name: 'Pause' }).waitFor();
     const sw = await center(page.locator('g[data-part="sw1"]'));
@@ -319,6 +319,25 @@ try {
     await page.getByTestId('uart-USART1').uncheck();
     await page.getByTestId('uart-picker').click();
     assert.equal(await page.getByTestId('tab-USART1').count(), 0);
+  });
+
+  await check('dock: several scopes, hide/show, CRT terminal look', async () => {
+    await page.getByTestId('tab-USART3').click();
+    assert.equal(await page.locator('.terminal.crt').count(), 1, 'CRT look on by default');
+    await page.getByTestId('crt').uncheck();
+    assert.equal(await page.locator('.terminal.crt').count(), 0);
+    await page.getByTestId('crt').check();
+    await page.getByTestId('add-scope').click();
+    await page.getByTestId('tab-scope2').waitFor();
+    assert.ok(await page.getByTestId('scope-scope2').isVisible());
+    await shot('07-second-scope');
+    await page.getByTestId('dock-toggle').click();
+    assert.equal(await page.getByTestId('scope-scope2').isVisible(), false, 'dock hidden');
+    assert.equal(await page.locator('.dock.collapsed').count(), 1);
+    await page.getByTestId('dock-toggle').click();
+    assert.ok(await page.getByTestId('scope-scope2').isVisible(), 'dock shown again');
+    await page.getByRole('button', { name: 'Remove Scope 2' }).click();
+    assert.equal(await page.getByTestId('tab-scope2').count(), 0);
   });
 
   await check('worker destroy and recreate in the browser', async () => {
