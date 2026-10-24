@@ -286,6 +286,44 @@ static size_t make_h563_it_irq_elf(mm_u8 image[180])
     return 180u;
 }
 
+static int test_breakpoints(void)
+{
+    mm_u8 image[96];
+    struct mm_web_config config = { 0, sizeof(image) };
+    struct mm_web_step_result step;
+    struct mm_web_cpu_state cpu;
+    enum mm_web_error error;
+    struct mm_web_session *session;
+    const mm_u32 bkpt_addr = 0x0c00000au; /* movs r0, #1 at +8, bkpt at +10 */
+    (void)make_h563_elf(image);
+    session = mm_web_create(&config, &error);
+    if (session == 0 || mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK ||
+        mm_web_set_breakpoints(session, &bkpt_addr, 1u) != MM_WEB_OK ||
+        mm_web_step_instructions(session, 8u, &step) != MM_WEB_OK ||
+        !step.breakpoint || step.breakpoint_pc != bkpt_addr || step.stopped ||
+        step.instructions != 1u ||
+        mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK || cpu.r[0] != 1u ||
+        (cpu.r[15] & ~1u) != bkpt_addr) {
+        fprintf(stderr, "web_session_test: breakpoint did not pause before BKPT\n");
+        mm_web_destroy(session);
+        return 1;
+    }
+    /* Resuming executes the instruction under the breakpoint. */
+    if (mm_web_step_instructions(session, 8u, &step) != MM_WEB_OK ||
+        step.breakpoint || !step.stopped || step.instructions != 1u) {
+        fprintf(stderr, "web_session_test: resume from breakpoint failed\n");
+        mm_web_destroy(session);
+        return 1;
+    }
+    if (mm_web_set_breakpoints(session, 0, MM_WEB_BREAKPOINT_MAX + 1u) != MM_WEB_INVALID_ARGUMENT) {
+        fprintf(stderr, "web_session_test: breakpoint limit not enforced\n");
+        mm_web_destroy(session);
+        return 1;
+    }
+    mm_web_destroy(session);
+    return 0;
+}
+
 static int test_it_block_survives_exception(void)
 {
     mm_u8 image[180];
@@ -913,6 +951,7 @@ int main(void)
     if (test_run_until_sleeping() != 0) return 1;
     if (test_lockup() != 0) return 1;
     if (test_it_block_survives_exception() != 0) return 1;
+    if (test_breakpoints() != 0) return 1;
     puts("web_session_test: ok");
     return 0;
 }

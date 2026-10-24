@@ -90,6 +90,11 @@ struct mm_web_session {
     mm_bool pad_changed;
     mm_bool locked_up;
     mm_u32 lockup_pc;
+    mm_u32 breakpoints[MM_WEB_BREAKPOINT_MAX];
+    size_t breakpoint_count;
+    /* Set when paused at a breakpoint: the next fetch there proceeds. */
+    mm_bool breakpoint_resume;
+    mm_u32 breakpoint_resume_pc;
     struct mm_web_uart uarts[MM_UART_INSTANCE_MAX];
     size_t uart_count;
     struct mm_web_bus_host bus_host;
@@ -787,6 +792,7 @@ enum mm_web_error mm_web_load_elf(struct mm_web_session *session,
     session->loaded = MM_TRUE;
     session->stopped = MM_FALSE;
     session->locked_up = MM_FALSE;
+    session->breakpoint_resume = MM_FALSE;
     return MM_WEB_OK;
 }
 
@@ -827,6 +833,7 @@ static enum mm_web_error web_reinitialize(
     (void)mm_execution_state_signal_prepare_for_run(&session->execution);
     session->stopped = MM_FALSE;
     session->locked_up = MM_FALSE;
+    session->breakpoint_resume = MM_FALSE;
     return MM_WEB_OK;
 }
 
@@ -977,6 +984,26 @@ static enum mm_web_error web_execute_budgeted(
             if (irq_result == MM_EXECUTION_IRQ_DELIVERED) {
                 work++;
                 continue;
+            }
+        }
+        {
+            mm_u32 pc = state->cores[0].cpu.r[15] & ~1u;
+            size_t b;
+            for (b = 0u; b < session->breakpoint_count; ++b) {
+                if (session->breakpoints[b] == pc) break;
+            }
+            if (b < session->breakpoint_count) {
+                if (session->breakpoint_resume && session->breakpoint_resume_pc == pc) {
+                    session->breakpoint_resume = MM_FALSE;
+                } else {
+                    session->breakpoint_resume = MM_TRUE;
+                    session->breakpoint_resume_pc = pc;
+                    result_out->breakpoint = MM_TRUE;
+                    result_out->breakpoint_pc = pc;
+                    break;
+                }
+            } else {
+                session->breakpoint_resume = MM_FALSE;
             }
         }
         /* the previous instruction's flash operation, if any */
@@ -1420,6 +1447,19 @@ size_t mm_web_uart_write(struct mm_web_session *session, size_t index,
         u->rx_count++;
     }
     return n;
+}
+
+enum mm_web_error mm_web_set_breakpoints(struct mm_web_session *session,
+                                         const mm_u32 *addresses, size_t count)
+{
+    size_t i;
+    if (session == 0 || count > MM_WEB_BREAKPOINT_MAX ||
+        (count != 0u && addresses == 0)) {
+        return MM_WEB_INVALID_ARGUMENT;
+    }
+    for (i = 0; i < count; ++i) session->breakpoints[i] = addresses[i] & ~1u;
+    session->breakpoint_count = count;
+    return MM_WEB_OK;
 }
 
 static mm_bool web_spec_kind(const char *spec, const char *kind,

@@ -56,6 +56,9 @@ struct mm_web_step_result {
     mm_bool lockup;             /* unrecoverable fault: core locked up, as the
                                  * CLI reports it; stopped until reset */
     mm_u32 lockup_pc;
+    mm_bool breakpoint;         /* paused before the instruction at
+                                 * breakpoint_pc; running again executes it */
+    mm_u32 breakpoint_pc;
     enum mm_web_error error;
 };
 
@@ -80,7 +83,7 @@ struct mm_web_gpio_output_event {
 
 /* Version of the mm_web_abi_* WASM exports. Bump on any incompatible
  * change so out-of-tree hosts (m33mu-lab) can refuse a mismatched build. */
-#define MM_WEB_ABI_VERSION 2
+#define MM_WEB_ABI_VERSION 3
 
 /* mm_web_abi_features() bits. */
 #define MM_WEB_FEATURE_WOLFCRYPT 1u /* crypto peripheral models are live */
@@ -210,6 +213,13 @@ struct mm_web_bus_host {
     void (*spi_end)(void *opaque, int bus);
     void *opaque;
 };
+#define MM_WEB_BREAKPOINT_MAX 16u
+/* Replace the breakpoint set (Thumb addresses; bit 0 ignored). Execution
+ * pauses before fetching an instruction at one of them; the next run or step
+ * from that address executes it rather than pausing again. */
+enum mm_web_error mm_web_set_breakpoints(struct mm_web_session *session,
+                                         const mm_u32 *addresses, size_t count);
+
 /* Attach a simulated bus device using the CLI device syntax without the
  * leading dashes, e.g. "se050:I2C1:addr=0x48", "atecc608:SPI1:cs=PA4",
  * "ta100:SPI1:cs=PB5", "tropic01:SPI2:cs=PB12", "stsafe:I2C2" or

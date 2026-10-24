@@ -267,6 +267,23 @@ unsigned int mm_web_abi_last_lockup_pc(void)
     return g_last_step.lockup_pc;
 }
 
+unsigned int mm_web_abi_last_breakpoint(void)
+{
+    return g_last_step.breakpoint ? 1u : 0u;
+}
+
+unsigned int mm_web_abi_last_breakpoint_pc(void)
+{
+    return g_last_step.breakpoint_pc;
+}
+
+int mm_web_abi_set_breakpoints(void *session, const mm_u32 *addresses,
+                               unsigned int count)
+{
+    return (int)mm_web_set_breakpoints((struct mm_web_session *)session,
+                                       addresses, count);
+}
+
 unsigned int mm_web_abi_last_system_reset(void)
 {
     return g_last_step.system_reset ? 1u : 0u;
