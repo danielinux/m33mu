@@ -15,4 +15,6 @@ mm_bool mm_lpc55s69_romapi_register_mmio(struct mmio_bus *bus);
 void    mm_lpc55s69_romapi_reset(void);
 mm_bool mm_lpc55s69_romapi_handle(struct mm_cpu *cpu, struct mm_memmap *map);
 
+void mm_lpc55s69_romapi_deactivate(void);
+
 #endif /* M33MU_LPC55S69_ROMAPI_H */

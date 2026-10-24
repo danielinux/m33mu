@@ -3,7 +3,7 @@
 // Env: M33MU_CHROMIUM (default /usr/bin/chromium).
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -388,6 +388,33 @@ try {
     assert.doesNotMatch(diag, /PD15: Alternate-function/);
     await shot('09-pwm');
     await page.getByTestId('real-time').check();
+  });
+
+  await check('board picker: every CPU board renders, firmware runs on another CPU', async () => {
+    const cpus = await page.getByTestId('board').locator('option').evaluateAll((os) => os.map((o) => o.value));
+    assert.equal(cpus.length, 15);
+    for (const c of ['nrf5340', 'rp2350', 'stm32l552']) {
+      page.once('dialog', (d) => d.accept());
+      await page.getByTestId('board').selectOption(c);
+      await page.waitForFunction((cpu) => document.querySelector('svg image')?.getAttribute('href')?.includes(`${cpu}.svg`), c);
+      await page.getByText(/visual only until this board's pin map is reviewed/).waitFor();
+    }
+    // The worker switches CPU with the board: an nRF5340 ELF prints its banner on UARTE0.
+    page.once('dialog', (d) => d.accept());
+    await page.getByTestId('board').selectOption('nrf5340');
+    const nrf = new URL('../../../tests/firmware/test-nrf5340/app.elf', import.meta.url);
+    if (existsSync(nrf)) {
+      await page.getByTestId('elf-input').setInputFiles(fileURLToPath(nrf));
+      await page.getByTestId('real-time').uncheck();
+      await page.getByTestId('run').click();
+      await page.locator('pre').getByText(/nRF5340 test start/).first().waitFor({ timeout: 60000 });
+      await page.getByRole('button', { name: 'Pause' }).click().catch(() => undefined);
+      await page.getByTestId('real-time').check();
+    }
+    await shot('10-board-nrf5340');
+    page.once('dialog', (d) => d.accept());
+    await page.getByTestId('board').selectOption('stm32h563');
+    await page.waitForFunction(() => document.querySelector('svg image')?.getAttribute('href')?.includes('stm32h563.svg'));
   });
 
   await check('worker destroy and recreate in the browser', async () => {

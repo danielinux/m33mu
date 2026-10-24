@@ -81,6 +81,9 @@ mm_bool mmio_peek_mode(void);
 
 /* Returns MM_TRUE on success; MM_FALSE if storage is full or overlaps occur. */
 mm_bool mmio_bus_register_region(struct mmio_bus *bus, const struct mmio_region *region);
+/* MM_TRUE if a registered region covers addr. Register-once models use it to
+ * register again after the bus was rebuilt (a web session reload). */
+mm_bool mmio_bus_maps(const struct mmio_bus *bus, mm_u32 addr);
 
 /* Returns MM_TRUE on handled access, MM_FALSE on unmapped/fault. */
 mm_bool mmio_bus_read(const struct mmio_bus *bus, mm_u32 addr, mm_u32 size_bytes, mm_u32 *value_out);

@@ -79,6 +79,7 @@
 #include "m33mu/eth_backend.h"
 #include "stm32_crypto.h"
 #include "rp2350/rp2350_bootrom.h"
+#include "m33mu/bootapi.h"
 #include "rp2350/rp2350_usb.h"
 #ifdef M33MU_HAS_LIBTPMS
 #include "m33mu/tpm_tis.h"
@@ -497,22 +498,7 @@ static void record_window_step(struct mm_cpu *cpu, struct mm_memmap *map)
 
 static mm_bool mm_bootapi_handle(struct mm_cpu *cpu, struct mm_memmap *map)
 {
-    if (mm_rp2350_bootrom_handle(cpu, map)) {
-        return MM_TRUE;
-    }
-    if (mm_mcxn947_romapi_handle(cpu, map)) {
-        return MM_TRUE;
-    }
-    if (mm_lpc55s69_romapi_handle(cpu, map)) {
-        return MM_TRUE;
-    }
-    if (mm_rw612_romapi_handle(cpu, map)) {
-        return MM_TRUE;
-    }
-    if (mm_imxrt700_romapi_handle(cpu, map)) {
-        return MM_TRUE;
-    }
-    return MM_FALSE;
+    return mm_target_bootapi_handle(cpu, map);
 }
 
 static void finish_trace_step_if_started(mm_bool trace_started,

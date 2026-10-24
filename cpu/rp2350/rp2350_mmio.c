@@ -1180,6 +1180,11 @@ mm_bool mm_rp2350_clock_peri_enabled(void)
     return (enable && !kill) ? MM_TRUE : MM_FALSE;
 }
 
+void mm_rp2350_deactivate(void)
+{
+    rp2350_active = MM_FALSE;
+}
+
 mm_bool mm_rp2350_active(void)
 {
     return rp2350_active;

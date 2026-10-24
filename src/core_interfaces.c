@@ -154,6 +154,17 @@ static mm_bool mmio_regions_overlap(mm_u32 abase, mm_u32 asize, mm_u32 bbase, mm
     return (abase < bend) && (bbase < aend);
 }
 
+mm_bool mmio_bus_maps(const struct mmio_bus *bus, mm_u32 addr)
+{
+    size_t i;
+    if (bus == 0 || bus->regions == 0) return MM_FALSE;
+    for (i = 0; i < bus->region_count; ++i) {
+        const struct mmio_region *r = &bus->regions[i];
+        if (addr >= r->base && addr - r->base < r->size) return MM_TRUE;
+    }
+    return MM_FALSE;
+}
+
 mm_bool mmio_bus_register_region(struct mmio_bus *bus, const struct mmio_region *region)
 {
     size_t i;

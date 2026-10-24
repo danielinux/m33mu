@@ -26,3 +26,4 @@ fi
 "${MAKE:-make}" -C "$repo_root/tests/firmware/test-stm32h563-web-pwm" CC="${M33MU_ARM_NONE_EABI_GCC:-arm-none-eabi-gcc}" app.elf >/dev/null
 "$task_node" "$repo_root/scripts/test-web-pwm.mjs" "$task_build_dir/worker.mjs" \
   "$repo_root/tests/firmware/test-stm32h563-web-pwm/app.elf"
+"$task_node" "$repo_root/scripts/test-web-cpus.mjs" "$task_build_dir/worker.mjs" "$repo_root/tests/firmware"

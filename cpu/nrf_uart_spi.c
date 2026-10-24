@@ -294,7 +294,8 @@ void nrf_serial_register_all(struct nrf_serial_state *state,
 {
     struct mmio_region reg;
     size_t i;
-    if (state == 0 || cfg == 0 || bus == 0 || state->init_done) return;
+    if (state == 0 || cfg == 0 || bus == 0 ||
+        (state->init_done && cfg->count > 0u && mmio_bus_maps(bus, cfg->bases[0]))) return;
     memset(state, 0, sizeof(*state));
     state->cfg = cfg;
     state->nvic = nvic;
@@ -314,6 +315,7 @@ void nrf_serial_register_all(struct nrf_serial_state *state,
         if (s->has_uarte) {
             mm_uart_io_init(&s->io);
             sprintf(s->label, "UARTE%u", (unsigned)i);
+            mm_uart_instance_register(s->base, s->label);
             if (cfg->open_during_init) {
                 serial_uarte_ensure_open(s);
             }
@@ -348,6 +350,7 @@ void nrf_serial_reset_all(struct nrf_serial_state *state)
         if (s->has_uarte) {
             mm_uart_io_init(&s->io);
             sprintf(s->label, "UARTE%u", (unsigned)i);
+            mm_uart_instance_register(s->base, s->label);
         }
     }
 }

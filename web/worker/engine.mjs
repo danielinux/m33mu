@@ -29,6 +29,7 @@ export function attachM33muWorker(scope, createModule) {
   let modulePromise;
   let api;
   let session = 0;
+  let sessionCpu = null;
   let firmwareLoaded = false;
   let sequence = 0;
   let runGeneration = 0;
@@ -66,6 +67,7 @@ export function attachM33muWorker(scope, createModule) {
       const wrap = (name, result, args) => wasm.cwrap(name, result, args);
       api = {
         create: wrap('mm_web_abi_create', 'number', []),
+        createCpu: wrap('mm_web_abi_create_cpu', 'number', ['string']),
         load: wrap('mm_web_abi_load', 'number', ['number', 'number', 'number']),
         step: wrap('mm_web_abi_step', 'number', ['number', 'number']),
         runSlice: wrap('mm_web_abi_run_slice', 'number',
@@ -121,14 +123,24 @@ export function attachM33muWorker(scope, createModule) {
     return wasm;
   }
 
-  async function ensureSession() {
+  /** The session for cpu (default: the current one, else stm32h563); a
+   * different CPU replaces the session. */
+  async function ensureSession(cpu) {
     const wasm = await loadApi();
+    if (session && cpu && cpu !== sessionCpu) {
+      api.destroy(session);
+      session = 0;
+      firmwareLoaded = false;
+      bench = null;
+    }
     if (!session) {
-      session = api.create();
+      const name = cpu || sessionCpu || 'stm32h563';
+      session = api.createCpu(name);
       if (!session) {
         const code = ERROR_NAMES[api.lastError()] || 'INITIALIZATION_FAILED';
-        throw Object.assign(new Error(`Could not create H563 session (${code})`), { code });
+        throw Object.assign(new Error(`Could not create ${name} session (${code})`), { code });
       }
+      sessionCpu = name;
     }
     return wasm;
   }
@@ -169,7 +181,7 @@ export function attachM33muWorker(scope, createModule) {
       securityState: api.securityState(session),
       mode: api.mode(session),
       sleeping: api.sleeping(session) !== 0,
-      cpuHz: api.cpuHz(session),
+      cpu: sessionCpu, cpuHz: api.cpuHz(session),
       cycleTotal: ((BigInt(api.cyclesHigh(session) >>> 0) << 32n) |
         BigInt(api.cycles(session) >>> 0)).toString(),
       virtualTimeNs: ((BigInt(api.virtualTimeHigh(session) >>> 0) << 32n) |
@@ -204,7 +216,7 @@ export function attachM33muWorker(scope, createModule) {
           for (const d of bench.bus.uartTx(api.uartLabel(session, i), bytes)) deliverUart(d.label, d.data);
         }
         scope.postMessage({ schemaVersion: 1, kind: 'event', sequence: ++sequence, event: 'uart',
-          payload: { requestId, index: i, bytes, overflow } }, [bytes.buffer]);
+          payload: { requestId, index: i, label: api.uartLabel(session, i), base: api.uartBase(session, i) >>> 0, bytes, overflow } }, [bytes.buffer]);
         if (got < UART_CHUNK) break;
       }
     }
@@ -415,7 +427,10 @@ export function attachM33muWorker(scope, createModule) {
           throw Object.assign(new Error('Firmware must be a non-empty ELF up to 32 MiB'),
             { code: 'IMAGE_REJECTED' });
         }
-        const wasm = await ensureSession();
+        if (payload.cpu !== undefined && (typeof payload.cpu !== 'string' || !/^[a-z0-9]{1,32}$/.test(payload.cpu))) {
+          throw invalid('cpu must be an m33mu --cpu name');
+        }
+        const wasm = await ensureSession(payload.cpu);
         ++runGeneration;
         bench = null;
         const ptr = wasm._malloc(bytes.byteLength);
@@ -429,7 +444,7 @@ export function attachM33muWorker(scope, createModule) {
         } finally {
           wasm._free(ptr);
         }
-        postResponse(requestId, { loaded: true, format: 'elf32-arm' });
+        postResponse(requestId, { loaded: true, format: 'elf32-arm', cpu: sessionCpu });
         if (!drainGpioOutput(requestId)) return;
         emitState(requestId);
         return;

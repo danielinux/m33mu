@@ -13,4 +13,6 @@ mm_bool mm_mcxn947_romapi_handle(struct mm_cpu *cpu, struct mm_memmap *map);
 void mm_mcxn947_romapi_set_persist(const struct mm_flash_persist *persist);
 void mm_mcxn947_romapi_set_tz_disabled(mm_bool disabled);
 
+void mm_mcxn947_romapi_deactivate(void);
+
 #endif /* M33MU_MCXN947_ROMAPI_H */

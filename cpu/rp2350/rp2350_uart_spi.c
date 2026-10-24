@@ -293,6 +293,7 @@ void mm_rp2350_uart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
     uarts[0].base = UART0_BASE;
     uarts[0].reset_bit = RP2350_RESET_UART0;
     snprintf(uarts[0].label, sizeof(uarts[0].label), "UART0");
+    mm_uart_instance_register(UART0_BASE, uarts[0].label);
     mm_uart_io_init(&uarts[0].io);
 
     reg.base = UART0_BASE;
@@ -305,6 +306,7 @@ void mm_rp2350_uart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
     uarts[1].base = UART1_BASE;
     uarts[1].reset_bit = RP2350_RESET_UART1;
     snprintf(uarts[1].label, sizeof(uarts[1].label), "UART1");
+    mm_uart_instance_register(UART1_BASE, uarts[1].label);
     mm_uart_io_init(&uarts[1].io);
 
     reg.base = UART1_BASE;

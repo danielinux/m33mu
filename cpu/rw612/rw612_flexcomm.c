@@ -331,7 +331,7 @@ void mm_rw612_flexcomm_poll(void)
 void mm_rw612_flexcomm_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 {
     int i;
-    if (global_init_done) return;
+    if (global_init_done && mmio_bus_maps(bus, flexcomm_defs[0].base)) return;
     global_init_done = MM_TRUE;
     (void)nvic;
 
@@ -345,6 +345,7 @@ void mm_rw612_flexcomm_init(struct mmio_bus *bus, struct mm_nvic *nvic)
         fc->spi_bus_index = i;
         mm_uart_io_init(&fc->uart_io);
         sprintf(fc->uart_label, "USART%d", i);
+        mm_uart_instance_register(fc->base, fc->uart_label);
 
         /* PSELID reset: ID field 0x101 in upper half, USART/SPI/I2C/I2S all
          * present.  Same value LPC55S69 uses for FC0-7. */

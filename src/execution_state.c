@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  */
 
+#include "m33mu/bootapi.h"
 #include "m33mu/execution_state.h"
 #include "m33mu/execution_irq.h"
 
@@ -62,6 +63,7 @@ mm_bool mm_execution_state_select_target(struct mm_execution_state *state,
         state->storage.ram != 0) {
         return MM_FALSE;
     }
+    mm_target_deactivate_boot_state();
     return mm_cpu_lookup(cpu_name, &state->target);
 }
 

@@ -38,7 +38,7 @@
    ],
    "properties": {
     "cpu": {
-     "const": "stm32h563"
+     "enum": ["stm32h563", "stm32h533", "stm32h5f4", "stm32u585", "stm32l552", "mcxw71c", "mcxn947", "nrf5340", "nrf54lm20", "rp2350", "lpc55s69", "pic32ck", "m2354", "rw612", "imxrt700"]
     },
     "firmwareFormat": {
      "const": "elf"
@@ -81,7 +81,7 @@
       "minLength": 1
      },
      "cpu": {
-      "const": "stm32h563"
+      "enum": ["stm32h563", "stm32h533", "stm32h5f4", "stm32u585", "stm32l552", "mcxw71c", "mcxn947", "nrf5340", "nrf54lm20", "rp2350", "lpc55s69", "pic32ck", "m2354", "rw612", "imxrt700"]
      },
      "layoutRevision": {
       "type": "string"

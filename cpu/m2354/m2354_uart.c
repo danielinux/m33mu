@@ -177,7 +177,7 @@ void mm_m2354_uart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 {
     int i;
 
-    if (global_init_done) return;
+    if (global_init_done && mmio_bus_maps(bus, UART_BASE0)) return;
     global_init_done = MM_TRUE;
     g_nvic = nvic;
 
@@ -188,6 +188,7 @@ void mm_m2354_uart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
         u->index = i;
         mm_uart_io_init(&u->io);
         sprintf(u->label, "UART%d", i);
+        mm_uart_instance_register(u->base, u->label);
         u->regs[UART_BAUD / 4u] = 0x0F000000u;
         mm_m2354_register_aliased(bus, u->base, UART_SIZE, u,
                                   uart_read, uart_write);

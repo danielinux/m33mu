@@ -15,4 +15,6 @@ mm_bool mm_rw612_romapi_register_mmio(struct mmio_bus *bus);
 void    mm_rw612_romapi_reset(void);
 mm_bool mm_rw612_romapi_handle(struct mm_cpu *cpu, struct mm_memmap *map);
 
+void mm_rw612_romapi_deactivate(void);
+
 #endif /* M33MU_RW612_ROMAPI_H */

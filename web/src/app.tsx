@@ -10,7 +10,7 @@ import type { BusRecord } from '../sim/buses.ts';
 import { CATALOG, formatSi, type PartKind, type Rotation } from './project/catalog.ts';
 import { commit, createHistory, redo, replace, undo } from './project/history.ts';
 import {
-  type Project, type ProbeTarget, type ScopeConfig, MAX_FIRMWARE_BYTES, MAX_SCOPES, newScope, ProjectError, emptyProject, parseProject,
+  type CpuName, BOARDS, isCpu, type Project, type ProbeTarget, type ScopeConfig, MAX_FIRMWARE_BYTES, MAX_SCOPES, newScope, ProjectError, emptyProject, parseProject,
   refKey, serializeProject
 } from './project/model.ts';
 import { type BoardLayout, allTerminals, compileCircuit } from './project/netgraph.ts';
@@ -85,21 +85,23 @@ export function App() {
   const resetScopes = () => { for (const sink of scopeSinks.current.values()) sink.reset(); };
   const client = useRef<WorkerClient | null>(null);
 
+  const cpu = project.simulator.cpu;
   useEffect(() => {
     let live = true;
-    fetch(assetUrl('boards/layout/stm32h563.json'))
+    setLayout((old) => old?.cpu === cpu ? old : null);
+    fetch(assetUrl(`boards/layout/${cpu}.json`))
       .then((r) => { if (!r.ok) throw new Error(`Board layout unavailable (${r.status})`); return r.json(); })
       .then((d: BoardLayout) => { if (live) setLayout(d); })
       .catch((e) => { if (live) setFault(String(e)); });
     return () => { live = false; };
-  }, []);
+  }, [cpu]);
   useEffect(() => () => client.current?.terminate(), []);
   useEffect(() => {
     fetch(assetUrl('examples/index.json')).then((r) => r.ok ? r.json() : { examples: [] })
       .then((d) => setExamples(d.examples ?? [])).catch(() => setExamples([]));
   }, []);
 
-  const layouts = useMemo(() => new Map(layout ? [['stm32h563', layout]] : []), [layout]);
+  const layouts = useMemo(() => new Map(layout ? [[layout.cpu, layout]] : []), [layout]);
   const compiled = useMemo(() => compileCircuit(project, layouts), [project, layouts]);
   const terminals = useMemo(() => allTerminals(project, layouts), [project, layouts]);
   const terminalMap = useMemo(() => new Map(terminals.map((t) => [t.key, t])), [terminals]);
@@ -113,8 +115,8 @@ export function App() {
   }
 
   const [uarts, setUarts] = useState<UartInfo[]>([]);
-  // USART3 is the NUCLEO-H563ZI ST-LINK virtual COM port.
-  const openUarts = project.instruments.terminals ?? ['USART3'];
+  // Default: the board's debugger virtual COM port (USART3 on the NUCLEO-H563ZI).
+  const openUarts = project.instruments.terminals ?? (BOARDS[cpu].vcp ? [BOARDS[cpu].vcp] : []);
   const [uartText, setUartText] = useState<Record<number, string>>({});
   const [busLog, setBusLog] = useState<BusRecord[]>([]);
   const [adapterText, setAdapterText] = useState<Record<string, string>>({});
@@ -140,6 +142,11 @@ export function App() {
     if (next.includes(label)) setDockTab(label);
     else if (dockTab === label) setDockTab(project.instruments.scopes[0]?.id ?? '');
   }
+  // Boards without a known VCP: open a terminal for the first UART that talks.
+  const autoOpenTerminal = useRef<((label: string) => void) | null>(null);
+  autoOpenTerminal.current = (label: string) => {
+    if (openUarts.length === 0) toggleUart(label);
+  };
   async function sendUart(index: number, text: string) {
     try {
       const r = await worker().request<{ accepted: number; dropped: number }>('uartWrite', { index, text });
@@ -162,6 +169,12 @@ export function App() {
     }
     if (e.event === 'uart') {
       const bytes = p.bytes as Uint8Array;
+      // UARTs of some targets register when firmware first enables them.
+      if (typeof p.label === 'string') {
+        setUarts((old) => old.some((u) => u.index === p.index) ? old :
+          [...old, { index: p.index, label: p.label, base: p.base ?? 0 }]);
+        if (bytes.length) autoOpenTerminal.current?.(p.label);
+      }
       setUartText((old) => ({ ...old, [p.index]: appendTerminal(old[p.index] ?? '', bytes) }));
       if (p.overflow) setUartLost((old) => new Set(old).add(p.index));
       return;
@@ -321,8 +334,8 @@ export function App() {
 
   // ------------------------------------------------------------ firmware
 
-  async function loadElf(bytes: Uint8Array, name: string, hash: string) {
-    await worker().request('loadFirmware', { bytes });
+  async function loadElf(bytes: Uint8Array, name: string, hash: string, target: CpuName = cpu) {
+    await worker().request('loadFirmware', { bytes, cpu: target });
     setUartText({}); setUartLost(new Set());
     const list = await worker().request<{ uarts: UartInfo[] }>('uartList');
     setUarts(list.uarts);
@@ -465,7 +478,7 @@ export function App() {
         const bytes = Uint8Array.from(atob(p.simulator.firmwareBase64), (ch) => ch.charCodeAt(0));
         const hash = await sha256(bytes);
         if (hash !== p.simulator.firmwareSha256) throw new ProjectError('Embedded ELF SHA-256 does not match the project manifest');
-        await loadElf(bytes, p.simulator.firmwareName || file.name, hash);
+        await loadElf(bytes, p.simulator.firmwareName || file.name, hash, p.simulator.cpu);
       } else {
         client.current?.terminate();
         client.current = null;
@@ -492,7 +505,7 @@ export function App() {
         const bytes = new Uint8Array(await (await fetch(assetUrl(`examples/${ex.firmware}`))).arrayBuffer());
         const hash = await sha256(bytes);
         if (hash !== p.simulator.firmwareSha256) throw new ProjectError(`${ex.firmware} does not match the example's SHA-256`);
-        await loadElf(bytes, ex.firmware, hash);
+        await loadElf(bytes, ex.firmware, hash, p.simulator.cpu);
       } else {
         if (benchActive) await worker().request('destroyBench');
         setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
@@ -505,6 +518,22 @@ export function App() {
       setDockTab(p.instruments.scopes[0]?.id ?? '');
       setMessage(`${ex.name}: ${ex.description}`);
     } catch (err) { fail(err); }
+  }
+
+  /** Switch to a fresh bench on another board; firmware is per CPU. */
+  async function chooseBoard(next: CpuName) {
+    if (next === cpu) return;
+    if ((project.parts.length || project.wires.length) &&
+        !window.confirm(`Start a new ${BOARDS[next].name} bench? The current circuit is not carried over.`)) return;
+    setFault('');
+    if (benchActive) await worker().request('destroyBench').catch(() => undefined);
+    setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
+    setMcuPads({}); setPadDuty({}); setUarts([]); setUartText({}); setUartLost(new Set());
+    setFirmware(null); setMachine(null); setRunState('idle');
+    resetScopes();
+    setHistory(createHistory(emptyProject(next)));
+    setSelection(null);
+    setMessage(`${BOARDS[next].name}: load an ELF built for ${next}.`);
   }
 
   function exportDiagnostics() {
@@ -542,7 +571,13 @@ export function App() {
     <main className="app">
       <header className="topbar">
         <div className="brand"><span className="mark">m</span><div><strong>m33mu</strong><small>WORKBENCH</small></div></div>
-        <div className="board-name">{layout ? `${layout.boardName} · ${layout.boardRevision ?? ''}` : 'Loading board…'}</div>
+        <select className="board-name" value={cpu} aria-label="Board" data-testid="board"
+          title={layout ? `${layout.boardName}${layout.boardRevision ? ` · ${layout.boardRevision}` : ''}` : 'Loading board…'}
+          onChange={(e) => { if (isCpu(e.target.value)) void chooseBoard(e.target.value); }}>
+          {(Object.keys(BOARDS) as CpuName[]).map((c) => (
+            <option key={c} value={c}>{BOARDS[c].name} · {c}{c === 'stm32h563' ? ` · ${BOARDS[c].layoutRevision}` : ''}</option>
+          ))}
+        </select>
         <div className="firmware" title={firmware?.hash}>
           <span className={`dot ${runState}`} />{firmware ? firmware.name : 'No firmware'}
         </div>
@@ -582,10 +617,16 @@ export function App() {
           ))}
           <h2>Capabilities</h2>
           <ul className="caps">
-            <li className="on">Firmware execution (STM32H563, ELF)</li>
+            <li className="on">Firmware execution ({cpu}, ELF){cpu === 'imxrt700' ? ' — boots from a BIN/FCB image in the CLI only' : ''}</li>
             <li className="on">Analog transient solver (R, C, L, diode, LED, BJT, MOSFET, switch, supplies)</li>
-            <li className="on">212 of 240 Zio and morpho contacts wireable (UM3115 Rev 3 Tables 21-25), GND/3V3/5V rails</li>
-            <li className="on">On-board LD1/LD2/LD3 lit from PB0/PF4/PG4</li>
+            {(() => {
+              const all = layout?.connectors.flatMap((c) => c.contacts) ?? [];
+              const wireable = all.filter((c) => c.electricalEnabled).length;
+              return wireable > 0
+                ? <li className="on">{wireable} of {all.length} header contacts wireable (reviewed pin map)</li>
+                : <li>Board contacts: visual only until this board's pin map is reviewed</li>;
+            })()}
+            {(layout?.leds?.length ?? 0) > 0 && <li className="on">On-board LEDs lit from {layout!.leds!.map((l) => l.pad).join('/')}</li>}
             <li className="on">TIM2–TIM5 output compare and PWM on their AF pins</li>
             <li className="on">UART terminals; logic-level I²C/SPI/UART devices</li>
             <li>Solder-bridge, SWD, clock and unmodelled-net contacts: visual only</li>

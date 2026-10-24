@@ -109,11 +109,16 @@ void mm_uart_io_init(struct mm_uart_io *io)
     io->stdout_only = MM_FALSE;
 }
 
+static mm_bool uart_offer_instance(mm_u32 base);
+
 mm_bool mm_uart_io_open(struct mm_uart_io *io, mm_u32 base)
 {
     const struct mm_uart_backend_binding *binding;
     if (io == 0) return MM_FALSE;
     binding = uart_find_backend(base);
+    if (binding == 0 && uart_offer_instance(base)) {
+        binding = uart_find_backend(base);
+    }
     if (binding != 0) {
         io->fd = -2;
         io->backend_ops = binding->ops;
@@ -426,6 +431,39 @@ void mm_uart_instance_register(mm_u32 base, const char *label)
              sizeof(g_uart_instances[0].label), "%s",
              label != 0 ? label : "UART");
     g_uart_instance_count++;
+}
+
+void mm_uart_instance_clear(void)
+{
+    g_uart_instance_count = 0u;
+}
+
+static mm_uart_instance_listener_fn g_uart_instance_listener = 0;
+static void *g_uart_instance_listener_opaque = 0;
+
+void mm_uart_set_instance_listener(mm_uart_instance_listener_fn listener, void *opaque)
+{
+    g_uart_instance_listener = listener;
+    g_uart_instance_listener_opaque = opaque;
+}
+
+/* A UART model that did not register itself at init opens: register it
+ * and let the host attach a backend. */
+static mm_bool uart_offer_instance(mm_u32 base)
+{
+    char label[24];
+    size_t i;
+    if (g_uart_instance_listener == 0) return MM_FALSE;
+    for (i = 0; i < g_uart_instance_count; ++i) {
+        if (g_uart_instances[i].base == base) break;
+    }
+    if (i == g_uart_instance_count) {
+        snprintf(label, sizeof(label), "UART@%08lx", (unsigned long)base);
+        mm_uart_instance_register(base, label);
+        if (i == g_uart_instance_count) return MM_FALSE;
+    }
+    g_uart_instance_listener(g_uart_instance_listener_opaque, base, g_uart_instances[i].label);
+    return MM_TRUE;
 }
 
 size_t mm_uart_instance_count(void)

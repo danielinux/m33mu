@@ -37,4 +37,6 @@ mm_bool mm_imxrt700_romapi_register_mmio(struct mmio_bus *bus);
 void mm_imxrt700_romapi_reset(void);
 mm_bool mm_imxrt700_romapi_handle(struct mm_cpu *cpu, struct mm_memmap *map);
 
+void mm_imxrt700_romapi_deactivate(void);
+
 #endif /* M33MU_IMXRT700_ROMAPI_H */

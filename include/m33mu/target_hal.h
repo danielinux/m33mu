@@ -65,6 +65,11 @@ void mm_uart_backend_detach(mm_u32 base);
 void mm_uart_instance_register(mm_u32 base, const char *label);
 size_t mm_uart_instance_count(void);
 mm_bool mm_uart_instance_get(size_t index, mm_u32 *base_out, const char **label_out);
+void mm_uart_instance_clear(void);
+/* Called when a UART opens without a registered instance or backend; the
+ * host may attach a backend for base, which the opening UART then uses. */
+typedef void (*mm_uart_instance_listener_fn)(void *opaque, mm_u32 base, const char *label);
+void mm_uart_set_instance_listener(mm_uart_instance_listener_fn listener, void *opaque);
 void mm_uart_break_on_macro_set(void);
 mm_bool mm_uart_break_on_macro_take(void);
 

@@ -27,7 +27,7 @@ enum mm_web_error {
 };
 
 struct mm_web_config {
-    const char *cpu_name;       /* P0 supports stm32h563 */
+    const char *cpu_name;       /* any --cpu name; default stm32h563 */
     size_t max_image_size;      /* zero selects the 32 MiB default */
 };
 
@@ -164,6 +164,12 @@ enum mm_web_error mm_web_pop_gpio_output(
 enum mm_web_error mm_web_cpu_snapshot(
     const struct mm_web_session *session,
     struct mm_web_cpu_state *snapshot_out);
+/* Debugger access through the Secure bus view, as GDB's memory commands do:
+ * peripheral registers see real reads and writes. Fails on an unmapped byte. */
+enum mm_web_error mm_web_read_memory(struct mm_web_session *session, mm_u32 addr,
+                                     mm_u8 *out, size_t len);
+enum mm_web_error mm_web_write_memory(struct mm_web_session *session, mm_u32 addr,
+                                      const mm_u8 *data, size_t len);
 /* UARTs of the target. Each has a TX ring the host drains and an RX queue
  * the host fills; the firmware sees host bytes through the normal USART RX
  * path. Index order is the target's registration order. */

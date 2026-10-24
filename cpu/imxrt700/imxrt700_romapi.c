@@ -198,3 +198,9 @@ mm_bool mm_imxrt700_romapi_handle(struct mm_cpu *cpu, struct mm_memmap *map)
         return MM_FALSE;
     }
 }
+
+/* Another target was selected in this process. */
+void mm_imxrt700_romapi_deactivate(void)
+{
+    romapi_active = MM_FALSE;
+}

@@ -127,6 +127,7 @@ void mm_mcxw71c_usart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
         u->mrcc_offset = mrcc_offsets[i];
         mm_uart_io_init(&u->io);
         sprintf(u->label, "LPUART%u", (unsigned)i);
+        mm_uart_instance_register(u->base, u->label);
         u->regs[LPUART_STAT / 4] = STAT_TDRE | STAT_TC | STAT_IDLE;
 
         reg.base = bases[i];

@@ -243,7 +243,7 @@ void mm_pic32ck_sercom_poll(void)
 void mm_pic32ck_sercom_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 {
     int i;
-    if (global_init_done) return;
+    if (global_init_done && mmio_bus_maps(bus, sercom_bases[0])) return;
     global_init_done = MM_TRUE;
     (void)nvic;
 
@@ -256,6 +256,7 @@ void mm_pic32ck_sercom_init(struct mmio_bus *bus, struct mm_nvic *nvic)
         sc->spi_bus_index = i;
         mm_uart_io_init(&sc->uart_io);
         sprintf(sc->uart_label, "SERCOM%d", i);
+        mm_uart_instance_register(sc->base, sc->uart_label);
         /* INTFLAG: DRE|TXC set at reset (TX ready) */
         {
             mm_u16 fl = INTFLAG_DRE | INTFLAG_TXC;

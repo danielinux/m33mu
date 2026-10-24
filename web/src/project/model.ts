@@ -19,7 +19,7 @@ export type Wire = { id: string; from: TerminalRef; to: TerminalRef; color: stri
 
 export type BoardInstance = {
   id: string;
-  cpu: 'stm32h563';
+  cpu: CpuName;
   layoutRevision: string;
   x: number;
   y: number;
@@ -37,7 +37,7 @@ export type Project = {
   projectId: string;
   name: string;
   simulator: {
-    cpu: 'stm32h563';
+    cpu: CpuName;
     firmwareFormat: 'elf';
     firmwareSha256: string | null;
     firmwareName: string;
@@ -75,20 +75,45 @@ export function newScope(project: Project | null): ScopeConfig {
 }
 
 export const H563_LAYOUT_REVISION = 'MB1404 H563ZI-C01';
+const PROVISIONAL = 'provisional-v1';
+
+/** Every m33mu --cpu profile and the board it is shown on. vcp is the UART
+ * label of the board's debugger virtual COM port where a reviewed board manual
+ * gives it; otherwise the first UART that transmits opens a terminal. */
+export const BOARDS = {
+  stm32h563: { name: 'NUCLEO-H563ZI', layoutRevision: H563_LAYOUT_REVISION, vcp: 'USART3' },
+  stm32h533: { name: 'NUCLEO-H533RE', layoutRevision: PROVISIONAL, vcp: null },
+  stm32h5f4: { name: 'STM32H5F4 (Nucleo-style proxy)', layoutRevision: PROVISIONAL, vcp: null },
+  stm32u585: { name: 'STM32U585 (Nucleo-style proxy)', layoutRevision: PROVISIONAL, vcp: null },
+  stm32l552: { name: 'NUCLEO-L552ZE-Q', layoutRevision: PROVISIONAL, vcp: null },
+  mcxw71c: { name: 'FRDM-MCXW71', layoutRevision: PROVISIONAL, vcp: null },
+  mcxn947: { name: 'FRDM-MCXN947', layoutRevision: PROVISIONAL, vcp: null },
+  nrf5340: { name: 'nRF5340 DK', layoutRevision: PROVISIONAL, vcp: null },
+  nrf54lm20: { name: 'nRF54LM20 DK', layoutRevision: PROVISIONAL, vcp: null },
+  rp2350: { name: 'Raspberry Pi Pico 2', layoutRevision: PROVISIONAL, vcp: null },
+  lpc55s69: { name: 'LPCXpresso55S69', layoutRevision: PROVISIONAL, vcp: null },
+  pic32ck: { name: 'PIC32CK SG01 Curiosity Ultra', layoutRevision: PROVISIONAL, vcp: null },
+  m2354: { name: 'NuMaker-M2354', layoutRevision: PROVISIONAL, vcp: null },
+  rw612: { name: 'FRDM-RW612', layoutRevision: PROVISIONAL, vcp: null },
+  imxrt700: { name: 'MIMXRT700-EVK', layoutRevision: PROVISIONAL, vcp: null }
+} as const;
+export type CpuName = keyof typeof BOARDS;
+export const isCpu = (v: unknown): v is CpuName => typeof v === 'string' && Object.hasOwn(BOARDS, v);
 export const MAX_PROJECT_BYTES = 64 * 1024 * 1024;
 export const MAX_FIRMWARE_BYTES = 32 * 1024 * 1024;
 const MAX_ITEMS = 2000;
 
-export function emptyProject(): Project {
+export function emptyProject(cpu: CpuName = 'stm32h563'): Project {
+  const board = BOARDS[cpu];
   return {
     schemaVersion: 2,
     projectId: newId('project'),
     name: 'Untitled bench',
-    simulator: { cpu: 'stm32h563', firmwareFormat: 'elf', firmwareSha256: null, firmwareName: '' },
-    boards: [{ id: 'board1', cpu: 'stm32h563', layoutRevision: H563_LAYOUT_REVISION, x: 0, y: 0 }],
+    simulator: { cpu, firmwareFormat: 'elf', firmwareSha256: null, firmwareName: '' },
+    boards: [{ id: 'board1', cpu, layoutRevision: board.layoutRevision, x: 0, y: 0 }],
     parts: [],
     wires: [],
-    instruments: { scopes: [newScope(null)], terminals: ['USART3'] },
+    instruments: { scopes: [newScope(null)], terminals: board.vcp ? [board.vcp] : [] },
     solver: { lookaheadNs: 50_000, sampleNs: 1000 },
     ui: { zoom: 0.5, panX: 40, panY: 20 }
   };
@@ -141,8 +166,8 @@ export function validateProject(value: unknown): Project {
   const p = value as unknown as Project;
   if (typeof p.projectId !== 'string' || typeof p.name !== 'string') fail('Project needs projectId and name');
   const sim = p.simulator;
-  if (!isObject(sim) || sim.cpu !== 'stm32h563' || sim.firmwareFormat !== 'elf') {
-    fail('Only stm32h563 ELF projects are supported');
+  if (!isObject(sim) || !isCpu(sim.cpu) || sim.firmwareFormat !== 'elf') {
+    fail(`Unsupported CPU or firmware format (${String(isObject(sim) ? sim.cpu : '')}); ELF projects for: ${Object.keys(BOARDS).join(', ')}`);
   }
   if (sim.firmwareSha256 !== null && !/^[0-9a-f]{64}$/.test(String(sim.firmwareSha256))) {
     fail('firmwareSha256 must be null or 64 lowercase hex digits');
@@ -163,9 +188,10 @@ export function validateProject(value: unknown): Project {
   };
   for (const b of p.boards) {
     unique(b.id, 'Board');
-    if (b.cpu !== 'stm32h563') fail(`Board ${b.id}: unsupported CPU ${String(b.cpu)}`);
-    if (b.layoutRevision !== H563_LAYOUT_REVISION) {
-      fail(`Board ${b.id}: layout revision "${String(b.layoutRevision)}" is not ${H563_LAYOUT_REVISION}`);
+    if (b.cpu !== sim.cpu) fail(`Board ${b.id}: CPU ${String(b.cpu)} differs from the simulator CPU ${String(sim.cpu)}`);
+    const expected = BOARDS[sim.cpu as CpuName].layoutRevision;
+    if (b.layoutRevision !== expected) {
+      fail(`Board ${b.id}: layout revision "${String(b.layoutRevision)}" is not ${expected}`);
     }
     if (!finite(b.x) || !finite(b.y)) fail(`Board ${b.id}: invalid position`);
   }

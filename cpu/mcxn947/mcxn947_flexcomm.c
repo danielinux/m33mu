@@ -343,7 +343,7 @@ void mm_mcxn947_flexcomm_init(struct mmio_bus *bus, struct mm_nvic *nvic)
     size_t i;
 
     /* Prevent double initialization */
-    if (global_init_done) return;
+    if (global_init_done && mmio_bus_maps(bus, FLEXCOMM_BASE_START)) return;
     global_init_done = MM_TRUE;
 
     (void)nvic;
@@ -361,6 +361,7 @@ void mm_mcxn947_flexcomm_init(struct mmio_bus *bus, struct mm_nvic *nvic)
         /* Initialize UART I/O */
         mm_uart_io_init(&fc->uart_io);
         sprintf(fc->uart_label, "LPUART%u", (unsigned)i);
+        mm_uart_instance_register(fc->base, fc->uart_label);
 
         /* Set default PSELID value (from SVD reset value) */
         fc->regs[FLEXCOMM_PSELID / 4] = 0x00103070u;

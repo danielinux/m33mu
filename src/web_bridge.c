@@ -13,6 +13,8 @@
 #include "m33mu/execution_state.h"
 #include "m33mu/execution_exception.h"
 #include "m33mu/gpio.h"
+#include "m33mu/bootapi.h"
+#include "m33mu/cpu_db.h"
 #include "m33mu/signal.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/i2c_bus.h"
@@ -173,6 +175,26 @@ static void web_attach_uarts(struct mm_web_session *session)
         if (mm_uart_backend_attach(base, label, &g_web_uart_ops, u)) {
             session->uart_count++;
         }
+    }
+}
+
+/* A UART that registered late (when firmware enabled it). */
+static void web_uart_instance_opened(void *opaque, mm_u32 base, const char *label)
+{
+    struct mm_web_session *session = (struct mm_web_session *)opaque;
+    struct mm_web_uart *u;
+    size_t i;
+    if (session == 0 || session != g_web_active_session) return;
+    for (i = 0; i < session->uart_count; ++i) {
+        if (session->uarts[i].base == base) return;
+    }
+    if (session->uart_count >= MM_UART_INSTANCE_MAX) return;
+    u = &session->uarts[session->uart_count];
+    u->session = session;
+    u->base = base;
+    u->label = label;
+    if (mm_uart_backend_attach(base, label, &g_web_uart_ops, u)) {
+        session->uart_count++;
     }
 }
 
@@ -655,10 +677,11 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
                                      enum mm_web_error *error_out)
 {
     struct mm_web_session *session;
+    struct mm_target_cfg probe;
     const char *cpu_name = config != 0 && config->cpu_name != 0 ?
         config->cpu_name : "stm32h563";
     if (error_out != 0) *error_out = MM_WEB_INVALID_ARGUMENT;
-    if (strcmp(cpu_name, "stm32h563") != 0) {
+    if (!mm_cpu_lookup(cpu_name, &probe)) {
         if (error_out != 0) *error_out = MM_WEB_UNSUPPORTED_TARGET;
         return 0;
     }
@@ -678,6 +701,9 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
     }
     g_web_active_session = session;
     mm_system_clear_reset();
+    /* The UART list is per target; models register again at init. */
+    mm_uart_instance_clear();
+    mm_uart_set_instance_listener(web_uart_instance_opened, session);
     web_init_pad_states(session);
     mm_gpio_set_pad_listener(web_gpio_pad_changed, session);
     mm_gpio_set_pad_config_listener(web_gpio_pad_config_changed, session);
@@ -689,6 +715,7 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
         mm_execution_state_destroy(&session->execution);
         g_web_active_session = 0;
         mm_gpio_set_pad_listener(0, 0);
+        mm_uart_set_instance_listener(0, 0);
         mm_gpio_set_pad_config_listener(0, 0);
         free(session);
         if (error_out != 0) *error_out = MM_WEB_INITIALIZATION_FAILED;
@@ -961,6 +988,10 @@ static enum mm_web_error web_execute_budgeted(
         context.raise_usage_fault = web_raise_usage_fault;
         context.exc_return_unstack = web_execution_exc_return;
         context.enter_exception = web_execution_instruction_exception;
+        /* Boot ROM / ROM API entries implemented natively. */
+        if (mm_target_bootapi_handle(&state->cores[0].cpu, &state->map)) {
+            continue;
+        }
         outcome = mm_execution_state_step_instruction(
             state, 0u, &context, mm_execution_exception_fpu_access_allowed, web_decode,
             web_raise_mem_fault, &fetch, &decoded, &fpu_ok,
@@ -1249,6 +1280,36 @@ enum mm_web_error mm_web_pop_gpio_output(
     return MM_WEB_OK;
 }
 
+enum mm_web_error mm_web_read_memory(struct mm_web_session *session, mm_u32 addr,
+                                     mm_u8 *out, size_t len)
+{
+    size_t i;
+    if (session == 0 || out == 0 || len > 65536u) return MM_WEB_INVALID_ARGUMENT;
+    if (session != g_web_active_session) return MM_WEB_INVALID_ARGUMENT;
+    for (i = 0; i < len; ++i) {
+        mm_u32 v = 0u;
+        if (!mm_memmap_read(&session->execution.map, MM_SECURE, addr + (mm_u32)i, 1u, &v)) {
+            return MM_WEB_EXECUTION_FAULT;
+        }
+        out[i] = (mm_u8)v;
+    }
+    return MM_WEB_OK;
+}
+
+enum mm_web_error mm_web_write_memory(struct mm_web_session *session, mm_u32 addr,
+                                      const mm_u8 *data, size_t len)
+{
+    size_t i;
+    if (session == 0 || data == 0 || len > 65536u) return MM_WEB_INVALID_ARGUMENT;
+    if (session != g_web_active_session) return MM_WEB_INVALID_ARGUMENT;
+    for (i = 0; i < len; ++i) {
+        if (!mm_memmap_write(&session->execution.map, MM_SECURE, addr + (mm_u32)i, 1u, data[i])) {
+            return MM_WEB_EXECUTION_FAULT;
+        }
+    }
+    return MM_WEB_OK;
+}
+
 enum mm_web_error mm_web_cpu_snapshot(
     const struct mm_web_session *session,
     struct mm_web_cpu_state *snapshot_out)
@@ -1356,6 +1417,7 @@ void mm_web_destroy(struct mm_web_session *session)
         mm_i2c_bus_set_host(0);
         mm_spi_bus_set_host(0);
         mm_gpio_set_pad_listener(0, 0);
+        mm_uart_set_instance_listener(0, 0);
         mm_gpio_set_pad_config_listener(0, 0);
         g_web_active_session = 0;
     }

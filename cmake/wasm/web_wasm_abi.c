@@ -69,6 +69,25 @@ void *mm_web_abi_create(void)
     return session;
 }
 
+int mm_web_abi_read_memory(void *session, unsigned int addr, void *out, unsigned int len)
+{
+    g_last_error = mm_web_read_memory((struct mm_web_session *)session, addr, (mm_u8 *)out, len);
+    return (int)g_last_error;
+}
+
+int mm_web_abi_write_memory(void *session, unsigned int addr, const void *data, unsigned int len)
+{
+    g_last_error = mm_web_write_memory((struct mm_web_session *)session, addr,
+                                       (const mm_u8 *)data, len);
+    return (int)g_last_error;
+}
+
+void *mm_web_abi_create_cpu(const char *cpu_name)
+{
+    const struct mm_web_config config = { cpu_name, 32u * 1024u * 1024u };
+    return mm_web_create(&config, &g_last_error);
+}
+
 int mm_web_abi_load(void *session, const void *data, unsigned int size)
 {
     g_last_error = mm_web_load_elf((struct mm_web_session *)session,

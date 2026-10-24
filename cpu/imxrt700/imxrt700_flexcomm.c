@@ -310,6 +310,7 @@ void mm_imxrt700_flexcomm_attach(void)
         if (fc->dev == 0) {
             continue;
         }
+        mm_uart_instance_register(fc->dev->base, fc->uart_label);
         (void)mm_imxrt700_dev_hook(fc->name, fc_read, fc_write, fc);
     }
 }

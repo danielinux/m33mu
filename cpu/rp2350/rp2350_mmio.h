@@ -62,6 +62,7 @@ mm_u32 mm_rp2350_gpio_funcsel(mm_u32 pin);
 void mm_rp2350_sio_pad_state(mm_u32 *out_lo, mm_u32 *out_hi, mm_u32 *oe_lo, mm_u32 *oe_hi);
 mm_bool mm_rp2350_clock_peri_enabled(void);
 mm_bool mm_rp2350_active(void);
+void mm_rp2350_deactivate(void);
 mm_bool mm_rp2350_cp0_mcr(enum mm_sec_state sec, mm_u8 op1, mm_u8 crn, mm_u8 crm, mm_u8 op2, mm_u32 value);
 mm_bool mm_rp2350_cp0_mrc(enum mm_sec_state sec, mm_u8 op1, mm_u8 crn, mm_u8 crm, mm_u8 op2, mm_u32 *value_out);
 mm_bool mm_rp2350_cp0_mcrr(enum mm_sec_state sec, mm_u8 op1, mm_u8 crm, mm_u32 lo, mm_u32 hi);
