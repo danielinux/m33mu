@@ -8,6 +8,14 @@
  *   I2C1:  SCL=PB8, SDA=PB9 (AF4)  -- SE050 at addr 0x48
  *   I2C2:  SCL=PB10, SDA=PB11 (AF4) -- STSAFE-A120 at addr 0x20
  *
+ * With -DSE_NUCLEO_HEADERS (tests/firmware/test-stm32h563-web-se) the
+ * same tests use pins on the NUCLEO-H563ZI Zio headers instead:
+ *   USART3 TX=PD8 RX=PD9 AF7 (ST-LINK VCP)
+ *   SPI1:  CS=PD14 (GPIO, CN7-16), SCK=PA5 (CN7-10), MISO=PA6 (CN9-1),
+ *          MOSI=PB5 (CN7-14) (AF5)
+ *   I2C1:  SCL=PB8 (CN7-2), SDA=PB9 (CN7-4) (AF4)
+ *   I2C2:  SCL=PF1 (CN9-19), SDA=PF0 (CN9-21) (AF4)
+ *
  * Success: BKPT #0x7F | Failure: infinite loop
  *
  * ATECC608A CRC: bit-by-bit, poly=0x8005, init=0, LSB-first per byte,
@@ -64,6 +72,8 @@ static void hsi_force_div1(void)
 /* ------------------------------------------------------------------ */
 #define GPIOA_BASE        0x42020000u
 #define GPIOB_BASE        0x42020400u
+#define GPIOD_BASE        0x42020C00u
+#define GPIOF_BASE        0x42021400u
 #define GPIO_MODER(x)     (*(volatile uint32_t *)((x) + 0x00u))
 #define GPIO_OTYPER(x)    (*(volatile uint32_t *)((x) + 0x04u))
 #define GPIO_OSPEEDR(x)   (*(volatile uint32_t *)((x) + 0x08u))
@@ -76,6 +86,12 @@ static void hsi_force_div1(void)
 /* USART1                                                               */
 /* ------------------------------------------------------------------ */
 #define USART1_BASE       0x40013800u
+#define USART3_BASE       0x40004800u
+#ifdef SE_NUCLEO_HEADERS
+#define CONSOLE_BASE      USART3_BASE
+#else
+#define CONSOLE_BASE      USART1_BASE
+#endif
 #define USART_CR1(b)      (*(volatile uint32_t *)((b) + 0x00u))
 #define USART_BRR(b)      (*(volatile uint32_t *)((b) + 0x0Cu))
 #define USART_ISR(b)      (*(volatile uint32_t *)((b) + 0x1Cu))
@@ -136,16 +152,23 @@ static void hsi_force_div1(void)
 /* ------------------------------------------------------------------ */
 /* CS control for ATECC608A (PA4, active-low)                          */
 /* ------------------------------------------------------------------ */
-static void cs_assert(void)   { GPIO_BSRR(GPIOA_BASE) = (1u << (4u + 16u)); }
-static void cs_deassert(void) { GPIO_BSRR(GPIOA_BASE) = (1u << 4u); }
+#ifdef SE_NUCLEO_HEADERS
+#define CS_PORT GPIOD_BASE
+#define CS_PIN  14u
+#else
+#define CS_PORT GPIOA_BASE
+#define CS_PIN  4u
+#endif
+static void cs_assert(void)   { GPIO_BSRR(CS_PORT) = (1u << (CS_PIN + 16u)); }
+static void cs_deassert(void) { GPIO_BSRR(CS_PORT) = (1u << CS_PIN); }
 
 /* ------------------------------------------------------------------ */
 /* USART output                                                         */
 /* ------------------------------------------------------------------ */
 void usart1_putc(char c)
 {
-    while (!(USART_ISR(USART1_BASE) & USART_ISR_TXE));
-    USART_TDR(USART1_BASE) = (uint32_t)c;
+    while (!(USART_ISR(CONSOLE_BASE) & USART_ISR_TXE));
+    USART_TDR(CONSOLE_BASE) = (uint32_t)c;
 }
 
 /* ------------------------------------------------------------------ */
@@ -258,60 +281,76 @@ static int i2c_read(uint32_t base, uint8_t addr, uint8_t *buf, uint8_t n)
 /* ------------------------------------------------------------------ */
 /* Peripheral initialisation                                            */
 /* ------------------------------------------------------------------ */
-static void init_uart(void)
+/* Alternate function `af` on port/pin, high speed; open-drain with pull-up
+ * when `od` (I2C). */
+static void gpio_af(uint32_t port, uint32_t pin, uint32_t af, int od)
 {
     uint32_t v;
+    v = GPIO_MODER(port);
+    v &= ~(3u << (pin * 2u));
+    v |= 2u << (pin * 2u);
+    GPIO_MODER(port) = v;
+    v = GPIO_OSPEEDR(port);
+    v &= ~(3u << (pin * 2u));
+    v |= 2u << (pin * 2u);
+    GPIO_OSPEEDR(port) = v;
+    if (od) {
+        GPIO_OTYPER(port) |= 1u << pin;
+        v = GPIO_PUPDR(port);
+        v &= ~(3u << (pin * 2u));
+        v |= 1u << (pin * 2u);
+        GPIO_PUPDR(port) = v;
+    }
+    if (pin < 8u) {
+        v = GPIO_AFRL(port);
+        v &= ~(0xFu << (pin * 4u));
+        v |= af << (pin * 4u);
+        GPIO_AFRL(port) = v;
+    } else {
+        v = GPIO_AFRH(port);
+        v &= ~(0xFu << ((pin - 8u) * 4u));
+        v |= af << ((pin - 8u) * 4u);
+        GPIO_AFRH(port) = v;
+    }
+}
+
+static void init_uart(void)
+{
+#ifdef SE_NUCLEO_HEADERS
+    RCC_AHB2ENR1 |= (1u << 3);   /* GPIOD clock */
+    RCC_APB1LENR |= (1u << 18);  /* USART3 clock */
+    gpio_af(GPIOD_BASE, 8u, 7u, 0);
+    gpio_af(GPIOD_BASE, 9u, 7u, 0);
+#else
     RCC_AHB2ENR1 |= (1u << 0);  /* GPIOA clock */
     RCC_APB2ENR  |= (1u << 14); /* USART1 clock */
-
-    /* PA9=TX, PA10=RX: AF7, high speed */
-    v = GPIO_MODER(GPIOA_BASE);
-    v &= ~((3u << (9u * 2u)) | (3u << (10u * 2u)));
-    v |=   (2u << (9u * 2u)) | (2u << (10u * 2u));
-    GPIO_MODER(GPIOA_BASE) = v;
-
-    v = GPIO_OSPEEDR(GPIOA_BASE);
-    v &= ~((3u << (9u * 2u)) | (3u << (10u * 2u)));
-    v |=   (2u << (9u * 2u)) | (2u << (10u * 2u));
-    GPIO_OSPEEDR(GPIOA_BASE) = v;
-
-    v = GPIO_AFRH(GPIOA_BASE);
-    v &= ~((0xFu << ((9u - 8u) * 4u)) | (0xFu << ((10u - 8u) * 4u)));
-    v |=   (7u << ((9u - 8u) * 4u))   | (7u << ((10u - 8u) * 4u));
-    GPIO_AFRH(GPIOA_BASE) = v;
-
-    USART_BRR(USART1_BASE) = 64000000u / 115200u;
-    USART_CR1(USART1_BASE) = USART_CR1_UE | USART_CR1_TE;
+    gpio_af(GPIOA_BASE, 9u, 7u, 0);
+    gpio_af(GPIOA_BASE, 10u, 7u, 0);
+#endif
+    USART_BRR(CONSOLE_BASE) = 64000000u / 115200u;
+    USART_CR1(CONSOLE_BASE) = USART_CR1_UE | USART_CR1_TE;
 }
 
 static void init_spi1(void)
 {
     uint32_t v;
-    RCC_AHB2ENR1 |= (1u << 0);  /* GPIOA clock (already on, idempotent) */
+    RCC_AHB2ENR1 |= (1u << 0) | (1u << 1) | (1u << 3); /* GPIOA, GPIOB, GPIOD */
     RCC_APB2ENR  |= (1u << 12); /* SPI1 clock */
 
-    /* PA4: GPIO output (CS, active-low) */
-    v = GPIO_MODER(GPIOA_BASE);
-    v &= ~(3u << (4u * 2u));
-    v |=  (1u << (4u * 2u));
-    GPIO_MODER(GPIOA_BASE) = v;
+    /* CS: GPIO output, active-low */
+    v = GPIO_MODER(CS_PORT);
+    v &= ~(3u << (CS_PIN * 2u));
+    v |=  (1u << (CS_PIN * 2u));
+    GPIO_MODER(CS_PORT) = v;
     cs_deassert();
 
-    /* PA5=SCK, PA6=MISO, PA7=MOSI: AF5, high speed */
-    v = GPIO_MODER(GPIOA_BASE);
-    v &= ~((3u << (5u*2u)) | (3u << (6u*2u)) | (3u << (7u*2u)));
-    v |=   (2u << (5u*2u)) | (2u << (6u*2u)) | (2u << (7u*2u));
-    GPIO_MODER(GPIOA_BASE) = v;
-
-    v = GPIO_OSPEEDR(GPIOA_BASE);
-    v &= ~((3u << (5u*2u)) | (3u << (6u*2u)) | (3u << (7u*2u)));
-    v |=   (2u << (5u*2u)) | (2u << (6u*2u)) | (2u << (7u*2u));
-    GPIO_OSPEEDR(GPIOA_BASE) = v;
-
-    v = GPIO_AFRL(GPIOA_BASE);
-    v &= ~((0xFu << (5u*4u)) | (0xFu << (6u*4u)) | (0xFu << (7u*4u)));
-    v |=   (5u << (5u*4u))   | (5u << (6u*4u))   | (5u << (7u*4u));
-    GPIO_AFRL(GPIOA_BASE) = v;
+    gpio_af(GPIOA_BASE, 5u, 5u, 0);  /* SCK */
+    gpio_af(GPIOA_BASE, 6u, 5u, 0);  /* MISO */
+#ifdef SE_NUCLEO_HEADERS
+    gpio_af(GPIOB_BASE, 5u, 5u, 0);  /* MOSI */
+#else
+    gpio_af(GPIOA_BASE, 7u, 5u, 0);  /* MOSI */
+#endif
 
     /* SPI1: master, 8-bit, software NSS, div256 */
     SPI_CFG1(SPI1_BASE) = (7u << 28);            /* MBR = 7 (÷256) */
@@ -320,32 +359,13 @@ static void init_spi1(void)
     SPI_CR1(SPI1_BASE)  = SPI_CR1_SPE;
 }
 
-static void init_i2c(uint32_t base, uint32_t rcc_bit, uint8_t scl_pin, uint8_t sda_pin)
+static void init_i2c(uint32_t base, uint32_t rcc_bit, uint32_t port,
+                     uint8_t scl_pin, uint8_t sda_pin)
 {
-    uint32_t v;
-    RCC_AHB2ENR1 |= (1u << 1);    /* GPIOB clock */
+    RCC_AHB2ENR1 |= (1u << 1) | (1u << 5); /* GPIOB, GPIOF clocks */
     RCC_APB1LENR |= (1u << rcc_bit); /* I2Cx clock */
-
-    /* SCL and SDA: open-drain, AF4 */
-    v = GPIO_MODER(GPIOB_BASE);
-    v &= ~((3u << (scl_pin * 2u)) | (3u << (sda_pin * 2u)));
-    v |=   (2u << (scl_pin * 2u)) | (2u << (sda_pin * 2u)); /* AF */
-    GPIO_MODER(GPIOB_BASE) = v;
-
-    v = GPIO_OTYPER(GPIOB_BASE);
-    v |= (1u << scl_pin) | (1u << sda_pin); /* open-drain */
-    GPIO_OTYPER(GPIOB_BASE) = v;
-
-    v = GPIO_PUPDR(GPIOB_BASE);
-    v &= ~((3u << (scl_pin * 2u)) | (3u << (sda_pin * 2u)));
-    v |=   (1u << (scl_pin * 2u)) | (1u << (sda_pin * 2u)); /* pull-up */
-    GPIO_PUPDR(GPIOB_BASE) = v;
-
-    /* AF4: pins 8/9/10/11 are in AFRH */
-    v = GPIO_AFRH(GPIOB_BASE);
-    v &= ~((0xFu << ((scl_pin - 8u) * 4u)) | (0xFu << ((sda_pin - 8u) * 4u)));
-    v |=   (4u << ((scl_pin - 8u) * 4u))   | (4u << ((sda_pin - 8u) * 4u));
-    GPIO_AFRH(GPIOB_BASE) = v;
+    gpio_af(port, scl_pin, 4u, 1);
+    gpio_af(port, sda_pin, 4u, 1);
 
     I2C_CR1(base)    = 0;           /* disable before config */
     I2C_TIMINGR(base)= 0x10909CECu; /* ~100 kHz @ 64 MHz */
@@ -677,12 +697,20 @@ void Reset_Handler(void)
     hsi_force_div1();
     init_uart();
     init_spi1();
-    init_i2c(I2C1_BASE, 21u, 8u, 9u);   /* I2C1: PB8=SCL, PB9=SDA, APB1LENR bit 21 */
-    init_i2c(I2C2_BASE, 22u, 10u, 11u); /* I2C2: PB10=SCL, PB11=SDA, APB1LENR bit 22 */
+    init_i2c(I2C1_BASE, 21u, GPIOB_BASE, 8u, 9u); /* I2C1: PB8=SCL, PB9=SDA, APB1LENR bit 21 */
+#ifdef SE_NUCLEO_HEADERS
+    init_i2c(I2C2_BASE, 22u, GPIOF_BASE, 1u, 0u); /* I2C2: PF1=SCL, PF0=SDA */
+#else
+    init_i2c(I2C2_BASE, 22u, GPIOB_BASE, 10u, 11u); /* I2C2: PB10=SCL, PB11=SDA */
+#endif
 
     printf("\n=== Secure Element Suite Test Firmware ===\n");
     printf("CPU: STM32H563\n");
+#ifdef SE_NUCLEO_HEADERS
+    printf("ATECC608A: SPI1 CS=PD14\n");
+#else
     printf("ATECC608A: SPI1 CS=PA4\n");
+#endif
     printf("SE050:     I2C1 addr=0x48\n");
     printf("STSAFE-A120: I2C2 addr=0x20\n\n");
 
