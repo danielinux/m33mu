@@ -67,6 +67,15 @@ int mm_web_abi_version(void)
     return MM_WEB_ABI_VERSION;
 }
 
+unsigned int mm_web_abi_features(void)
+{
+    unsigned int features = 0u;
+#ifdef M33MU_HAS_WOLFSSL
+    features |= MM_WEB_FEATURE_WOLFCRYPT;
+#endif
+    return features;
+}
+
 void *mm_web_abi_create(void)
 {
     const struct mm_web_config config = { "stm32h563", 32u * 1024u * 1024u };

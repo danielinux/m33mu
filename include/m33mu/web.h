@@ -80,7 +80,10 @@ struct mm_web_gpio_output_event {
 
 /* Version of the mm_web_abi_* WASM exports. Bump on any incompatible
  * change so out-of-tree hosts (m33mu-lab) can refuse a mismatched build. */
-#define MM_WEB_ABI_VERSION 1
+#define MM_WEB_ABI_VERSION 2
+
+/* mm_web_abi_features() bits. */
+#define MM_WEB_FEATURE_WOLFCRYPT 1u /* crypto peripheral models are live */
 
 #define MM_WEB_RUN_STOP_ON_PAD_CHANGE 1u
 

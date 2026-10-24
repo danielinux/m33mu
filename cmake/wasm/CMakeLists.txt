@@ -42,6 +42,27 @@ target_compile_options(m33mu_wasm_core PRIVATE
   -Wall -Wextra -Werror -Wdeclaration-after-statement -O2
 )
 
+# Optional wolfCrypt for the crypto peripheral models (HASH/AES/PKA/RNG,
+# CASPER/HASHCRYPT, CryptoCell, ...) and the C-native secure elements.
+# Point M33MU_WOLFSSL_SRC at a wolfSSL source tree; nothing is vendored.
+set(M33MU_WOLFSSL_SRC "" CACHE PATH "wolfSSL source tree to compile for WASM")
+if(M33MU_WOLFSSL_SRC)
+  set(_wc "${M33MU_WOLFSSL_SRC}/wolfcrypt/src")
+  add_library(m33mu_wasm_wolfcrypt STATIC
+    ${_wc}/aes.c ${_wc}/sha.c ${_wc}/sha256.c ${_wc}/sha512.c ${_wc}/sha3.c
+    ${_wc}/hmac.c ${_wc}/hash.c ${_wc}/kdf.c ${_wc}/random.c ${_wc}/ecc.c
+    ${_wc}/rsa.c ${_wc}/sp_int.c ${_wc}/wolfmath.c ${_wc}/memory.c
+    ${_wc}/logging.c ${_wc}/error.c ${_wc}/coding.c ${_wc}/asn.c ${_wc}/cmac.c
+    ${_wc}/wc_port.c ${_wc}/wc_encrypt.c
+    "${CMAKE_CURRENT_LIST_DIR}/wolfssl/wasm_rng_seed.c")
+  target_include_directories(m33mu_wasm_wolfcrypt BEFORE PUBLIC
+    "${CMAKE_CURRENT_LIST_DIR}/wolfssl" "${M33MU_WOLFSSL_SRC}")
+  target_compile_definitions(m33mu_wasm_wolfcrypt PUBLIC WOLFSSL_USER_SETTINGS)
+  target_compile_options(m33mu_wasm_wolfcrypt PRIVATE -O2 -w)
+  target_compile_definitions(m33mu_wasm_core PUBLIC M33MU_HAS_WOLFSSL=1)
+  target_link_libraries(m33mu_wasm_core PUBLIC m33mu_wasm_wolfcrypt)
+endif()
+
 # Run the same production-session regression suite under Node/WASM. This is a
 # session API smoke, not a browser worker or UI test.
 add_executable(execution_state_wasm_smoke
@@ -70,7 +91,7 @@ target_link_options(m33mu_web_api PRIVATE
   -sEXPORT_ES6=1
   -sEXPORT_NAME=createM33muModule
   -sENVIRONMENT=web,worker,node
-  -sEXPORTED_FUNCTIONS=_malloc,_free,_mm_web_abi_version,_mm_web_abi_create,_mm_web_abi_create_cpu,_mm_web_abi_read_memory,_mm_web_abi_write_memory,_mm_web_abi_load,_mm_web_abi_step,_mm_web_abi_run_slice,_mm_web_abi_run_until,_mm_web_abi_last_deadline_reached,_mm_web_abi_last_pad_changed,_mm_web_abi_cancel_gpio_inputs,_mm_web_abi_pad_state,_mm_web_abi_gpio_output_config,_mm_web_abi_has_pending_deadline,_mm_web_abi_reset,_mm_web_abi_gpio_input,_mm_web_abi_gpio_output_next,_mm_web_abi_gpio_output_pad,_mm_web_abi_gpio_output_level,_mm_web_abi_gpio_output_time_low,_mm_web_abi_gpio_output_time_high,_mm_web_abi_last_error,_mm_web_abi_last_instruction_count,_mm_web_abi_last_stopped,_mm_web_abi_last_system_reset,_mm_web_abi_last_lockup,_mm_web_abi_last_lockup_pc,_mm_web_abi_cpu_reg,_mm_web_abi_cycle_low,_mm_web_abi_cycle_high,_mm_web_abi_xpsr,_mm_web_abi_msp_s,_mm_web_abi_msp_ns,_mm_web_abi_psp_s,_mm_web_abi_psp_ns,_mm_web_abi_security_state,_mm_web_abi_mode,_mm_web_abi_sleeping,_mm_web_abi_cpu_hz,_mm_web_abi_virtual_time_low,_mm_web_abi_virtual_time_high,_mm_web_abi_destroy,_mm_web_abi_uart_count,_mm_web_abi_uart_label,_mm_web_abi_uart_base,_mm_web_abi_uart_read,_mm_web_abi_uart_overflow,_mm_web_abi_uart_write,_mm_web_abi_enable_bus_host
+  -sEXPORTED_FUNCTIONS=_malloc,_free,_mm_web_abi_version,_mm_web_abi_features,_mm_web_abi_create,_mm_web_abi_create_cpu,_mm_web_abi_read_memory,_mm_web_abi_write_memory,_mm_web_abi_load,_mm_web_abi_step,_mm_web_abi_run_slice,_mm_web_abi_run_until,_mm_web_abi_last_deadline_reached,_mm_web_abi_last_pad_changed,_mm_web_abi_cancel_gpio_inputs,_mm_web_abi_pad_state,_mm_web_abi_gpio_output_config,_mm_web_abi_has_pending_deadline,_mm_web_abi_reset,_mm_web_abi_gpio_input,_mm_web_abi_gpio_output_next,_mm_web_abi_gpio_output_pad,_mm_web_abi_gpio_output_level,_mm_web_abi_gpio_output_time_low,_mm_web_abi_gpio_output_time_high,_mm_web_abi_last_error,_mm_web_abi_last_instruction_count,_mm_web_abi_last_stopped,_mm_web_abi_last_system_reset,_mm_web_abi_last_lockup,_mm_web_abi_last_lockup_pc,_mm_web_abi_cpu_reg,_mm_web_abi_cycle_low,_mm_web_abi_cycle_high,_mm_web_abi_xpsr,_mm_web_abi_msp_s,_mm_web_abi_msp_ns,_mm_web_abi_psp_s,_mm_web_abi_psp_ns,_mm_web_abi_security_state,_mm_web_abi_mode,_mm_web_abi_sleeping,_mm_web_abi_cpu_hz,_mm_web_abi_virtual_time_low,_mm_web_abi_virtual_time_high,_mm_web_abi_destroy,_mm_web_abi_uart_count,_mm_web_abi_uart_label,_mm_web_abi_uart_base,_mm_web_abi_uart_read,_mm_web_abi_uart_overflow,_mm_web_abi_uart_write,_mm_web_abi_enable_bus_host
   -sEXPORTED_RUNTIME_METHODS=cwrap,HEAPU8
   # Target RAM/flash backing ranges from a few hundred KiB (H5) to several
   # MiB (RP2350 flash, i.MX RT700 SRAM).
