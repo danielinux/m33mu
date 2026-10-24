@@ -9,13 +9,15 @@ odd pins left, numbering downward (Fig. 6 silkscreen, Fig. 17). Morpho CN11/CN12
 columns and first row were measured the same way. CN8/CN10 positions and every
 other feature are illustrative only and carry no electrical identity.
 
-Only CN7 pin 10 (PA5) and CN9 pin 1 (PA6) are electrically enabled, per
-web/boards/nucleo-h563zi-pins.json.
+Every Zio (CN7-CN10) and morpho (CN11/CN12) contact carries its UM3115 Rev 3
+Table 21-25 net. Contacts on a non-default solder bridge, debug/clock pins and
+unmodelled nets stay visual-only; web/boards/nucleo-h563zi-pins.json mirrors it.
 
 Usage: scripts/gen-h563-board.py   (writes web/public/boards/{svg,layout}/stm32h563.*)
 """
 
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,27 +38,99 @@ CONNECTORS = [
     ("CN12", "morpho-male-unpopulated", 35, 64.28, 31.67, True, "ST morpho, 2x35, not fitted by default"),
 ]
 
-# Electrically enabled contacts: UM3115 Rev 3 Tables 21-24. Values are SoC
-# pads or board rails (GND, 3V3, 5V).
-ENABLED = {
-    ("CN7", 2): "PB8", ("CN7", 4): "PB9", ("CN7", 8): "GND", ("CN7", 10): "PA5",
-    ("CN7", 12): "PG9", ("CN7", 14): "PB5", ("CN7", 16): "PD14",
-    ("CN8", 7): "3V3", ("CN8", 9): "5V", ("CN8", 11): "GND", ("CN8", 13): "GND",
-    ("CN9", 1): "PA6", ("CN9", 2): "PD7", ("CN9", 4): "PD6", ("CN9", 6): "PD5",
-    ("CN9", 12): "GND", ("CN9", 19): "PF1", ("CN9", 21): "PF0", ("CN9", 23): "GND",
-    ("CN10", 5): "GND", ("CN10", 14): "PB6", ("CN10", 16): "PB7", ("CN10", 17): "GND",
-    ("CN10", 22): "GND", ("CN10", 27): "GND",
+# UM3115 Rev 3 Tables 21-24 (Zio) and Table 25 (morpho): contact -> SoC pad
+# or board net. Board nets: GND, 3V3 and 5V are modelled; VDD, IOREF and AVDD
+# are the 3V3 domain (SB16 default, VDDA from 3V3); AGND is GND.
+ZIO = {
+    "CN7": ["PC6", "PB8", "PB15", "PB9", "PB13", "VREFP", "PB12", "GND", "PA15", "PA5",
+            "PC7", "PG9", "PB5", "PB5", "PB3", "PD14", "PG10", "PD15", "PB4", "PF3"],
+    "CN8": ["NC", "PC8", "IOREF", "PC9", "NRST", "PC10", "3V3", "PC11", "5V", "PC12",
+            "GND", "PD2", "GND", "PG2", "VIN", "PG3"],
+    "CN9": ["PA6", "PD7", "PC0", "PD6", "PC3", "PD5", "PB1", "PD4", "PC2", "PD3",
+            "PF11", "GND", "PB2", "PE2", "PE9", "PE4", "PF2", "PE5", "PF1", "PE6",
+            "PF0", "PE3", "GND", "PF8", "PD0", "PF7", "PD1", "PF9", "PG0", "PG1"],
+    "CN10": ["AVDD", "PG12", "AGND", "PE9", "GND", "PE11", "PF12", "PE14", "PF13", "PE13",
+             "PF14", "PG14", "PG6", "PB6", "PB2", "PB7", "GND", "PE8", "PD13", "PE7",
+             "PD12", "GND", "PD11", "PE10", "PE2", "PE12", "GND", "PE6", "PA0", "PE15",
+             "PB0", "PB10", "PE0", "PA3"],
 }
-# Function of each enabled SoC pad on this board (Tables 21-24).
+CN11 = ["PC10", "PC11", "PC12", "PD2", "VDD", "5V_EXT", "BOOT0", "GND", "PF6", "NC",
+        "PF7", "IOREF", "PA13", "NRST", "PA14", "3V3", "PA15", "5V", "GND", "GND",
+        "PB7", "GND", "PC13", "VIN", "PC14", "NC", "PC15", "PA0", "PH0", "PA1",
+        "PH1", "PA4", "VBAT", "PB0", "PC2", "PC1", "PC3", "PC0", "PD4", "PD3",
+        "PD5", "PG2", "PD6", "PG3", "PD7", "PE2", "PE3", "PE4", "GND", "PE5",
+        "PF1", "PF2", "PF0", "PF8", "PD1", "PF9", "PD0", "PG1", "PG0", "GND",
+        "NC", "PE6", "PG9", "PG15", "PG12", "PG10", "NC", "PG13", "PD9", "PG11"]
+CN12 = ["PC9", "PC8", "PB8", "PC6", "PB9", "PC5", "VREFP", "5V_STLK", "GND", "PD8",
+        "PA5", "PA12", "PA6", "PA11", "PA7", "PB12", "PB6", "NC", "PC7", "GND",
+        "PA9", "PB2", "PA8", "PB1", "PB10", "PB15", "PB4", "PB14", "PB5", "PB13",
+        "PB3", "AGND", "PA10", "PC4", "PA2", "PF5", "PA3", "PF4", "GND", "PE8",
+        "PD13", "PF10", "PD12", "PE7", "PD11", "PD14", "PE10", "PD15", "PE12", "PF14",
+        "PE14", "PE9", "PE15", "GND", "PE13", "PE11", "PF13", "PF3", "PF12", "PF15",
+        "PG14", "PF11", "GND", "PE0", "PD10", "PG8", "PG7", "PG5", "PG4", "PG6"]
+NETS = {**{c: dict(enumerate(v, 1)) for c, v in ZIO.items()},
+        "CN11": dict(enumerate(CN11, 1)), "CN12": dict(enumerate(CN12, 1))}
+RAIL_ALIAS = {"GND": "GND", "AGND": "GND", "3V3": "3V3", "VDD": "3V3", "IOREF": "3V3",
+              "AVDD": "3V3", "5V": "5V"}
+# Contacts that stay visual-only, with the reason (UM3115 Rev 3 sections 9-11,
+# Table 17). Unmodelled nets (NC, VIN, NRST, BOOT0, VBAT, VREFP, 5V_EXT,
+# 5V_STLK) are always visual-only.
+DISABLED = {
+    ("CN7", 3): "PB15 reaches CN7-3 only through SB10; it is the RMII_TXD1 line by default",
+    ("CN7", 5): "PB13 reaches CN7-5 only through SB12; it is UCPD_CC1 by default",
+    ("CN7", 13): "PB5 reaches CN7-13 only through SB17 (CN7-14 carries it by default)",
+    ("CN11", 13): "PA13 is SWDIO, wired to the on-board STLINK-V3EC",
+    ("CN11", 15): "PA14 is SWCLK, wired to the on-board STLINK-V3EC",
+    ("CN11", 25): "PC14 is the LSE crystal input (X2) by default",
+    ("CN11", 27): "PC15 is the LSE crystal output (X2) by default",
+    ("CN11", 29): "PH0 receives the STLINK-V3EC 8 MHz MCO by default",
+    ("CN11", 31): "PH1 is OSC_OUT; HSE pins are not GPIO by default",
+    ("CN12", 10): "PD8 reaches CN12-10 only through SB13; it is the VCP USART3_TX by default",
+    ("CN12", 12): "PA12 is USB_DP on CN13 by default (SB22 off)",
+    ("CN12", 14): "PA11 is USB_DM on CN13 by default (SB21 off)",
+}
+# Board loads on a pad that the bench does not model electrically yet.
+NOTES = {
+    "PB0": "LD1 green user LED (SB43 default)", "PF4": "LD2 yellow user LED",
+    "PG4": "LD3 red user LED", "PC13": "B1 user button (SB54 default)",
+    "PD9": "VCP USART3_RX: driven by the STLINK-V3EC on the real board",
+    "PA1": "Ethernet PHY RMII_REF_CLK", "PA2": "Ethernet PHY RMII_MDIO",
+    "PC1": "Ethernet PHY RMII_MDC", "PA7": "Ethernet PHY RMII_CRS_DV",
+    "PC4": "Ethernet PHY RMII_RXD0", "PC5": "Ethernet PHY RMII_RXD1",
+    "PG11": "Ethernet PHY RMII_TX_EN", "PG13": "Ethernet PHY RMII_TXD0",
+    "PB15": "Ethernet PHY RMII_TXD1", "PB13": "UCPD_CC1 / Ethernet RMII_TXD1 via JP6",
+    "PB14": "UCPD_CC2", "PC2": "A4 default (SB52); PB9 via SB53",
+    "PF11": "A5 default (SB57); PB8 via SB60",
+}
+# Function of selected SoC pads on this board (Tables 21-24).
 FUNCTIONS = {
     "PB8": "I2C1_SCL", "PB9": "I2C1_SDA", "PA5": "SPI1_SCK", "PG9": "SPI1_MISO",
-    "PB5": "SPI1_MOSI", "PD14": "SPI1_CS", "PA6": "GPIO/ADC12_INP3", "PD7": "USART2_CK",
-    "PD6": "USART2_RX", "PD5": "USART2_TX", "PF1": "I2C2_SCL", "PF0": "I2C2_SDA",
-    "PB6": "LPUART1_TX", "PB7": "LPUART1_RX",
+    "PB5": "SPI1_MOSI/TIM3_CH2", "PD14": "SPI1_CS/TIM4_CH3", "PD15": "TIM4_CH4",
+    "PA6": "ADC12_INP3", "PD7": "USART2_CK",
+    "PD6": "USART2_RX", "PD5": "USART2_TX", "PD4": "USART2_RTS", "PD3": "USART2_CTS",
+    "PF1": "I2C2_SCL", "PF0": "I2C2_SDA", "PF2": "I2C2_SMBA",
+    "PB6": "LPUART1_TX", "PB7": "LPUART1_RX", "PE9": "TIM1_CH1", "PE11": "TIM1_CH2",
+    "PE13": "TIM1_CH3", "PE8": "TIM1_CH1N", "PE10": "TIM1_CH2N", "PE12": "TIM1_CH3N",
+    "PE7": "TIM1_ETR", "PA0": "TIM2_CH1", "PB10": "TIM2_CH3", "PA3": "TIM2_CH4",
+    "PB0": "TIM3_CH3", "PE0": "TIM4_ETR", "PD0": "FDCAN1_RX", "PD1": "FDCAN1_TX",
+    "PC0": "ADC12_INP10", "PC3": "ADC12_INP13", "PB1": "ADC12_INP5", "PC2": "ADC12_INP12",
+    "PF11": "ADC1_INP2", "PF12": "ADC1_INP6", "PF13": "ADC2_INP2", "PF14": "ADC2_INP6",
+    "PD8": "USART3_TX (VCP)", "PD9": "USART3_RX (VCP)",
 }
-# Same nets, verified in UM3115 Table 25, but morpho headers are not fitted
-# by default, so they stay disabled for wiring.
-KNOWN = {("CN12", 11): "PA5", ("CN12", 13): "PA6"}
+# On-board user LEDs (UM3115 Rev 3 section 11.2): anode driven by the pad.
+LEDS = [("LD1", "PB0", "#2fb34a"), ("LD2", "PF4", "#e9b300"), ("LD3", "PG4", "#d62d2d")]
+
+
+def electrical(cid, n):
+    """(signal, enabled, note) for one contact."""
+    net = NETS[cid][n]
+    if net in RAIL_ALIAS:
+        return RAIL_ALIAS[net], True, None if net == RAIL_ALIAS[net] else f"{net} (board {RAIL_ALIAS[net]} net)"
+    if not re.fullmatch(r"P[A-I][0-9]+", net):
+        return None, False, f"{net}: not modelled on the bench"
+    if (cid, n) in DISABLED:
+        return net, False, DISABLED[(cid, n)]
+    return net, True, NOTES.get(net)
 
 
 def contacts(cid, rows, x1, y1, measured):
@@ -66,14 +140,14 @@ def contacts(cid, rows, x1, y1, measured):
         col = (n - 1) % 2
         x = round((x1 + col * PITCH) * PX, 2)
         y = round((y1 + row * PITCH) * PX, 2)
-        soc = ENABLED.get((cid, n)) or KNOWN.get((cid, n))
-        enabled = (cid, n) in ENABLED
+        soc, enabled, note = electrical(cid, n)
         out.append({
             "number": n, "contactId": f"{cid}-{n}", "x": x, "y": y,
-            "signal": soc, "mapping_verified": soc is not None,
-            "artworkAnchorVerified": measured and soc is not None,
+            "signal": soc, "net": NETS[cid][n], "mapping_verified": True,
+            "artworkAnchorVerified": measured,
             "electricalEnabled": enabled,
             **({"function": FUNCTIONS[soc]} if soc in FUNCTIONS else {}),
+            **({"note": note} if note else {}),
         })
     return out
 
@@ -100,8 +174,10 @@ def svg():
     # Buttons and LEDs (illustrative).
     for cx, fill in ((200, "#3b73c8"), (500, "#202020")):
         add(f'<rect x="{cx-35}" y="1060" width="70" height="70" rx="8" fill="#d0d4da"/><circle cx="{cx}" cy="1095" r="22" fill="{fill}"/>')
-    for i, color in enumerate(("#2fb34a", "#e9b300", "#d62d2d")):
-        add(f'<rect x="{290 + i * 40}" y="1000" width="16" height="10" fill="{color}"/>')
+    # User LEDs are drawn unlit; the workbench lights them from the pad.
+    for i, (name, _, _) in enumerate(LEDS):
+        add(f'<rect x="{290 + i * 40}" y="1000" width="16" height="10" fill="#3a3d42"/>')
+        add(f'<text x="{298 + i * 40}" y="994" font-family="sans-serif" font-size="10" text-anchor="middle" fill="#2b5cab">{name}</text>')
     for cid, kind, rows, x1, y1, measured, _ in CONNECTORS:
         x0 = (x1 - PITCH / 2) * PX
         y0 = (y1 - PITCH / 2) * PX
@@ -142,10 +218,12 @@ def layout():
         "artwork": "../svg/stm32h563.svg", "pixelViewbox": [0, 0, W * PX, H * PX],
         "pixelsPerMm": PX, "pinLabelArtwork": False,
         "geometryStatus": "outline-to-scale; CN7-CN12 measured from UM3115 Rev 3 Fig. 6 (+/-0.5 mm); other features illustrative",
-        "electricalMapStatus": "verified for the contacts marked electricalEnabled (UM3115 Rev 3 Tables 21-24)",
+        "electricalMapStatus": "verified: every Zio and morpho contact from UM3115 Rev 3 Tables 21-25; contacts with a non-default solder bridge, debug/clock or unmodelled net stay visual-only (see note)",
         "warning": "Only contacts marked electricalEnabled can be wired; the others are visual locators.",
         "electricalEnabledByDefault": False,
         "generator": "scripts/gen-h563-board.py",
+        "leds": [{"id": name, "pad": pad, "color": color, "x": 298 + i * 40, "y": 1005, "w": 16, "h": 10,
+                  "activeHigh": True} for i, (name, pad, color) in enumerate(LEDS)],
         "connectors": [
             {"id": cid, "kind": kind, "rows": rows, "columns": 2,
              "description": desc, "geometryMeasured": measured,
@@ -160,6 +238,31 @@ def main():
     (base / "svg" / "stm32h563.svg").write_text(svg(), encoding="utf-8")
     (base / "layout" / "stm32h563.json").write_text(
         json.dumps(layout(), indent=2) + "\n", encoding="utf-8")
+    # Reviewed mapping, regenerated from the same tables.
+    pins_path = ROOT / "web" / "boards" / "nucleo-h563zi-pins.json"
+    pins = json.loads(pins_path.read_text(encoding="utf-8"))
+    out = []
+    for cid, _, rows, x1, y1, measured, _ in CONNECTORS:
+        for c in contacts(cid, rows, x1, y1, measured):
+            entry = {"connectorId": cid, "physicalPadNumber": c["number"], "net": c["net"]}
+            if c["signal"] in ("GND", "3V3", "5V"):
+                entry["rail"] = c["signal"]
+            elif c["signal"]:
+                entry["socPad"] = c["signal"]
+            entry["peripheralFunctions"] = [c["function"]] if "function" in c else []
+            entry.update({"signalMappingVerified": True, "artworkAnchorVerified": measured,
+                          "electricalEnabled": c["electricalEnabled"], "artworkContactId": c["contactId"]})
+            if "note" in c:
+                entry["note"] = c["note"]
+            out.append(entry)
+    pins["contacts"] = out
+    pins["review"]["note"] = (
+        "Every Zio (CN7-CN10) and morpho (CN11/CN12) contact mapped from UM3115 Rev 3 Tables 21-25, "
+        "generated by scripts/gen-h563-board.py. Contacts that need a non-default solder bridge (Table 17), "
+        "SWD/clock pins and unmodelled nets (NC, VIN, NRST, BOOT0, VBAT, VREFP, 5V_EXT, 5V_STLK) stay "
+        "visual-only; on-board loads are listed per contact. Contact centres are on the measured 2.54 mm "
+        "grid from Fig. 6 (+/-0.5 mm); a CAD-exact check against the MB1404 schematic remains open.")
+    pins_path.write_text(json.dumps(pins, indent=1) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

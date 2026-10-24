@@ -734,6 +734,20 @@ void mm_gpio_notify_pad(int bank, int pin, mm_u8 level)
     }
 }
 
+static mm_u64 g_gpio_pad_event_ahead = 0u;
+
+void mm_gpio_notify_pad_ahead(int bank, int pin, mm_u8 level, mm_u64 cycles_ahead)
+{
+    g_gpio_pad_event_ahead = cycles_ahead;
+    mm_gpio_notify_pad(bank, pin, level);
+    g_gpio_pad_event_ahead = 0u;
+}
+
+mm_u64 mm_gpio_pad_event_ahead_cycles(void)
+{
+    return g_gpio_pad_event_ahead;
+}
+
 static mm_gpio_pad_config_listener_fn g_gpio_pad_config_listener = 0;
 static void *g_gpio_pad_config_listener_opaque = 0;
 

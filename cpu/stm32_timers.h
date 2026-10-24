@@ -34,6 +34,9 @@ struct stm32_timer_soc {
     mm_u32 *(*tzsc_regs)(void);
     void (*exti_set_nvic)(struct mm_nvic *nvic);
     void (*watchdog_tick)(mm_u64 cycles);
+    /* Output OCx of timer tim (0 = TIM2), ch 1..4, goes to level (0, 1 or
+     * MM_GPIO_LEVEL_Z while CCxE is clear) cycles_ahead cycles from now. */
+    void (*output_level)(mm_u32 tim, int ch, mm_u8 level, mm_u64 cycles_ahead);
 };
 
 struct stm32_timer_inst {
@@ -52,6 +55,8 @@ struct stm32_timer_inst {
     mm_u32 ccer;
     mm_u32 ccr[4];
     mm_u8 icpsc_count[4];
+    mm_u8 ocref[4];  /* OCxREF */
+    mm_u8 oc_out[4]; /* OCx output level last reported */
     mm_u64 psc_accum;
     int irq;
     mm_u32 *rcc_regs;

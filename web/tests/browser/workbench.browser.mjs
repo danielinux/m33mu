@@ -65,7 +65,7 @@ try {
     await page.goto(origin + '/');
     await page.waitForSelector('circle[data-contact="CN7-10"]');
     const enabled = await page.locator('circle.contact.enabled').count();
-    assert.equal(enabled, 25, 'reviewed electrical contacts only');
+    assert.equal(enabled, 212, 'reviewed electrical contacts only');
     assert.equal(await page.locator('circle[data-contact="CN9-1"].enabled').count(), 1);
     await shot('01-empty-bench');
   });
@@ -89,10 +89,10 @@ try {
       await page.mouse.move(from.x, from.y);
       assert.match(await page.locator('.canvas-status').textContent(), /CN7-10 \(PA5\)/);
     }
-    // Visual-only neighbours are not wiring targets.
-    const neighbour = await center(page.locator('circle[data-contact="CN7-9"]'));
+    // Visual-only contacts (CN7-5 needs solder bridge SB12) are not wiring targets.
+    const neighbour = await center(page.locator('circle[data-contact="CN7-5"]'));
     await page.mouse.move(neighbour.x, neighbour.y);
-    assert.doesNotMatch(await page.locator('.canvas-status').textContent(), /CN7-9/);
+    assert.doesNotMatch(await page.locator('.canvas-status').textContent(), /CN7-5/);
     const from = await center(page.locator('circle[data-contact="CN7-10"]'));
     const to = await center(page.locator('g[data-part="r1"] circle.lead').first());
     await page.mouse.move(from.x, from.y);
@@ -115,7 +115,7 @@ try {
 
   await check('a wire to a visual-only contact is refused', async () => {
     await page.getByTestId('wire-tool').click();
-    const bad = await center(page.locator('circle[data-contact="CN7-9"]'));
+    const bad = await center(page.locator('circle[data-contact="CN7-5"]'));
     const to = await center(page.locator('g[data-part="r1"] circle.lead').nth(1));
     await page.mouse.move(bad.x, bad.y);
     await page.mouse.down();
@@ -367,6 +367,26 @@ try {
     await page.getByTestId('tab-sniff1').click();
     await page.getByTestId('sniffer-sniff1').getByText(/BUSY, S(CL|DA) \(PB[89]\) low/).first().waitFor({ timeout: 30000 });
     await page.getByRole('button', { name: 'Pause' }).click();
+    await page.getByTestId('real-time').check();
+  });
+
+  await check('PWM example: LD1 breathes, D9 RC filter settles', async () => {
+    await page.getByTestId('examples').selectOption('h563-pwm');
+    await page.waitForFunction(() => /timer PWM/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
+    assert.equal(await page.locator('g[data-board-led="LD1"]').getAttribute('data-lit'), 'off');
+    await page.getByTestId('real-time').uncheck();
+    await page.getByTestId('run').click();
+    await page.waitForSelector('g[data-board-led="LD1"][data-lit="on"]', { timeout: 60000 });
+    assert.equal(await page.locator('g[data-board-led="LD2"]').getAttribute('data-lit'), 'off');
+    await page.waitForFunction(() => {
+      const t = document.querySelector('[data-testid=virtual-time]')?.textContent ?? '';
+      const m = /([\d.]+) (m?)s/.exec(t);
+      return m && (m[2] === '' ? Number(m[1]) * 1000 : Number(m[1])) > 80;
+    }, null, { timeout: 120000 });
+    await page.getByRole('button', { name: 'Pause' }).click();
+    const diag = await page.getByTestId('diagnostics').textContent();
+    assert.doesNotMatch(diag, /PD15: Alternate-function/);
+    await shot('09-pwm');
     await page.getByTestId('real-time').check();
   });
 

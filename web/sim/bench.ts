@@ -15,7 +15,7 @@
 // the virtual nanosecond the MCU reported for it.
 
 import { Circuit, type Crossing, type Snapshot } from './circuit.ts';
-import { BusLayer, H563_AF, type LineView, type LogicNetlist } from './buses.ts';
+import { BusLayer, H563_AF, H563_TIM_AF, type LineView, type LogicNetlist } from './buses.ts';
 import type { PadDrive, PadPull } from './netlist.ts';
 
 export type McuPadEvent = {
@@ -119,6 +119,9 @@ export class Bench {
   private stopped = false;
   /** GPIO mode and alternate function of every pad the MCU reported. */
   readonly padConfigs = new Map<string, { mode: number; af: number }>();
+  /** Per pad: level since lastNs and the high time accumulated since the
+   * last takeDuty(), for on-board LED brightness under PWM. */
+  private duty = new Map<string, { level: number; lastNs: number; highNs: number; fromNs: number }>();
   bus: BusLayer | null = null;
 
   constructor(circuit: Circuit, mcu: McuPort | null, probes: Probe[] = [],
@@ -248,6 +251,28 @@ export class Bench {
     return { timeNs, nets, currents, pads };
   }
 
+  private trackDuty(socPad: string, level: number, timeNs: number): void {
+    const d = this.duty.get(socPad);
+    if (!d) { this.duty.set(socPad, { level, lastNs: timeNs, highNs: 0, fromNs: timeNs }); return; }
+    if (d.level === 1) d.highNs += Math.max(0, timeNs - d.lastNs);
+    d.level = level;
+    d.lastNs = Math.max(d.lastNs, timeNs);
+  }
+
+  /** Fraction of time each reported pad drove high since the last call. */
+  takeDuty(nowNs = this.timeNs): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [pad, d] of this.duty) {
+      if (d.level === 1) d.highNs += Math.max(0, nowNs - d.lastNs);
+      d.lastNs = Math.max(d.lastNs, nowNs);
+      const span = nowNs - d.fromNs;
+      out[pad] = span > 0 ? Math.min(1, d.highNs / span) : (d.level === 1 ? 1 : 0);
+      d.highNs = 0;
+      d.fromNs = nowNs;
+    }
+    return out;
+  }
+
   takeSamples(): Float64Array[] {
     const out = this.samples;
     this.samples = [];
@@ -308,6 +333,7 @@ export class Bench {
       const events = mcu.popPadEvents();
       for (const e of events) {
         this.padConfigs.set(e.socPad, { mode: e.mode, af: e.af ?? 0 });
+        this.trackDuty(e.socPad, e.level, e.timeNs);
         this.events.push({ kind: 'gpio', socPad: e.socPad, level: e.level, mode: e.mode, pull: e.pull, timeNs: e.timeNs });
       }
       const relevant = events.filter((e) => c.hasPad(e.socPad));
@@ -393,7 +419,9 @@ export class Bench {
       // AF0 on a bus-capable pad is the transient between the MODER and AFR
       // writes of ordinary pin setup.
       const busPad = this.bus && H563_AF[e.socPad];
-      if (e.mode === 2 && !(busPad && (busPad[e.af ?? 0] || !e.af))) {
+      // Timer channel outputs drive the pad from the emulator itself.
+      const timerPad = H563_TIM_AF[e.socPad]?.[e.af ?? 0] !== undefined;
+      if (e.mode === 2 && !timerPad && !(busPad && (busPad[e.af ?? 0] || !e.af))) {
         this.events.push({ kind: 'unsupported', socPad: e.socPad, timeNs: e.timeNs, message: AF_MESSAGE });
       }
       if (c.setPad(e.socPad, drive, pull)) {

@@ -30,7 +30,8 @@ static const struct stm32_timer_soc g_soc = {
     mm_stm32l552_rcc_regs,
     mm_stm32l552_tzsc_regs,
     mm_stm32l552_exti_set_nvic,
-    mm_stm32l552_watchdog_tick
+    mm_stm32l552_watchdog_tick,
+    0
 };
 
 void mm_stm32l552_timers_tick(mm_u64 cycles)

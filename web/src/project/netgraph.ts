@@ -25,6 +25,8 @@ export type BoardLayout = {
   pixelViewbox: [number, number, number, number];
   connectors: { id: string; kind: string; rows: number; columns: number; contacts: LayoutContact[] }[];
   warning?: string;
+  /** On-board user LEDs, lit from their pad. */
+  leds?: { id: string; pad: string; color: string; x: number; y: number; w: number; h: number; activeHigh: boolean }[];
 };
 
 export type PlacedTerminal = {
@@ -177,6 +179,16 @@ export function compileCircuit(project: Project, layouts: Map<string, BoardLayou
       uf.union(a.key, b.key);
       touched.add(a.key); touched.add(b.key);
     }
+  }
+
+  // Contacts of one board that carry the same pad or rail (a Zio pin and its
+  // morpho twin, every GND pin) are one copper net.
+  const sameSignal = new Map<string, string>();
+  for (const t of terms) {
+    if (t.ref.kind !== 'board' || !t.socPad || !touched.has(t.key)) continue;
+    const k = `${t.ref.board}/${t.socPad}`;
+    const first = sameSignal.get(k);
+    if (first) uf.union(first, t.key); else sameSignal.set(k, t.key);
   }
 
   // Net naming: ground nets are "gnd"; pad nets carry the pad name.

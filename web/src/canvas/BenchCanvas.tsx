@@ -23,6 +23,8 @@ type Props = {
   tool: Tool;
   running: boolean;
   brightness: Record<string, number>;
+  /** On-board LED id -> 0..1. */
+  boardLeds: Record<string, number>;
   pressed: Set<string>;
   errorKeys: Set<string>;
   onSelect(selection: Selection): void;
@@ -195,6 +197,18 @@ export function BenchCanvas(props: Props) {
         {board && vb && (
           <g transform={`translate(${board.x} ${board.y})`}>
             <image href={props.artworkUrl} x={vb[0]} y={vb[1]} width={vb[2]} height={vb[3]} />
+            {(layout?.leds ?? []).map((led) => {
+              const b = Math.sqrt(Math.max(0, Math.min(1, props.boardLeds[led.id] ?? 0)));
+              return (
+                <g key={led.id} data-board-led={led.id} data-lit={b > 0.02 ? 'on' : 'off'}>
+                  <title>{`${led.id} on ${led.pad}: ${Math.round(b * b * 100)}% on`}</title>
+                  {b > 0.02 && <circle cx={led.x + led.w / 2} cy={led.y + led.h / 2} r={18 + 10 * b}
+                    fill={led.color} opacity={0.45 * b} style={{ filter: 'blur(6px)' }} />}
+                  <rect x={led.x} y={led.y} width={led.w} height={led.h} rx={2} fill="#3a3d42" />
+                  <rect x={led.x} y={led.y} width={led.w} height={led.h} rx={2} fill={led.color} opacity={b} />
+                </g>
+              );
+            })}
           </g>
         )}
         {boardContacts.map((t) => (

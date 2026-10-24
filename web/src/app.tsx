@@ -71,6 +71,7 @@ export function App() {
   const [stats, setStats] = useState<BenchStats | null>(null);
   const [diagnosticEntries, setDiagnosticEntries] = useState<DiagnosticEntry[]>([]);
   const [mcuPads, setMcuPads] = useState<Record<string, McuPadInfo>>({});
+  const [padDuty, setPadDuty] = useState<Record<string, number>>({});
   const [pressed, setPressed] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('Place parts from the palette, wire them to the highlighted header contacts (GPIO, I²C, SPI, UART, GND, 3V3, 5V), load an ELF and run.');
   const [fault, setFault] = useState('');
@@ -192,6 +193,7 @@ export function App() {
           `${ev.socPad}: ${ev.message}`, Number(ev.timeNs));
       }
       if (Object.keys(gpio).length) setMcuPads((old) => ({ ...old, ...gpio }));
+      if (p.padDuty) setPadDuty((old) => ({ ...old, ...p.padDuty }));
       if (p.mcuStopped) setRunState('stopped');
       else if (p.reachedTarget && p.timeNs !== '0' && p.requestId) setRunState('paused');
     }
@@ -417,7 +419,7 @@ export function App() {
     setFault('');
     try {
       await worker().request('reset');
-      setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null); setMcuPads({});
+      setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null); setMcuPads({}); setPadDuty({});
       resetScopes();
       setRunState('paused');
       setMessage('Firmware reset; the circuit restarts from its DC operating point on the next run.');
@@ -521,6 +523,12 @@ export function App() {
       brightness[p.id] = Math.sqrt(Math.max(0, Math.min(1, i / 0.02)));
     }
   }
+  // On-board LEDs: share of time their pad drove the anode high.
+  const boardLeds: Record<string, number> = {};
+  for (const led of layout?.leds ?? []) {
+    const lit = padDuty[led.pad] ?? (mcuPads[led.pad]?.level === 1 ? 1 : 0);
+    boardLeds[led.id] = led.activeHigh ? lit : 1 - lit;
+  }
   const channelLabel = (ch: ProbeTarget | null): [string, string] => {
     if (!ch) return ['—', 'V'];
     if (ch.kind === 'current') return [`I(${ch.part})`, 'A'];
@@ -576,9 +584,12 @@ export function App() {
           <ul className="caps">
             <li className="on">Firmware execution (STM32H563, ELF)</li>
             <li className="on">Analog transient solver (R, C, L, diode, LED, BJT, MOSFET, switch, supplies)</li>
-            <li className="on">25 verified header contacts: GPIO pads on CN7/CN9/CN10 (incl. I2C1/2, SPI1, USART2, LPUART1 pins) and GND/3V3/5V rails</li>
-            <li>Other board contacts: visual only</li>
-            <li>ADC, PWM/timer outputs, UART, SPI, I²C: not modelled</li>
+            <li className="on">212 of 240 Zio and morpho contacts wireable (UM3115 Rev 3 Tables 21-25), GND/3V3/5V rails</li>
+            <li className="on">On-board LD1/LD2/LD3 lit from PB0/PF4/PG4</li>
+            <li className="on">TIM2–TIM5 output compare and PWM on their AF pins</li>
+            <li className="on">UART terminals; logic-level I²C/SPI/UART devices</li>
+            <li>Solder-bridge, SWD, clock and unmodelled-net contacts: visual only</li>
+            <li>ADC, DAC, TIM1/TIM8 and center-aligned PWM: not modelled</li>
           </ul>
         </aside>
         <section className="bench">
@@ -589,7 +600,7 @@ export function App() {
           <BenchCanvas project={project} layout={layout}
             artworkUrl={layout ? assetUrl(`boards/${layout.artwork.replace('../', '')}`) : ''}
             terminals={terminals} selection={selection} tool={tool} running={benchActive && runState === 'running'}
-            brightness={brightness} pressed={pressed} errorKeys={errorKeys}
+            brightness={brightness} boardLeds={boardLeds} pressed={pressed} errorKeys={errorKeys}
             onSelect={setSelection} onCommit={edit} onView={view} onPress={press} onHover={setHoverText} />
           <div className="canvas-status">
             <span>{hoverText || `${Math.round(project.ui.zoom * 100)}%`}</span>

@@ -140,7 +140,7 @@ static void record_pad_changed(void *opaque, int bank, int pin, mm_u8 level)
         return;
     }
     g_watches[i].level = level;
-    now_ns = mm_signal_now_ns();
+    now_ns = mm_signal_ns_ahead(mm_gpio_pad_event_ahead_cycles());
     if (!mm_signal_trigger_set()) {
         record_write_row((mm_i64)now_ns, &g_watches[i], level);
         return;

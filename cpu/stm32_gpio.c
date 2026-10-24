@@ -90,6 +90,21 @@ static mm_u32 gpio_pull_up_pins_mask(const struct stm32_gpio_state *g)
     return gpio_fields_equal(g->regs[STM32_GPIO_PUPDR_OFFSET / 4], 0x1u);
 }
 
+/* AF pins whose selected alternate function is a peripheral output now. */
+static mm_u32 gpio_af_driven_pins(const struct stm32_gpio_state *g)
+{
+    mm_u32 mask = g->af_out_mask & gpio_mode_pins_mask(g, GPIO_MODE_AF);
+    mm_u32 out = 0u;
+    int pin;
+    for (pin = 0; mask != 0u && pin < 16; ++pin) {
+        mm_u32 bit = 1u << (mm_u32)pin;
+        if ((mask & bit) != 0u && g->pin_af[pin] == g->af_out_af[pin]) {
+            out |= bit;
+        }
+    }
+    return out;
+}
+
 /* Pins whose IDR follows the pad: Input, AF and released open-drain outputs. */
 static mm_u32 gpio_pad_visible_pins(const struct stm32_gpio_state *g)
 {
@@ -101,7 +116,8 @@ static mm_u32 gpio_pad_visible_pins(const struct stm32_gpio_state *g)
 /* An undriven Input pad sits at its pull; AF and released open-drain pads read ODR. */
 static mm_u32 gpio_pad_idr(const struct stm32_gpio_state *g)
 {
-    mm_u32 odr = g->regs[STM32_GPIO_ODR_OFFSET / 4];
+    mm_u32 af_driven = gpio_af_driven_pins(g);
+    mm_u32 odr = (g->regs[STM32_GPIO_ODR_OFFSET / 4] & ~af_driven) | (g->af_out_level & af_driven);
     mm_u32 otyper = g->regs[STM32_GPIO_OTYPER_OFFSET / 4];
     mm_u32 output = gpio_mode_pins_mask(g, GPIO_MODE_OUTPUT);
     mm_u32 odr_follow = gpio_mode_pins_mask(g, GPIO_MODE_AF) | (output & otyper);
@@ -174,10 +190,13 @@ static void gpio_notify_pad_config(struct stm32_gpio_state *g, int bank, mm_bool
     g->pad_afr[1] = afrh;
 }
 
-/* Output pins drive ODR onto the pad, except open-drain pins with ODR set. */
-static void gpio_notify_pad_outputs(struct stm32_gpio_state *g, int bank, mm_bool all)
+/* Output pins drive ODR onto the pad, AF pins their peripheral's output,
+ * except open-drain pins at 1. */
+static void gpio_notify_pad_outputs_ahead(struct stm32_gpio_state *g, int bank, mm_bool all,
+                                          mm_u64 cycles_ahead)
 {
     mm_u32 odr;
+    mm_u32 af_driven;
     mm_u32 driven;
     mm_u32 level;
     mm_u32 changed;
@@ -187,8 +206,9 @@ static void gpio_notify_pad_outputs(struct stm32_gpio_state *g, int bank, mm_boo
     if (!mm_gpio_pad_listener_present()) {
         return;
     }
-    odr = g->regs[STM32_GPIO_ODR_OFFSET / 4] & 0xFFFFu;
-    driven = gpio_mode_pins_mask(g, GPIO_MODE_OUTPUT) &
+    af_driven = gpio_af_driven_pins(g);
+    odr = ((g->regs[STM32_GPIO_ODR_OFFSET / 4] & ~af_driven) | (g->af_out_level & af_driven)) & 0xFFFFu;
+    driven = (gpio_mode_pins_mask(g, GPIO_MODE_OUTPUT) | af_driven) &
              ~(g->regs[STM32_GPIO_OTYPER_OFFSET / 4] & odr);
     level = odr & driven;
     changed = all ? 0xFFFFu : ((driven ^ g->pad_driven) | (level ^ g->pad_level));
@@ -197,10 +217,39 @@ static void gpio_notify_pad_outputs(struct stm32_gpio_state *g, int bank, mm_boo
     for (pin = 0; pin < 16; ++pin) {
         mm_u32 bit = 1u << (mm_u32)pin;
         if ((changed & bit) != 0u) {
-            mm_gpio_notify_pad(bank, pin, ((driven & bit) == 0u) ? (mm_u8)MM_GPIO_LEVEL_Z :
-                                          (((level & bit) != 0u) ? 1u : 0u));
+            mm_gpio_notify_pad_ahead(bank, pin, ((driven & bit) == 0u) ? (mm_u8)MM_GPIO_LEVEL_Z :
+                                     (((level & bit) != 0u) ? 1u : 0u), cycles_ahead);
         }
     }
+}
+
+static void gpio_notify_pad_outputs(struct stm32_gpio_state *g, int bank, mm_bool all)
+{
+    gpio_notify_pad_outputs_ahead(g, bank, all, 0u);
+}
+
+void stm32_gpio_drive_af(struct stm32_gpio_ctx *ctx, int pin, mm_u8 af, mm_u8 level,
+                         mm_u64 cycles_ahead)
+{
+    struct stm32_gpio_state *g;
+    mm_u32 bit;
+    if (ctx == 0 || ctx->gpio == 0 || pin < 0 || pin >= 16) {
+        return;
+    }
+    g = ctx->gpio;
+    bit = 1u << (mm_u32)pin;
+    if (level == MM_GPIO_LEVEL_Z) {
+        if ((g->af_out_mask & bit) == 0u || g->af_out_af[pin] != af) {
+            return;
+        }
+        g->af_out_mask &= ~bit;
+    } else {
+        g->af_out_mask |= bit;
+        g->af_out_af[pin] = af;
+        if (level != 0u) g->af_out_level |= bit; else g->af_out_level &= ~bit;
+    }
+    gpio_refresh_pad_inputs(ctx);
+    gpio_notify_pad_outputs_ahead(g, ctx->bank_index, MM_FALSE, cycles_ahead);
 }
 
 mm_u8 stm32_gpio_get_pin_af(const struct stm32_gpio_state *g, int pin)

@@ -132,6 +132,8 @@ void stm32h5_rng_set_nvic(struct mm_nvic *nvic);
 void stm32h5_exti_set_nvic(struct mm_nvic *nvic);
 void stm32h5_gpdma_set_nvic(struct mm_nvic *nvic);
 void stm32h5_watchdog_tick(mm_u64 cycles);
+/* Timer output OCx of TIM2+tim (ch 1..4) onto the pins carrying it. */
+void mm_stm32h5_timer_output(mm_u32 tim, int ch, mm_u8 level, mm_u64 cycles_ahead);
 mm_bool stm32h5_mpcbb_block_secure(int bank, mm_u32 block_index);
 mm_u8 stm32h5_gpio_get_af(int bank, int pin);
 mm_u8 stm32h5_gpio_get_mode(int bank, int pin);

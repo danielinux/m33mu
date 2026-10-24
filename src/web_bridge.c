@@ -13,6 +13,7 @@
 #include "m33mu/execution_state.h"
 #include "m33mu/execution_exception.h"
 #include "m33mu/gpio.h"
+#include "m33mu/signal.h"
 #include "m33mu/target_hal.h"
 #include "m33mu/i2c_bus.h"
 #include "m33mu/spi_bus.h"
@@ -198,6 +199,9 @@ static void web_queue_pad_state(struct mm_web_session *session,
         session->gpio_output_events[tail].pad = session->pads[bank][pin];
         session->gpio_output_events[tail].virtual_time_ns =
             mm_execution_state_signal_now_ns(&session->execution);
+        /* A timer output edge inside the batch being ticked. */
+        session->gpio_output_events[tail].virtual_time_ns +=
+            mm_signal_ns_ahead(mm_gpio_pad_event_ahead_cycles()) - mm_signal_now_ns();
         session->gpio_output_count++;
     } else {
         session->gpio_output_overflow = MM_TRUE;

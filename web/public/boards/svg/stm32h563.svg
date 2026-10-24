@@ -11,9 +11,12 @@
 <rect x="180" y="1270" width="90" height="63" rx="8" fill="#b8bec8" stroke="#6c7480" stroke-width="2"/>
 <rect x="165" y="1060" width="70" height="70" rx="8" fill="#d0d4da"/><circle cx="200" cy="1095" r="22" fill="#3b73c8"/>
 <rect x="465" y="1060" width="70" height="70" rx="8" fill="#d0d4da"/><circle cx="500" cy="1095" r="22" fill="#202020"/>
-<rect x="290" y="1000" width="16" height="10" fill="#2fb34a"/>
-<rect x="330" y="1000" width="16" height="10" fill="#e9b300"/>
-<rect x="370" y="1000" width="16" height="10" fill="#d62d2d"/>
+<rect x="290" y="1000" width="16" height="10" fill="#3a3d42"/>
+<text x="298" y="994" font-family="sans-serif" font-size="10" text-anchor="middle" fill="#2b5cab">LD1</text>
+<rect x="330" y="1000" width="16" height="10" fill="#3a3d42"/>
+<text x="338" y="994" font-family="sans-serif" font-size="10" text-anchor="middle" fill="#2b5cab">LD2</text>
+<rect x="370" y="1000" width="16" height="10" fill="#3a3d42"/>
+<text x="378" y="994" font-family="sans-serif" font-size="10" text-anchor="middle" fill="#2b5cab">LD3</text>
 <rect x="551.3" y="310.4" width="54.8" height="258" rx="2" fill="#16181b"/>
 <text x="547.3" y="324.4" font-family="sans-serif" font-size="16" text-anchor="end" fill="#2b5cab">CN7</text>
 <rect x="558" y="317.1" width="16" height="16" fill="url(#hole)"/>

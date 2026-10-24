@@ -23,3 +23,6 @@ fi
 "${MAKE:-make}" -C "$repo_root/tests/firmware/test-stm32h563-web-bus" CC="${M33MU_ARM_NONE_EABI_GCC:-arm-none-eabi-gcc}" app.elf >/dev/null
 "$task_node" "$repo_root/scripts/test-web-buses.mjs" "$task_build_dir/worker.mjs" \
   "$repo_root/tests/firmware/test-stm32h563-web-bus/app.elf"
+"${MAKE:-make}" -C "$repo_root/tests/firmware/test-stm32h563-web-pwm" CC="${M33MU_ARM_NONE_EABI_GCC:-arm-none-eabi-gcc}" app.elf >/dev/null
+"$task_node" "$repo_root/scripts/test-web-pwm.mjs" "$task_build_dir/worker.mjs" \
+  "$repo_root/tests/firmware/test-stm32h563-web-pwm/app.elf"

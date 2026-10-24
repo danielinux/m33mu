@@ -343,6 +343,7 @@ export function attachM33muWorker(scope, createModule) {
           requestId, benchSequence: ++benchSequence, probes: bench.probes.map((p) => p.id),
           samples: flat, sampleOverflow: bench.sampleOverflow,
           events: start === 0 ? events : [], observation: start === 0 ? bench.observe() : null,
+          padDuty: start === 0 ? bench.takeDuty() : null,
           ...report
         }
       }, [flat.buffer]);

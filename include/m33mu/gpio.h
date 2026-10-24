@@ -76,6 +76,11 @@ typedef void (*mm_gpio_pad_listener_fn)(void *opaque, int bank, int pin, mm_u8 l
 void mm_gpio_set_pad_listener(mm_gpio_pad_listener_fn listener, void *opaque);
 mm_bool mm_gpio_pad_listener_present(void);
 void mm_gpio_notify_pad(int bank, int pin, mm_u8 level);
+/* The same for a change that a peripheral (a timer output) makes
+ * cycles_ahead cycles after the current time, inside the batch of cycles
+ * being ticked. Listeners read the offset with mm_gpio_pad_event_ahead_cycles(). */
+void mm_gpio_notify_pad_ahead(int bank, int pin, mm_u8 level, mm_u64 cycles_ahead);
+mm_u64 mm_gpio_pad_event_ahead_cycles(void);
 
 /* Electrical pad configuration as firmware programmed it. A target reports
  * changes through the config listener; the drive level still arrives through

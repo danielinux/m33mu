@@ -1152,6 +1152,21 @@ static void stm32h5_gpio_route_timer_edge(int bank, int pin, mm_bool level, mm_u
     }
 }
 
+/* Output OCx of TIM2+tim reaches every pin whose AF table entry carries it. */
+void mm_stm32h5_timer_output(mm_u32 tim, int ch, mm_u8 level, mm_u64 cycles_ahead)
+{
+    mm_u32 i;
+    if (V == 0) {
+        return;
+    }
+    for (i = 0; i < V->tim_pin_count; ++i) {
+        const struct stm32h5_tim_pin *tp = &V->tim_pins[i];
+        if (tp->tim == tim && tp->ch == ch && tp->bank < V->gpio_count) {
+            stm32_gpio_drive_af(&gpio_ctx_data[tp->bank * 2], tp->pin, tp->af, level, cycles_ahead);
+        }
+    }
+}
+
 /* Both aliases share the bank state and EXTI hook; use the NS one. */
 static mm_bool stm32h5_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
                                                   mm_u64 late_cycles)

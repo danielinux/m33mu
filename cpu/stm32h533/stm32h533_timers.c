@@ -22,6 +22,7 @@
 #include "stm32h533/stm32h533_timers.h"
 #include "stm32h533/stm32h533_mmio.h"
 #include "stm32_timers.h"
+#include "stm32h5_mmio.h"
 
 static struct stm32_timers_state g_timers;
 
@@ -30,7 +31,8 @@ static const struct stm32_timer_soc g_soc = {
     mm_stm32h533_rcc_regs,
     mm_stm32h533_tzsc_regs,
     mm_stm32h533_exti_set_nvic,
-    mm_stm32h533_watchdog_tick
+    mm_stm32h533_watchdog_tick,
+    mm_stm32h5_timer_output
 };
 
 void mm_stm32h533_timers_tick(mm_u64 cycles)

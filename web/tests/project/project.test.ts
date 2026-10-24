@@ -45,9 +45,9 @@ test('LED circuit compiles to a pad, resistor, LED and ground', () => {
 
 test('wiring a visual-only contact is an error and is not connected', () => {
   const p = blinkProject();
-  p.wires[0].from = { kind: 'board', board: 'board1', contact: 'CN7-9' };
+  p.wires[0].from = { kind: 'board', board: 'board1', contact: 'CN7-5' };
   const c = compileCircuit(p, layouts);
-  assert.ok(c.diagnostics.some((d) => d.severity === 'error' && /CN7-9 is visual-only/.test(d.message)));
+  assert.ok(c.diagnostics.some((d) => d.severity === 'error' && /CN7-5 is visual-only/.test(d.message)));
   assert.deepEqual(c.pads, []);
 });
 
@@ -153,4 +153,42 @@ test('board rails: GND is ground, 3V3/5V are sources, shorts are errors', () => 
   assert.ok(Math.abs(circuit.nodeVoltage(c.terminalNet.get('part:r1:b')!) - 1.65) < 1e-6);
   p.wires.push({ id: 'w5', from: { kind: 'board', board: 'board1', contact: 'CN8-9' }, to: { kind: 'part', part: 'r1', terminal: 'a' }, color: '#d33' });
   assert.ok(compileCircuit(p, layouts).diagnostics.some((d) => /Short circuit: board signals 3V3, 5V/.test(d.message)));
+});
+
+test('a Zio pin and its morpho twin are one net; separate GND pins share ground', () => {
+  const p = emptyProject();
+  p.parts.push({ id: 'r1', kind: 'resistor', x: 900, y: 300, rotation: 0, params: { ohms: 1000 } },
+    { id: 'r2', kind: 'resistor', x: 900, y: 500, rotation: 0, params: { ohms: 1000 } },
+    { id: 'r3', kind: 'resistor', x: 900, y: 700, rotation: 0, params: { ohms: 1000 } });
+  p.wires.push(
+    // PA5 on Zio CN7-10 and morpho CN12-11.
+    { id: 'w1', from: { kind: 'board', board: 'board1', contact: 'CN7-10' }, to: { kind: 'part', part: 'r1', terminal: 'a' }, color: '#d33' },
+    { id: 'w2', from: { kind: 'board', board: 'board1', contact: 'CN12-11' }, to: { kind: 'part', part: 'r2', terminal: 'a' }, color: '#d33' },
+    { id: 'w3', from: { kind: 'part', part: 'r1', terminal: 'b' }, to: { kind: 'board', board: 'board1', contact: 'CN7-8' }, color: '#333' },
+    { id: 'w4', from: { kind: 'part', part: 'r2', terminal: 'b' }, to: { kind: 'board', board: 'board1', contact: 'CN11-8' }, color: '#333' },
+    // 3V3 through r3 to AGND (CN10-3): both board nets.
+    { id: 'w5', from: { kind: 'board', board: 'board1', contact: 'CN11-16' }, to: { kind: 'part', part: 'r3', terminal: 'a' }, color: '#d33' },
+    { id: 'w6', from: { kind: 'part', part: 'r3', terminal: 'b' }, to: { kind: 'board', board: 'board1', contact: 'CN10-3' }, color: '#333' });
+  const c = compileCircuit(p, layouts);
+  assert.deepEqual(c.diagnostics.filter((d) => d.severity === 'error'), []);
+  assert.deepEqual(c.pads, ['PA5']);
+  assert.equal(c.netlist.devices.filter((d) => d.kind === 'pad').length, 1);
+  assert.equal(c.terminalNet.get('part:r1:a'), c.terminalNet.get('part:r2:a'));
+  const circuit = new Circuit(c.netlist);
+  circuit.setPad('PA5', 'high', 'none');
+  circuit.operatingPoint();
+  assert.ok(Math.abs(circuit.deviceCurrent('r3') - 3.3e-3) < 1e-9, `3V3 to AGND ${circuit.deviceCurrent('r3')}`);
+  assert.ok(circuit.deviceCurrent('r1') > 3e-3 && Math.abs(circuit.deviceCurrent('r1') - circuit.deviceCurrent('r2')) < 1e-12);
+});
+
+test('H563 layout maps every Zio and morpho contact and the user LEDs', () => {
+  const all = layout.connectors.flatMap((c) => c.contacts);
+  assert.equal(all.length, 240);
+  const byId = new Map(all.map((c) => [c.contactId, c]));
+  assert.equal(byId.get('CN12-11')!.signal, 'PA5');
+  assert.equal(byId.get('CN11-23')!.signal, 'PC13');
+  assert.equal(byId.get('CN7-18')!.signal, 'PD15');
+  assert.equal(byId.get('CN11-13')!.electricalEnabled, false); // SWDIO
+  assert.equal(byId.get('CN8-15')!.electricalEnabled, false); // VIN
+  assert.deepEqual(layout.leds!.map((l) => [l.id, l.pad]), [['LD1', 'PB0'], ['LD2', 'PF4'], ['LD3', 'PG4']]);
 });

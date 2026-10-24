@@ -60,6 +60,44 @@ export const H563_AF: Record<string, Record<number, string>> = {
   PF1: { 4: 'I2C2_SCL' }
 };
 
+/** TIM2..TIM5 channel AFs of the STM32H563 (DS14258 Table 15), as the
+ * emulator routes them (cpu/stm32h563/stm32h563_mmio.c g_tim_pins). */
+export const H563_TIM_AF: Record<string, Record<number, string>> = {
+  PA0: { 1: 'TIM2_CH1', 2: 'TIM5_CH1' },
+  PA1: { 1: 'TIM2_CH2', 2: 'TIM5_CH2' },
+  PA2: { 1: 'TIM2_CH3', 2: 'TIM5_CH3' },
+  PA3: { 1: 'TIM2_CH4', 2: 'TIM5_CH4' },
+  PA5: { 1: 'TIM2_CH1' },
+  PA6: { 2: 'TIM3_CH1' },
+  PA7: { 2: 'TIM3_CH2' },
+  PA15: { 1: 'TIM2_CH1' },
+  PB0: { 2: 'TIM3_CH3' },
+  PB1: { 2: 'TIM3_CH4' },
+  PB3: { 1: 'TIM2_CH2' },
+  PB4: { 2: 'TIM3_CH1' },
+  PB5: { 2: 'TIM3_CH2' },
+  PB6: { 2: 'TIM4_CH1' },
+  PB7: { 2: 'TIM4_CH2' },
+  PB8: { 2: 'TIM4_CH3' },
+  PB9: { 2: 'TIM4_CH4' },
+  PB10: { 1: 'TIM2_CH3' },
+  PB11: { 1: 'TIM2_CH4' },
+  PC2: { 2: 'TIM4_CH4' },
+  PC4: { 1: 'TIM2_CH4' },
+  PC6: { 2: 'TIM3_CH1' },
+  PC7: { 2: 'TIM3_CH2' },
+  PC8: { 2: 'TIM3_CH3' },
+  PC9: { 2: 'TIM3_CH4' },
+  PD12: { 2: 'TIM4_CH1' },
+  PD13: { 2: 'TIM4_CH2' },
+  PD14: { 2: 'TIM4_CH3' },
+  PD15: { 2: 'TIM4_CH4' },
+  PH10: { 2: 'TIM5_CH1' },
+  PH11: { 2: 'TIM5_CH2' },
+  PH12: { 2: 'TIM5_CH3' },
+  PI0: { 2: 'TIM5_CH4' }
+};
+
 const GPIO_MODE_AF = 2;
 const POWER_MIN_VOLTS = 1.6;
 const hex = (b: number) => b.toString(16).padStart(2, '0');

@@ -53,6 +53,9 @@ struct stm32_gpio_state {
     mm_u32 pad_otyper;
     mm_u32 pad_pupdr;
     mm_u32 pad_afr[2];
+    mm_u32 af_out_mask;   /* pins a peripheral output (timer OCx) drives */
+    mm_u32 af_out_level;
+    mm_u8  af_out_af[16]; /* the AF that peripheral output is on */
 };
 
 /* Context structure passed to read/write functions */
@@ -77,5 +80,11 @@ mm_bool stm32_gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
 /* Records the pad level; IDR and EXTI follow it on Input, AF and released open-drain pins.
  * Returns MM_FALSE if the level is not visible on IDR right now. */
 mm_bool stm32_gpio_set_external_input(struct stm32_gpio_ctx *ctx, int pin, mm_bool level);
+
+/* A peripheral output on alternate function af of this pin goes to level
+ * (0, 1 or MM_GPIO_LEVEL_Z when disabled), cycles_ahead cycles from now. It
+ * reaches the pad only while the pin is in AF mode with that AF selected. */
+void stm32_gpio_drive_af(struct stm32_gpio_ctx *ctx, int pin, mm_u8 af, mm_u8 level,
+                         mm_u64 cycles_ahead);
 
 #endif /* M33MU_STM32_GPIO_H */

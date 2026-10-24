@@ -558,6 +558,11 @@ mm_bool mm_signal_triggered(void)
     return g_triggered;
 }
 
+mm_u64 mm_signal_ns_ahead(mm_u64 cycles_ahead)
+{
+    return g_base_ns + signal_cycles_to_ns(g_total_vcycles - g_base_vcycles + cycles_ahead);
+}
+
 mm_u64 mm_signal_now_ns(void)
 {
     return signal_now_ns();

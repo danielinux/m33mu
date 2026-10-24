@@ -21,6 +21,7 @@
 
 #include <string.h>
 #include "stm32_timers.h"
+#include "m33mu/gpio.h"
 
 #define TIM_CR1   0x00u
 #define TIM_SMCR  0x08u
@@ -180,22 +181,153 @@ static void tim_apply_tick_down(struct stm32_timer_inst *t, mm_u64 ticks)
     }
 }
 
+static void tim_flag(struct stm32_timer_inst *t, mm_u32 sr_bits, mm_u32 dier_bit);
+static mm_u32 tim_ccs(const struct stm32_timer_inst *t, int c);
+
+/* OCxM[3:0] of an output channel. */
+static mm_u32 tim_ocm(const struct stm32_timer_inst *t, int c)
+{
+    mm_u32 shift = 8u * (mm_u32)((c - 1) % 2);
+    mm_u32 r = t->ccmr[(c - 1) / 2];
+    return ((r >> (shift + 4u)) & 0x7u) | (((r >> (shift + 16u)) & 1u) << 3);
+}
+
+/* Channels whose compare matches matter: enabled outputs or CCxIE. */
+static mm_bool tim_oc_tracked(const struct stm32_timer_inst *t, int c)
+{
+    return tim_ccs(t, c) == CCS_OUTPUT &&
+           ((t->ccer & (1u << (4 * (c - 1)))) != 0u || (t->dier & CC_BIT(c)) != 0u);
+}
+
+static void tim_oc_emit(struct stm32_timer_inst *t, int c, mm_u64 cycles_ahead)
+{
+    mm_u8 level = MM_GPIO_LEVEL_Z;
+    if (tim_ccs(t, c) == CCS_OUTPUT && (t->ccer & (1u << (4 * (c - 1)))) != 0u) {
+        level = (mm_u8)(t->ocref[c - 1] ^ ((t->ccer >> (4 * (c - 1) + 1)) & 1u));
+    }
+    if (level == t->oc_out[c - 1]) {
+        return;
+    }
+    t->oc_out[c - 1] = level;
+    if (t->owner != 0 && t->owner->soc != 0 && t->owner->soc->output_level != 0) {
+        t->owner->soc->output_level(t->index, c, level, cycles_ahead);
+    }
+}
+
+/* Levels that follow from the mode and counter alone: forced and PWM.
+ * PWM1 is active while CNT < CCR counting up, CNT <= CCR counting down
+ * (RM0481 TIMx_CCMR1 OC1M); PWM2 is its complement. */
+static void tim_oc_refresh(struct stm32_timer_inst *t, mm_u64 cycles_ahead)
+{
+    int c;
+    for (c = 1; c <= 4; ++c) {
+        mm_u32 m;
+        mm_u32 cnt = t->cnt & t->arr_mask;
+        mm_u32 ccr = t->ccr[c - 1];
+        if (tim_ccs(t, c) != CCS_OUTPUT) {
+            tim_oc_emit(t, c, cycles_ahead);
+            continue;
+        }
+        m = tim_ocm(t, c);
+        if (m == 4u) {
+            t->ocref[c - 1] = 0u;
+        } else if (m == 5u) {
+            t->ocref[c - 1] = 1u;
+        } else if (m == 6u || m == 7u) {
+            mm_bool active = ((t->cr1 & CR1_DIR) != 0u) ? (cnt <= ccr) : (cnt < ccr);
+            t->ocref[c - 1] = (mm_u8)((active ? 1u : 0u) ^ (m == 7u ? 1u : 0u));
+        }
+        tim_oc_emit(t, c, cycles_ahead);
+    }
+}
+
+/* CNT reached CCRx on an output channel. */
+static void tim_oc_match(struct stm32_timer_inst *t, int c)
+{
+    mm_u32 m = tim_ocm(t, c);
+    if (m == 1u) {
+        t->ocref[c - 1] = 1u;
+    } else if (m == 2u) {
+        t->ocref[c - 1] = 0u;
+    } else if (m == 3u) {
+        t->ocref[c - 1] ^= 1u;
+    }
+    tim_flag(t, CC_BIT(c), CC_BIT(c));
+}
+
+/* Ticks from the current count until the next update or compare match. */
+static mm_u64 tim_ticks_to_event(const struct stm32_timer_inst *t)
+{
+    mm_u64 arr = (mm_u64)(t->arr & t->arr_mask);
+    mm_u64 period = arr + 1u;
+    mm_u64 cnt = (mm_u64)(t->cnt & t->arr_mask);
+    mm_bool down = (t->cr1 & CR1_DIR) != 0u;
+    mm_u64 best;
+    int c;
+    if (cnt > arr) cnt = arr;
+    best = down ? cnt + 1u : arr - cnt + 1u;
+    for (c = 1; c <= 4; ++c) {
+        mm_u64 ccr = (mm_u64)t->ccr[c - 1];
+        mm_u64 d;
+        if (!tim_oc_tracked(t, c) || ccr > arr) continue;
+        d = down ? (cnt + period - ccr) % period : (ccr + period - cnt) % period;
+        if (d == 0u) d = period;
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+static void tim_apply_ticks(struct stm32_timer_inst *t, mm_u64 ticks)
+{
+    if ((t->cr1 & CR1_DIR) != 0u) {
+        tim_apply_tick_down(t, ticks);
+    } else {
+        tim_apply_tick_up(t, ticks);
+    }
+}
+
 static void tim_tick(struct stm32_timer_inst *t, mm_u64 cycles)
 {
     mm_u64 total;
     mm_u64 ticks;
     mm_u64 div;
+    mm_u64 accum0;
+    mm_u64 done = 0u;
+    int c;
+    mm_bool tracked = MM_FALSE;
     if ((t->cr1 & CR1_CEN) == 0u) return;
     if (!tim_clock_enabled(t)) return;
     div = (mm_u64)(t->psc + 1u);
     if (div == 0u) return;
+    accum0 = t->psc_accum;
     total = t->psc_accum + cycles;
     ticks = total / div;
     t->psc_accum = total % div;
-    if ((t->cr1 & CR1_DIR) != 0u) {
-        tim_apply_tick_down(t, ticks);
-    } else {
-        tim_apply_tick_up(t, ticks);
+    for (c = 1; c <= 4; ++c) {
+        if (tim_oc_tracked(t, c)) tracked = MM_TRUE;
+    }
+    if (!tracked) {
+        tim_apply_ticks(t, ticks);
+        return;
+    }
+    /* Step from event to event so each output edge carries its own time:
+     * tick k of this batch lands k * div - accum0 cycles from now. */
+    while (done < ticks && (t->cr1 & CR1_CEN) != 0u) {
+        mm_u64 step = tim_ticks_to_event(t);
+        mm_u32 cnt;
+        if (step > ticks - done) step = ticks - done;
+        tim_apply_ticks(t, step);
+        done += step;
+        cnt = t->cnt & t->arr_mask;
+        for (c = 1; c <= 4; ++c) {
+            if (tim_oc_tracked(t, c) && cnt == t->ccr[c - 1]) {
+                tim_oc_match(t, c);
+            }
+        }
+        tim_oc_refresh(t, done * div - accum0);
+    }
+    if (done < ticks) {
+        tim_apply_ticks(t, ticks - done);
     }
 }
 
@@ -416,6 +548,7 @@ static mm_bool tim_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
 
     if ((offset + size_bytes) <= (TIM_CR1 + 4u)) {
         t->cr1 = apply_write(t->cr1, offset - TIM_CR1, size_bytes, value) & 0xFFFFu;
+        tim_oc_refresh(t, 0u);
         return MM_TRUE;
     }
     if (offset >= TIM_DIER && (offset + size_bytes) <= (TIM_DIER + 4u)) {
@@ -456,10 +589,12 @@ static mm_bool tim_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
             t->psc_accum = 0u;
             tim_raise_update(t);
         }
+        tim_oc_refresh(t, 0u);
         return MM_TRUE;
     }
     if (offset >= TIM_CNT && (offset + size_bytes) <= (TIM_CNT + 4u)) {
         t->cnt = apply_write(t->cnt, offset - TIM_CNT, size_bytes, value) & t->arr_mask;
+        tim_oc_refresh(t, 0u);
         return MM_TRUE;
     }
     if (offset >= TIM_PSC && (offset + size_bytes) <= (TIM_PSC + 4u)) {
@@ -468,6 +603,7 @@ static mm_bool tim_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     }
     if (offset >= TIM_ARR && (offset + size_bytes) <= (TIM_ARR + 4u)) {
         t->arr = apply_write(t->arr, offset - TIM_ARR, size_bytes, value) & t->arr_mask;
+        tim_oc_refresh(t, 0u);
         return MM_TRUE;
     }
     if (offset >= TIM_SMCR && (offset + size_bytes) <= (TIM_SMCR + 4u)) {
@@ -477,10 +613,12 @@ static mm_bool tim_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     if (offset >= TIM_CCMR1 && (offset + size_bytes) <= (TIM_CCMR2 + 4u)) {
         mm_u32 i = (offset - TIM_CCMR1) / 4u;
         t->ccmr[i] = apply_write(t->ccmr[i], offset - TIM_CCMR1 - i * 4u, size_bytes, value);
+        tim_oc_refresh(t, 0u);
         return MM_TRUE;
     }
     if (offset >= TIM_CCER && (offset + size_bytes) <= (TIM_CCER + 4u)) {
         t->ccer = apply_write(t->ccer, offset - TIM_CCER, size_bytes, value) & 0xFFFFu;
+        tim_oc_refresh(t, 0u);
         return MM_TRUE;
     }
     if (offset >= TIM_CCR1 && (offset + size_bytes) <= (TIM_CCR4 + 4u)) {
@@ -490,6 +628,7 @@ static mm_bool tim_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
             t->ccr[c - 1] = apply_write(t->ccr[c - 1], offset - TIM_CCR1 - (mm_u32)(c - 1) * 4u,
                                         size_bytes, value) & t->arr_mask;
         }
+        tim_oc_refresh(t, 0u);
         return MM_TRUE;
     }
 
@@ -545,6 +684,7 @@ void stm32_timers_init(struct stm32_timers_state *state,
         t->irq = irq_map[i];
         t->arr_mask = (i == 0u || i == 3u) ? 0xFFFFFFFFu : 0xFFFFu;
         t->arr = t->arr_mask;
+        memset(t->oc_out, MM_GPIO_LEVEL_Z, sizeof(t->oc_out));
         t->rcc_regs = (soc != 0 && soc->rcc_regs != 0) ? soc->rcc_regs() : 0;
         t->sec_reg = tz1;
         t->sec_bitmask = (1u << i);
@@ -582,6 +722,8 @@ void stm32_timers_reset(struct stm32_timers_state *state)
         t->ccer = 0u;
         memset(t->ccr, 0, sizeof(t->ccr));
         memset(t->icpsc_count, 0, sizeof(t->icpsc_count));
+        memset(t->ocref, 0, sizeof(t->ocref));
+        memset(t->oc_out, MM_GPIO_LEVEL_Z, sizeof(t->oc_out));
         t->psc_accum = 0u;
         t->secure_only = MM_FALSE;
         t->current_sec = MM_SECURE;

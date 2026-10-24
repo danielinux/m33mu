@@ -75,6 +75,8 @@ mm_bool mm_signal_triggered(void);
 
 /* Replay clock: ns since the first instruction, advanced by mm_signal_advance(). */
 mm_u64 mm_signal_now_ns(void);
+/* The replay clock cycles_ahead cycles from now. */
+mm_u64 mm_signal_ns_ahead(mm_u64 cycles_ahead);
 /* MM_FALSE until the trigger has fired. */
 mm_bool mm_signal_trigger_ns(mm_u64 *ns_out);
 
