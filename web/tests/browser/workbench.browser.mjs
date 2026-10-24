@@ -101,6 +101,7 @@ try {
     await page.mouse.move(to.x, to.y, { steps: 5 });
     await page.mouse.up();
     assert.equal(await page.locator('g[data-wire]').count(), 1);
+    await page.getByTestId('diagnostics').getByText(/ground reference/).waitFor();
     await shot('02-wired');
   });
 
@@ -142,6 +143,22 @@ try {
     await page.getByTestId('open-input').setInputFiles(bad);
     await page.waitForFunction(() => /unsupported component/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
     assert.equal(await page.locator('g[data-part="r1"]').count(), 1, 'rejected project leaves the bench untouched');
+    await page.getByTestId('diagnostics').getByText(/unsupported component/).waitFor();
+    const [reportDownload] = await Promise.all([page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export report' }).click()]);
+    const report = JSON.parse(readFileSync(await reportDownload.path(), 'utf8'));
+    assert.equal(report.schemaVersion, 1);
+    assert.ok(report.runtime.some((entry) => entry.source === 'workbench' && /unsupported component/.test(entry.message)));
+    await page.getByRole('button', { name: 'Clear history' }).click();
+    assert.ok(await page.getByTestId('diagnostics').getByText('No runtime diagnostics.').isVisible());
+    const badElf = join(tmpdir(), `m33mu-bad-firmware-${process.pid}.elf`);
+    writeFileSync(badElf, Buffer.from('not an ELF'));
+    await page.getByTestId('elf-input').setInputFiles(badElf);
+    await page.waitForFunction(() => /worker/.test(document.querySelector('[data-testid=diagnostics] ol')?.textContent ?? ''));
+    const [workerReportDownload] = await Promise.all([page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export report' }).click()]);
+    const workerReport = JSON.parse(readFileSync(await workerReportDownload.path(), 'utf8'));
+    assert.ok(workerReport.runtime.some((entry) => entry.source === 'worker' && entry.severity === 'error'));
   });
 
   await check('H563 blink example runs with a glowing LED and scope trace', async () => {

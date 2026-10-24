@@ -1,6 +1,8 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BenchCanvas, type Selection, type Tool } from './canvas/BenchCanvas.tsx';
 import { Inspector, type McuPadInfo, type Observation } from './Inspector.tsx';
+import { DiagnosticsPanel } from './DiagnosticsPanel.tsx';
+import { appendDiagnostic, type DiagnosticEntry, type DiagnosticSeverity, type DiagnosticSource } from './diagnostics.ts';
 import { Scope, ScopeAcquisitionEngine, ScopeBuffer } from './instruments/Scope.tsx';
 import { decodeSigc, SIGC_MAX_BYTES, SigcError } from './instruments/sigc.ts';
 import { CATALOG, formatSi, type PartKind, type Rotation } from './project/catalog.ts';
@@ -10,7 +12,7 @@ import {
   refKey, serializeProject
 } from './project/model.ts';
 import { type BoardLayout, allTerminals, compileCircuit } from './project/netgraph.ts';
-import { WorkerClient, type WorkerEvent } from './worker-client.ts';
+import { WorkerClient, WorkerRequestError, type WorkerEvent } from './worker-client.ts';
 
 type Machine = {
   registers: number[]; xpsr: number; securityState: number; mode: number; sleeping: boolean;
@@ -64,7 +66,7 @@ export function App() {
   const [benchStale, setBenchStale] = useState(false);
   const [observation, setObservation] = useState<Observation | null>(null);
   const [stats, setStats] = useState<BenchStats | null>(null);
-  const [notices, setNotices] = useState<string[]>([]);
+  const [diagnosticEntries, setDiagnosticEntries] = useState<DiagnosticEntry[]>([]);
   const [mcuPads, setMcuPads] = useState<Record<string, McuPadInfo>>({});
   const [pressed, setPressed] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('Place parts from the palette, wire them to CN7-10 (PA5) or CN9-1 (PA6), load an ELF and run.');
@@ -104,6 +106,11 @@ export function App() {
   const errorKeys = useMemo(() => new Set(errors.flatMap((d) => d.refs ?? [])), [errors]);
   const hasCircuit = compiled.netlist.devices.length > 0;
 
+  function recordDiagnostic(source: DiagnosticSource, severity: DiagnosticSeverity, code: string,
+    message: string, timeNs?: number | null) {
+    setDiagnosticEntries((entries) => appendDiagnostic(entries, { source, severity, code, message, timeNs }));
+  }
+
   const onEvent = useCallback((e: WorkerEvent) => {
     const p = e.payload;
     if (e.event === 'state') {
@@ -112,6 +119,7 @@ export function App() {
       else if (p.paused) setRunState('paused');
     } else if (e.event === 'fault') {
       setFault(`${p.code}: ${p.message}`);
+      recordDiagnostic('worker', 'error', String(p.code ?? 'FAULT'), String(p.message ?? 'Worker fault'));
       setRunState('paused');
     } else if (e.event === 'gpio') {
       setMessage(`GPIO ${p.socPad} → ${['low', 'high', 'high-Z'][p.level] ?? '?'} at ${p.eventTimeNs} ns`);
@@ -131,13 +139,12 @@ export function App() {
       setStats({ timeNs: Number(p.timeNs), simulatedPerWall: p.simulatedPerWall, solverSteps: p.solverSteps,
         rejectedSteps: p.rejectedSteps, rollbacks: p.rollbacks, sampleOverflow: p.sampleOverflow });
       const gpio: Record<string, McuPadInfo> = {};
-      const fresh: string[] = [];
       for (const ev of p.events as any[]) {
         if (ev.kind === 'gpio') gpio[ev.socPad] = { level: ev.level, mode: ev.mode, pull: ev.pull, timeNs: ev.timeNs };
-        if (ev.kind === 'unsupported') fresh.push(`${ev.socPad}: ${ev.message}`);
+        if (ev.kind === 'unsupported') recordDiagnostic('capability', 'warning', 'UNSUPPORTED',
+          `${ev.socPad}: ${ev.message}`, Number(ev.timeNs));
       }
       if (Object.keys(gpio).length) setMcuPads((old) => ({ ...old, ...gpio }));
-      if (fresh.length) setNotices((old) => [...new Set([...old, ...fresh])]);
       if (p.mcuStopped) setRunState('stopped');
       else if (p.reachedTarget && p.timeNs !== '0' && p.requestId) setRunState('paused');
     }
@@ -147,13 +154,18 @@ export function App() {
     if (!client.current) {
       const c = new WorkerClient(new URL('worker/worker.mjs', document.baseURI));
       c.subscribe(onEvent);
-      c.onFailure((m) => setFault(`Worker failed: ${m}`));
+      c.onFailure((m) => { setFault(`Worker failed: ${m}`); recordDiagnostic('worker', 'error', 'WORKER_ERROR', m); });
       client.current = c;
     }
     return client.current;
   }
 
-  const fail = (e: unknown) => setFault(e instanceof Error ? e.message : String(e));
+  const fail = (e: unknown) => {
+    const message = e instanceof Error ? e.message : String(e);
+    setFault(message);
+    recordDiagnostic(e instanceof WorkerRequestError ? 'worker' : 'workbench', 'error',
+      e instanceof WorkerRequestError ? e.code : 'ACTION_FAILED', message);
+  };
 
   // ------------------------------------------------------------ editing
 
@@ -244,6 +256,7 @@ export function App() {
     setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
     scope.current.clear(); setScopeVersion(scope.current.version);
     setScopePreview(null); armScope(project, 0);
+    setDiagnosticEntries([]);
     setRunState('paused');
   }
 
@@ -388,6 +401,7 @@ export function App() {
       const { firmwareBase64: _drop, ...simulator } = p.simulator;
       void _drop;
       setHistory(createHistory({ ...p, simulator }));
+      setDiagnosticEntries([]);
       armScope(p, 0);
       setSelection(null);
       setMessage(`Opened ${p.name}${p.simulator.firmwareBase64 ? ' with its verified ELF' : ''}.`);
@@ -413,6 +427,7 @@ export function App() {
         setRunState(firmware ? 'paused' : 'idle');
       }
       setHistory(createHistory(p));
+      setDiagnosticEntries([]);
       armScope(p, 0);
       setSelection(null);
       setMessage(`${ex.name}: ${ex.description}`);
@@ -428,6 +443,12 @@ export function App() {
       download('m33mu-scope.sigc', (heldScope?.buffer ?? scope.current).toSigc(heldScope?.units ?? [u1, u2]), 'application/octet-stream');
       setMessage('Exported voltage traces as SIGC v1 (ch1/ch2, millivolts, time relative to first sample).');
     } catch (err) { fail(err); }
+  }
+
+  function exportDiagnostics() {
+    download('m33mu-diagnostics.json', JSON.stringify({ schemaVersion: 1, projectId: project.projectId,
+      firmwareSha256: firmware?.hash ?? null, virtualTimeNs: timeNs, circuit: compiled.diagnostics,
+      runtime: diagnosticEntries, metrics: stats }, null, 2) + '\n', 'application/json');
   }
 
   async function importSigc(file: File) {
@@ -545,7 +566,6 @@ export function App() {
             <li>Other board contacts: visual only</li>
             <li>ADC, PWM/timer outputs, UART, SPI, I²C: not modelled</li>
           </ul>
-          {notices.length > 0 && <ul className="caps notices">{notices.map((n) => <li key={n}>{n}</li>)}</ul>}
         </aside>
         <section className="bench">
           {benchStale && (
@@ -578,6 +598,8 @@ export function App() {
             </div>
             <p className="muted">{machine ? `${machine.securityState ? 'Non-secure' : 'Secure'} ${machine.mode ? 'thread' : 'handler'}${machine.sleeping ? ', sleeping' : ''}` : 'Load an ELF to start the session.'}</p>
           </div>
+          <DiagnosticsPanel circuit={compiled.diagnostics} runtime={diagnosticEntries} metrics={stats}
+            onClear={() => setDiagnosticEntries([])} onExport={exportDiagnostics} />
         </aside>
       </div>
       <Scope buffer={displayScope} version={heldScope ? displayScope.version : scopeVersion}

@@ -97,6 +97,21 @@ kbd { font: 10px ui-monospace, monospace; color: var(--muted); margin-left: 6px;
 .regs span { color: var(--muted); }
 .regs b { color: var(--accent); font-weight: 400; }
 .cpu p { font-size: 11px; }
+.diagnostics { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; font-size: 11px; }
+.diagnostics-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.diagnostics h3 { font-size: 13px; margin: 2px 0 8px; }
+.diagnostics h4 { color: var(--muted); font: 10px ui-monospace, monospace; text-transform: uppercase; letter-spacing: .08em; margin: 12px 0 6px; }
+.diagnostics-heading span, .diagnostics-metrics { color: var(--muted); }
+.diagnostics-metrics { line-height: 1.4; margin: 0 0 8px; }
+.diagnostics-actions { display: flex; gap: 6px; }
+.diagnostics-actions button { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 4px 7px; font-size: 11px; }
+.diagnostics ul, .diagnostics ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 5px; }
+.diagnostics li { border-left: 3px solid var(--amber); background: var(--panel2); padding: 5px 7px; line-height: 1.4; overflow-wrap: anywhere; }
+.diagnostics li.error { border-color: var(--red); }
+.diagnostics li strong { color: var(--amber); text-transform: uppercase; font: 10px ui-monospace, monospace; }
+.diagnostics li.error strong { color: var(--red); }
+.diagnostics li span { display: block; }
+.diagnostics li small { color: var(--muted); font: 10px ui-monospace, monospace; }
 .scope { display: grid; grid-template-rows: 30px 1fr 22px; border-top: 1px solid var(--line); background: var(--panel); min-height: 0; }
 .scope header, .scope footer { display: flex; align-items: center; gap: 12px; padding: 0 10px; font-size: 12px; }
 .scope header { overflow-x: auto; white-space: nowrap; }
