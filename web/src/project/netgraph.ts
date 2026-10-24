@@ -219,13 +219,37 @@ export function compileCircuit(project: Project, layouts: Map<string, BoardLayou
     }
   }
   const pads: string[] = [];
+  const RAILS: Record<string, number> = { '3V3': 3.3, '5V': 5 };
+  // Every contact of one rail is the same board net; stamp each rail once.
+  const railsDone = new Set<string>();
   for (const [name, keys] of nets) {
-    const contact = keys.map((k) => byKey.get(k)!).find((t) => t.ref.kind === 'board' && t.socPad);
-    if (!contact || keys.length < 2) continue;
-    const socPad = contact.socPad!;
-    pads.push(socPad);
-    devices.push({ kind: 'pad', id: `pad-${socPad}`, node: name, pad: defaultPad(socPad) });
-    hasSource = true;
+    const signals = [...new Set(keys.map((k) => byKey.get(k)!)
+      .filter((t) => t.ref.kind === 'board' && t.socPad).map((t) => t.socPad!))];
+    if (signals.length === 0 || keys.length < 2) continue;
+    if (signals.length > 1) {
+      diagnostics.push({ severity: 'error', refs: keys.filter((k) => byKey.get(k)!.ref.kind === 'board'),
+        message: `Short circuit: board signals ${signals.join(', ')} are wired together` });
+      continue;
+    }
+    const signal = signals[0];
+    if (signal === 'GND' || signal in RAILS) {
+      hasGround = true;
+      if (!railsDone.has('GND')) {
+        // The board ground is the MCU's reference: node 0.
+        devices.push({ kind: 'ground', id: 'board-GND', node: 'GND' });
+        railsDone.add('GND');
+      }
+      if (signal in RAILS && !railsDone.has(signal)) {
+        // NUCLEO-H563ZI regulator/USB rail, approximated as an ideal source.
+        devices.push({ kind: 'vsource', id: `board-${signal}`, p: name, n: 'GND', volts: RAILS[signal] });
+        railsDone.add(signal);
+        hasSource = true;
+      }
+    } else {
+      pads.push(signal);
+      devices.push({ kind: 'pad', id: `pad-${signal}`, node: name, pad: defaultPad(signal) });
+      hasSource = true;
+    }
   }
   if (hasSource && !hasGround) {
     diagnostics.push({ severity: 'error', message: 'Add a ground reference: supplies and MCU pads are referenced to ground' });

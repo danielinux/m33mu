@@ -15,7 +15,7 @@
 <rect x="330" y="1000" width="16" height="10" fill="#e9b300"/>
 <rect x="370" y="1000" width="16" height="10" fill="#d62d2d"/>
 <rect x="551.3" y="310.4" width="54.8" height="258" rx="2" fill="#16181b"/>
-<text x="578.7" y="304.4" font-family="sans-serif" font-size="16" text-anchor="middle" fill="#2b5cab">CN7</text>
+<text x="547.3" y="324.4" font-family="sans-serif" font-size="16" text-anchor="end" fill="#2b5cab">CN7</text>
 <rect x="558" y="317.1" width="16" height="16" fill="url(#hole)"/>
 <rect x="583.4" y="317.1" width="16" height="16" fill="url(#hole)"/>
 <rect x="558" y="342.5" width="16" height="16" fill="url(#hole)"/>
@@ -37,7 +37,7 @@
 <rect x="558" y="545.7" width="16" height="16" fill="url(#hole)"/>
 <rect x="583.4" y="545.7" width="16" height="16" fill="url(#hole)"/>
 <rect x="91" y="631.4" width="54.8" height="385" rx="2" fill="#16181b"/>
-<text x="118.4" y="625.4" font-family="sans-serif" font-size="16" text-anchor="middle" fill="#2b5cab">CN9</text>
+<text x="149.8" y="645.4" font-family="sans-serif" font-size="16" text-anchor="start" fill="#2b5cab">CN9</text>
 <rect x="97.7" y="638.1" width="16" height="16" fill="url(#hole)"/>
 <rect x="123.1" y="638.1" width="16" height="16" fill="url(#hole)"/>
 <rect x="97.7" y="663.5" width="16" height="16" fill="url(#hole)"/>
@@ -68,60 +68,60 @@
 <rect x="123.1" y="968.3" width="16" height="16" fill="url(#hole)"/>
 <rect x="97.7" y="993.7" width="16" height="16" fill="url(#hole)"/>
 <rect x="123.1" y="993.7" width="16" height="16" fill="url(#hole)"/>
-<rect x="91" y="398.3" width="54.8" height="207.2" rx="2" fill="#16181b"/>
-<text x="118.4" y="392.3" font-family="sans-serif" font-size="16" text-anchor="middle" fill="#2b5cab">CN8</text>
-<rect x="97.7" y="405" width="16" height="16" fill="url(#hole)"/>
-<rect x="123.1" y="405" width="16" height="16" fill="url(#hole)"/>
-<rect x="97.7" y="430.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="123.1" y="430.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="97.7" y="455.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="123.1" y="455.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="97.7" y="481.2" width="16" height="16" fill="url(#hole)"/>
-<rect x="123.1" y="481.2" width="16" height="16" fill="url(#hole)"/>
-<rect x="97.7" y="506.6" width="16" height="16" fill="url(#hole)"/>
-<rect x="123.1" y="506.6" width="16" height="16" fill="url(#hole)"/>
-<rect x="97.7" y="532" width="16" height="16" fill="url(#hole)"/>
-<rect x="123.1" y="532" width="16" height="16" fill="url(#hole)"/>
-<rect x="97.7" y="557.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="123.1" y="557.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="97.7" y="582.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="123.1" y="582.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="551.3" y="595.3" width="54.8" height="435.8" rx="2" fill="#16181b"/>
-<text x="578.7" y="589.3" font-family="sans-serif" font-size="16" text-anchor="middle" fill="#2b5cab">CN10</text>
-<rect x="558" y="602" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="602" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="627.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="627.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="652.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="652.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="678.2" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="678.2" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="703.6" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="703.6" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="729" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="729" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="754.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="754.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="779.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="779.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="805.2" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="805.2" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="830.6" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="830.6" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="856" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="856" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="881.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="881.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="906.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="906.8" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="932.2" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="932.2" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="957.6" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="957.6" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="983" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="983" width="16" height="16" fill="url(#hole)"/>
-<rect x="558" y="1008.4" width="16" height="16" fill="url(#hole)"/>
-<rect x="583.4" y="1008.4" width="16" height="16" fill="url(#hole)"/>
+<rect x="91" y="404.4" width="54.8" height="207.2" rx="2" fill="#16181b"/>
+<text x="149.8" y="418.4" font-family="sans-serif" font-size="16" text-anchor="start" fill="#2b5cab">CN8</text>
+<rect x="97.7" y="411.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="123.1" y="411.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="97.7" y="436.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="123.1" y="436.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="97.7" y="461.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="123.1" y="461.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="97.7" y="487.3" width="16" height="16" fill="url(#hole)"/>
+<rect x="123.1" y="487.3" width="16" height="16" fill="url(#hole)"/>
+<rect x="97.7" y="512.7" width="16" height="16" fill="url(#hole)"/>
+<rect x="123.1" y="512.7" width="16" height="16" fill="url(#hole)"/>
+<rect x="97.7" y="538.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="123.1" y="538.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="97.7" y="563.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="123.1" y="563.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="97.7" y="588.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="123.1" y="588.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="551.3" y="582.2" width="54.8" height="435.8" rx="2" fill="#16181b"/>
+<text x="547.3" y="596.2" font-family="sans-serif" font-size="16" text-anchor="end" fill="#2b5cab">CN10</text>
+<rect x="558" y="588.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="588.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="614.3" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="614.3" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="639.7" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="639.7" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="665.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="665.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="690.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="690.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="715.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="715.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="741.3" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="741.3" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="766.7" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="766.7" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="792.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="792.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="817.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="817.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="842.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="842.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="868.3" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="868.3" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="893.7" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="893.7" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="919.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="919.1" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="944.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="944.5" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="969.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="969.9" width="16" height="16" fill="url(#hole)"/>
+<rect x="558" y="995.3" width="16" height="16" fill="url(#hole)"/>
+<rect x="583.4" y="995.3" width="16" height="16" fill="url(#hole)"/>
 <text x="44.3" y="296" font-family="sans-serif" font-size="16" text-anchor="middle" fill="#2b5cab">CN11</text>
 <rect x="22.6" y="307.7" width="18" height="18" fill="#c99a3b"/>
 <circle cx="31.6" cy="316.7" r="4.5" fill="#1a1a1a"/>

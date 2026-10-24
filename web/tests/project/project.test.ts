@@ -136,3 +136,21 @@ test('SI parsing and formatting', () => {
   assert.equal(parseSi('abc'), null);
   assert.equal(formatSi(0.0123, 'A'), '12.3 mA');
 });
+
+test('board rails: GND is ground, 3V3/5V are sources, shorts are errors', () => {
+  const p = emptyProject();
+  p.parts.push({ id: 'r1', kind: 'resistor', x: 900, y: 300, rotation: 0, params: { ohms: 1000 } },
+    { id: 'r2', kind: 'resistor', x: 900, y: 500, rotation: 0, params: { ohms: 1000 } });
+  p.wires.push(
+    { id: 'w1', from: { kind: 'board', board: 'board1', contact: 'CN8-7' }, to: { kind: 'part', part: 'r1', terminal: 'a' }, color: '#d33' },
+    { id: 'w2', from: { kind: 'part', part: 'r1', terminal: 'b' }, to: { kind: 'part', part: 'r2', terminal: 'a' }, color: '#d33' },
+    { id: 'w3', from: { kind: 'part', part: 'r2', terminal: 'b' }, to: { kind: 'board', board: 'board1', contact: 'CN8-11' }, color: '#333' },
+    { id: 'w4', from: { kind: 'board', board: 'board1', contact: 'CN9-12' }, to: { kind: 'board', board: 'board1', contact: 'CN10-5' }, color: '#333' });
+  const c = compileCircuit(p, layouts);
+  assert.deepEqual(c.diagnostics.filter((d) => d.severity === 'error'), []);
+  const circuit = new Circuit(c.netlist);
+  circuit.operatingPoint();
+  assert.ok(Math.abs(circuit.nodeVoltage(c.terminalNet.get('part:r1:b')!) - 1.65) < 1e-6);
+  p.wires.push({ id: 'w5', from: { kind: 'board', board: 'board1', contact: 'CN8-9' }, to: { kind: 'part', part: 'r1', terminal: 'a' }, color: '#d33' });
+  assert.ok(compileCircuit(p, layouts).diagnostics.some((d) => /Short circuit: board signals 3V3, 5V/.test(d.message)));
+});

@@ -22,6 +22,7 @@
           "connectorId": {"type": "string", "minLength": 1},
           "physicalPadNumber": {"type": "integer", "minimum": 1},
           "socPad": {"type": "string"},
+          "rail": {"enum": ["GND", "3V3", "5V"]},
           "artworkContactId": {"type": "string", "pattern": "^[A-Z0-9_]+-[0-9]+$"},
           "peripheralFunctions": {"type": "array", "items": {"type": "string"}},
           "signalMappingVerified": {"type": "boolean"},

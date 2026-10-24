@@ -76,7 +76,9 @@ export function Inspector(props: Props) {
     return (
       <div className="inspector">
         <h3>Board contact {t.ref.contact}</h3>
-        {t.enabled ? (
+        {t.enabled && soc && ['GND', '3V3', '5V'].includes(soc) ? (
+          <p>Board rail <strong>{soc}</strong>{soc === 'GND' ? ': the MCU ground reference.' : ': modelled as an ideal source.'}</p>
+        ) : t.enabled ? (
           <dl>
             <dt>SoC pad</dt><dd>{soc}</dd>
             <dt>Firmware mode</dt><dd>{mcu ? `${MODES[mcu.mode]}, ${PULLS[mcu.pull] ?? 'none'}` : 'not reported yet'}</dd>

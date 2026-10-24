@@ -65,7 +65,7 @@ try {
     await page.goto(origin + '/');
     await page.waitForSelector('circle[data-contact="CN7-10"]');
     const enabled = await page.locator('circle.contact.enabled').count();
-    assert.equal(enabled, 2, 'exactly two electrical contacts');
+    assert.equal(enabled, 25, 'reviewed electrical contacts only');
     assert.equal(await page.locator('circle[data-contact="CN9-1"].enabled').count(), 1);
     await shot('01-empty-bench');
   });

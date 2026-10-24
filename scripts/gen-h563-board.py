@@ -23,18 +23,37 @@ PX = 10.0
 W, H = 70.00, 133.34
 PITCH = 2.54
 
-# Pin-1 centres (mm). CN7/CN9/CN11/CN12 measured; CN8/CN10 illustrative.
+# Pin-1 centres (mm), all measured on the UM3115 Fig. 6 photo. CN8 and CN10
+# were measured later with the same calibration; their columns agree with
+# CN9 and CN7 to 0.1 mm.
 CONNECTORS = [
     # id, kind, rows, pin1 x, pin1 y, measured, description
     ("CN7", "zio-female", 10, 56.60, 32.51, True, "ST Zio, 2x10 female"),
     ("CN9", "zio-female", 15, 10.57, 64.61, True, "ST Zio, 2x15 female"),
-    ("CN8", "zio-female", 8, 10.57, 41.30, False, "ST Zio, 2x8 female (position illustrative)"),
-    ("CN10", "zio-female", 17, 56.60, 61.00, False, "ST Zio, 2x17 female (position illustrative)"),
+    ("CN8", "zio-female", 8, 10.57, 41.91, True, "ST Zio, 2x8 female"),
+    ("CN10", "zio-female", 17, 56.60, 59.69, True, "ST Zio, 2x17 female"),
     ("CN11", "morpho-male-unpopulated", 35, 3.16, 31.67, True, "ST morpho, 2x35, not fitted by default"),
     ("CN12", "morpho-male-unpopulated", 35, 64.28, 31.67, True, "ST morpho, 2x35, not fitted by default"),
 ]
 
-ENABLED = {("CN7", 10): "PA5", ("CN9", 1): "PA6"}
+# Electrically enabled contacts: UM3115 Rev 3 Tables 21-24. Values are SoC
+# pads or board rails (GND, 3V3, 5V).
+ENABLED = {
+    ("CN7", 2): "PB8", ("CN7", 4): "PB9", ("CN7", 8): "GND", ("CN7", 10): "PA5",
+    ("CN7", 12): "PG9", ("CN7", 14): "PB5", ("CN7", 16): "PD14",
+    ("CN8", 7): "3V3", ("CN8", 9): "5V", ("CN8", 11): "GND", ("CN8", 13): "GND",
+    ("CN9", 1): "PA6", ("CN9", 2): "PD7", ("CN9", 4): "PD6", ("CN9", 6): "PD5",
+    ("CN9", 12): "GND", ("CN9", 19): "PF1", ("CN9", 21): "PF0", ("CN9", 23): "GND",
+    ("CN10", 5): "GND", ("CN10", 14): "PB6", ("CN10", 16): "PB7", ("CN10", 17): "GND",
+    ("CN10", 22): "GND", ("CN10", 27): "GND",
+}
+# Function of each enabled SoC pad on this board (Tables 21-24).
+FUNCTIONS = {
+    "PB8": "I2C1_SCL", "PB9": "I2C1_SDA", "PA5": "SPI1_SCK", "PG9": "SPI1_MISO",
+    "PB5": "SPI1_MOSI", "PD14": "SPI1_CS", "PA6": "GPIO/ADC12_INP3", "PD7": "USART2_CK",
+    "PD6": "USART2_RX", "PD5": "USART2_TX", "PF1": "I2C2_SCL", "PF0": "I2C2_SDA",
+    "PB6": "LPUART1_TX", "PB7": "LPUART1_RX",
+}
 # Same nets, verified in UM3115 Table 25, but morpho headers are not fitted
 # by default, so they stay disabled for wiring.
 KNOWN = {("CN12", 11): "PA5", ("CN12", 13): "PA6"}
@@ -54,6 +73,7 @@ def contacts(cid, rows, x1, y1, measured):
             "signal": soc, "mapping_verified": soc is not None,
             "artworkAnchorVerified": measured and soc is not None,
             "electricalEnabled": enabled,
+            **({"function": FUNCTIONS[soc]} if soc in FUNCTIONS else {}),
         })
     return out
 
@@ -89,11 +109,14 @@ def svg():
         ch = rows * PITCH * PX
         if kind == "zio-female":
             add(f'<rect x="{x0-2:g}" y="{y0-2:g}" width="{cw+4:g}" height="{ch+4:g}" rx="2" fill="#16181b"/>')
-            label_y = y0 - 8
+            # Label beside the housing, on the board-centre side, so stacked
+            # headers do not overlap.
+            left = x0 + cw / 2 < W * PX / 2
+            add(f'<text x="{x0 + cw + 6 if left else x0 - 6:g}" y="{y0 + 12:g}" font-family="sans-serif" '
+                f'font-size="16" text-anchor="{"start" if left else "end"}" fill="#2b5cab">{cid}</text>')
         else:
-            label_y = y0 - 8
-        add(f'<text x="{x0 + cw / 2:g}" y="{label_y:g}" font-family="sans-serif" font-size="16" '
-            f'text-anchor="middle" fill="#2b5cab">{cid}</text>')
+            add(f'<text x="{x0 + cw / 2:g}" y="{y0 - 8:g}" font-family="sans-serif" font-size="16" '
+                f'text-anchor="middle" fill="#2b5cab">{cid}</text>')
         for c in contacts(cid, rows, x1, y1, measured):
             if kind == "zio-female":
                 add(f'<rect x="{c["x"]-8:g}" y="{c["y"]-8:g}" width="16" height="16" fill="url(#hole)"/>')
@@ -118,9 +141,9 @@ def layout():
         "manufacturerSource": "https://www.st.com/en/evaluation-tools/nucleo-h563zi.html",
         "artwork": "../svg/stm32h563.svg", "pixelViewbox": [0, 0, W * PX, H * PX],
         "pixelsPerMm": PX, "pinLabelArtwork": False,
-        "geometryStatus": "outline-to-scale; CN7/CN9/CN11/CN12 measured from UM3115 Rev 3 Fig. 6 (+/-0.5 mm); other features illustrative",
-        "electricalMapStatus": "verified for CN7-10 (PA5) and CN9-1 (PA6) only",
-        "warning": "Only CN7 pin 10 (PA5) and CN9 pin 1 (PA6) are electrically enabled. Other contacts are visual locators.",
+        "geometryStatus": "outline-to-scale; CN7-CN12 measured from UM3115 Rev 3 Fig. 6 (+/-0.5 mm); other features illustrative",
+        "electricalMapStatus": "verified for the contacts marked electricalEnabled (UM3115 Rev 3 Tables 21-24)",
+        "warning": "Only contacts marked electricalEnabled can be wired; the others are visual locators.",
         "electricalEnabledByDefault": False,
         "generator": "scripts/gen-h563-board.py",
         "connectors": [

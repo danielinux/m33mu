@@ -99,7 +99,7 @@ def main():
         return fail("H563 pin mapping must declare at least one contact")
 
     enabled_override = {
-        f"{c['connectorId']}-{c['physicalPadNumber']}": c.get("socPad")
+        f"{c['connectorId']}-{c['physicalPadNumber']}": c.get("socPad") or c.get("rail")
         for c in override_contacts if c.get("electricalEnabled")
     }
     public_dir = os.path.join(os.path.dirname(__file__), "..", "web", "public", "boards", "layout")

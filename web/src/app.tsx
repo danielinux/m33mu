@@ -69,7 +69,7 @@ export function App() {
   const [diagnosticEntries, setDiagnosticEntries] = useState<DiagnosticEntry[]>([]);
   const [mcuPads, setMcuPads] = useState<Record<string, McuPadInfo>>({});
   const [pressed, setPressed] = useState<Set<string>>(new Set());
-  const [message, setMessage] = useState('Place parts from the palette, wire them to CN7-10 (PA5) or CN9-1 (PA6), load an ELF and run.');
+  const [message, setMessage] = useState('Place parts from the palette, wire them to the highlighted header contacts (GPIO, I²C, SPI, UART, GND, 3V3, 5V), load an ELF and run.');
   const [fault, setFault] = useState('');
   const [realTime, setRealTime] = useState(true);
   const [examples, setExamples] = useState<{ id: string; name: string; project: string; firmware: string | null; description: string }[]>([]);
@@ -559,7 +559,7 @@ export function App() {
           <ul className="caps">
             <li className="on">Firmware execution (STM32H563, ELF)</li>
             <li className="on">Analog transient solver (R, C, L, diode, LED, BJT, MOSFET, switch, supplies)</li>
-            <li className="on">GPIO electrical coupling: CN7-10 (PA5), CN9-1 (PA6)</li>
+            <li className="on">25 verified header contacts: GPIO pads on CN7/CN9/CN10 (incl. I2C1/2, SPI1, USART2, LPUART1 pins) and GND/3V3/5V rails</li>
             <li>Other board contacts: visual only</li>
             <li>ADC, PWM/timer outputs, UART, SPI, I²C: not modelled</li>
           </ul>
