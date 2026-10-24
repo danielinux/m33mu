@@ -48,7 +48,9 @@
             "runUntil",
             "setSwitch",
             "destroyBench",
-            "diagnostics"
+            "diagnostics",
+            "uartList",
+            "uartWrite"
           ]
         },
         "payload": {

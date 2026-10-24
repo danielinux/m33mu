@@ -196,7 +196,8 @@ try {
     assert.equal(await page.getByTestId('scope-hold').getAttribute('aria-pressed'), 'false');
     const [liveCsv] = await Promise.all([page.waitForEvent('download'),
       page.getByRole('button', { name: 'Export CSV' }).click()]);
-    assert.notDeepEqual(readFileSync(await liveCsv.path()), heldBytes, 'release shows later live samples');
+    const liveBytes = readFileSync(await liveCsv.path());
+    assert.notDeepEqual(liveBytes, heldBytes, 'release shows later live samples');
     await page.getByTestId('real-time').check();
     results.push(`blink: 150 ms simulated in ${wall} ms wall (unpaced)`);
   });
@@ -294,6 +295,30 @@ try {
     await page.getByTestId('run').waitFor();
     await page.getByRole('button', { name: 'Export .sigc' }).click();
     await page.waitForFunction(() => /SIGC stores millivolts only/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
+  });
+
+  await check('UART terminals: pick UARTs, one tab each, echo through USART3', async () => {
+    const echo = join(webRoot, '..', 'tests', 'firmware', 'test-stm32h563-uart-echo', 'app.elf');
+    await page.getByTestId('elf-input').setInputFiles(echo);
+    await page.getByTestId('uart-picker').click();
+    await page.getByTestId('uart-USART1').check();
+    assert.ok(await page.getByTestId('uart-USART3').isChecked(), 'USART3 open by default');
+    await page.getByTestId('uart-picker').click();
+    assert.equal(await page.getByTestId('tab-USART1').count(), 1);
+    await page.getByTestId('tab-USART3').click();
+    await page.getByTestId('run').click();
+    const term = page.getByTestId('terminal-USART3');
+    await term.locator('pre').getByText(/STM32H5 echo repro/).waitFor({ timeout: 30000 });
+    await term.getByRole('textbox').fill('browser says hi');
+    await term.getByRole('button', { name: 'Send' }).click();
+    await page.waitForFunction(() => (document.querySelector('[data-testid=terminal-USART3] pre')?.textContent ?? '')
+      .split('browser says hi').length > 1, null, { timeout: 30000 });
+    await shot('06-uart-terminal');
+    await page.getByRole('button', { name: 'Pause' }).click();
+    await page.getByTestId('uart-picker').click();
+    await page.getByTestId('uart-USART1').uncheck();
+    await page.getByTestId('uart-picker').click();
+    assert.equal(await page.getByTestId('tab-USART1').count(), 0);
   });
 
   await check('worker destroy and recreate in the browser', async () => {

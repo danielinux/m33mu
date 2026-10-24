@@ -162,6 +162,23 @@ enum mm_web_error mm_web_pop_gpio_output(
 enum mm_web_error mm_web_cpu_snapshot(
     const struct mm_web_session *session,
     struct mm_web_cpu_state *snapshot_out);
+/* UARTs of the target. Each has a TX ring the host drains and an RX queue
+ * the host fills; the firmware sees host bytes through the normal USART RX
+ * path. Index order is the target's registration order. */
+#define MM_WEB_UART_TX_CAPACITY 8192u
+#define MM_WEB_UART_RX_CAPACITY 1024u
+size_t mm_web_uart_count(const struct mm_web_session *session);
+enum mm_web_error mm_web_uart_info(const struct mm_web_session *session,
+                                   size_t index,
+                                   const char **label_out,
+                                   mm_u32 *base_out);
+/* Copy up to max TX bytes; *overflow_out reports bytes lost since the last
+ * read because the ring was full. */
+size_t mm_web_uart_read(struct mm_web_session *session, size_t index,
+                        mm_u8 *buf, size_t max, mm_bool *overflow_out);
+/* Queue host bytes for the firmware; returns how many were accepted. */
+size_t mm_web_uart_write(struct mm_web_session *session, size_t index,
+                         const mm_u8 *data, size_t len);
 void mm_web_destroy(struct mm_web_session *session);
 
 #endif

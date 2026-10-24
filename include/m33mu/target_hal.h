@@ -60,6 +60,11 @@ mm_bool mm_uart_backend_attach(mm_u32 base, const char *name,
                                const struct mm_uart_backend_ops *ops,
                                void *opaque);
 void mm_uart_backend_detach(mm_u32 base);
+/* UART instances a target model registers, so hosts can list them. */
+#define MM_UART_INSTANCE_MAX 16
+void mm_uart_instance_register(mm_u32 base, const char *label);
+size_t mm_uart_instance_count(void);
+mm_bool mm_uart_instance_get(size_t index, mm_u32 *base_out, const char **label_out);
 void mm_uart_break_on_macro_set(void);
 mm_bool mm_uart_break_on_macro_take(void);
 

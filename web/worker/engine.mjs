@@ -33,6 +33,7 @@ export function attachM33muWorker(scope, createModule) {
   let sequence = 0;
   let runGeneration = 0;
   let bench = null;
+  let moduleInstance = null;
   let benchSequence = 0;
   let benchFault = null;
 
@@ -60,6 +61,7 @@ export function attachM33muWorker(scope, createModule) {
       modulePromise = createModule();
     }
     const wasm = await modulePromise;
+    moduleInstance = wasm;
     if (!api) {
       const wrap = (name, result, args) => wasm.cwrap(name, result, args);
       api = {
@@ -106,7 +108,13 @@ export function attachM33muWorker(scope, createModule) {
         cpuHz: wrap('mm_web_abi_cpu_hz', 'number', ['number']),
         virtualTimeLow: wrap('mm_web_abi_virtual_time_low', 'number', ['number']),
         virtualTimeHigh: wrap('mm_web_abi_virtual_time_high', 'number', ['number']),
-        destroy: wrap('mm_web_abi_destroy', null, ['number'])
+        destroy: wrap('mm_web_abi_destroy', null, ['number']),
+        uartCount: wrap('mm_web_abi_uart_count', 'number', ['number']),
+        uartLabel: wrap('mm_web_abi_uart_label', 'string', ['number', 'number']),
+        uartBase: wrap('mm_web_abi_uart_base', 'number', ['number', 'number']),
+        uartRead: wrap('mm_web_abi_uart_read', 'number', ['number', 'number', 'number', 'number']),
+        uartOverflow: wrap('mm_web_abi_uart_overflow', 'number', []),
+        uartWrite: wrap('mm_web_abi_uart_write', 'number', ['number', 'number', 'number', 'number'])
       };
     }
     return wasm;
@@ -176,7 +184,30 @@ export function attachM33muWorker(scope, createModule) {
     return true;
   }
 
+  let uartScratch = 0;
+  const UART_CHUNK = 4096;
+
+  /** Post buffered TX bytes of every UART as `uart` events. */
+  function drainUarts(requestId) {
+    if (!session || !api) return;
+    const wasm = moduleInstance;
+    if (!uartScratch) uartScratch = wasm._malloc(UART_CHUNK);
+    const n = api.uartCount(session);
+    for (let i = 0; i < n; i++) {
+      for (;;) {
+        const got = api.uartRead(session, i, uartScratch, UART_CHUNK);
+        const overflow = api.uartOverflow() !== 0;
+        if (got === 0 && !overflow) break;
+        const bytes = wasm.HEAPU8.slice(uartScratch, uartScratch + got);
+        scope.postMessage({ schemaVersion: 1, kind: 'event', sequence: ++sequence, event: 'uart',
+          payload: { requestId, index: i, bytes, overflow } }, [bytes.buffer]);
+        if (got < UART_CHUNK) break;
+      }
+    }
+  }
+
   function emitState(requestId, stopped = false, extra = {}) {
+    drainUarts(requestId);
     postEvent('state', { requestId, ...snapshot(), stopped, ...extra });
   }
 
@@ -456,7 +487,8 @@ export function attachM33muWorker(scope, createModule) {
         ++runGeneration;
         bench = null;
         let port = null;
-        if (pads.length > 0) {
+        // Loaded firmware always runs with the circuit, wired to it or not.
+        if (pads.length > 0 || firmwareLoaded) {
           await ensureSession();
           requireFirmware();
           port = createMcuPort(api, session, (status) => {
@@ -501,6 +533,36 @@ export function attachM33muWorker(scope, createModule) {
         if (!dev || dev.kind !== 'switch') throw invalid(`No switch ${payload.device}`);
         const changed = bench.setSwitch(payload.device, payload.closed);
         postResponse(requestId, { changed, timeNs: Math.round(bench.timeNs).toString() });
+        return;
+      }
+      case 'uartList': {
+        await ensureSession();
+        const n = api.uartCount(session);
+        const uarts = [];
+        for (let i = 0; i < n; i++) {
+          uarts.push({ index: i, label: api.uartLabel(session, i), base: api.uartBase(session, i) >>> 0 });
+        }
+        postResponse(requestId, { uarts });
+        return;
+      }
+      case 'uartWrite': {
+        const wasm = await ensureSession();
+        let bytes = payload.bytes;
+        if (typeof payload.text === 'string') bytes = new TextEncoder().encode(payload.text);
+        if (bytes instanceof ArrayBuffer) bytes = new Uint8Array(bytes);
+        if (!Number.isInteger(payload.index) || !(bytes instanceof Uint8Array) || bytes.length > 4096) {
+          throw invalid('uartWrite requires index and text or bytes (at most 4096)');
+        }
+        if (payload.index < 0 || payload.index >= api.uartCount(session)) throw invalid(`No UART ${payload.index}`);
+        const ptr = wasm._malloc(Math.max(bytes.length, 1));
+        let accepted = 0;
+        try {
+          wasm.HEAPU8.set(bytes, ptr);
+          accepted = api.uartWrite(session, payload.index, ptr, bytes.length);
+        } finally {
+          wasm._free(ptr);
+        }
+        postResponse(requestId, { accepted, dropped: bytes.length - accepted });
         return;
       }
       case 'diagnostics': {

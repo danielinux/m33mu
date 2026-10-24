@@ -258,6 +258,49 @@ unsigned int mm_web_abi_virtual_time_high(void *session)
 
 #undef MM_WEB_ABI_CPU_FIELD_GETTER
 
+unsigned int mm_web_abi_uart_count(void *session)
+{
+    return (unsigned int)mm_web_uart_count((const struct mm_web_session *)session);
+}
+
+const char *mm_web_abi_uart_label(void *session, unsigned int index)
+{
+    const char *label = 0;
+    if (mm_web_uart_info((const struct mm_web_session *)session, index, &label, 0) != MM_WEB_OK) {
+        return "";
+    }
+    return label;
+}
+
+unsigned int mm_web_abi_uart_base(void *session, unsigned int index)
+{
+    mm_u32 base = 0u;
+    (void)mm_web_uart_info((const struct mm_web_session *)session, index, 0, &base);
+    return base;
+}
+
+static mm_bool g_last_uart_overflow;
+
+/* Returns bytes copied into buf; mm_web_abi_uart_overflow() reports loss. */
+unsigned int mm_web_abi_uart_read(void *session, unsigned int index,
+                                  mm_u8 *buf, unsigned int max)
+{
+    return (unsigned int)mm_web_uart_read((struct mm_web_session *)session, index,
+                                          buf, max, &g_last_uart_overflow);
+}
+
+unsigned int mm_web_abi_uart_overflow(void)
+{
+    return g_last_uart_overflow ? 1u : 0u;
+}
+
+unsigned int mm_web_abi_uart_write(void *session, unsigned int index,
+                                   const mm_u8 *data, unsigned int len)
+{
+    return (unsigned int)mm_web_uart_write((struct mm_web_session *)session, index,
+                                           data, len);
+}
+
 void mm_web_abi_destroy(void *session)
 {
     mm_web_destroy((struct mm_web_session *)session);

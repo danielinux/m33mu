@@ -36,7 +36,7 @@ mm_bool mm_tui_is_active(void);
 static mm_bool g_uart_stdout = MM_FALSE;
 static int g_uart_rx_trace = -1;
 
-#define MM_UART_BACKEND_MAX 8
+#define MM_UART_BACKEND_MAX 16
 
 struct mm_uart_backend_binding {
     mm_bool used;
@@ -406,6 +406,39 @@ mm_bool mm_uart_backend_attach(mm_u32 base, const char *name,
         }
     }
     return MM_FALSE;
+}
+
+static struct {
+    mm_u32 base;
+    char label[16];
+} g_uart_instances[MM_UART_INSTANCE_MAX];
+static size_t g_uart_instance_count;
+
+void mm_uart_instance_register(mm_u32 base, const char *label)
+{
+    size_t i;
+    for (i = 0; i < g_uart_instance_count; ++i) {
+        if (g_uart_instances[i].base == base) return;
+    }
+    if (g_uart_instance_count >= MM_UART_INSTANCE_MAX) return;
+    g_uart_instances[g_uart_instance_count].base = base;
+    snprintf(g_uart_instances[g_uart_instance_count].label,
+             sizeof(g_uart_instances[0].label), "%s",
+             label != 0 ? label : "UART");
+    g_uart_instance_count++;
+}
+
+size_t mm_uart_instance_count(void)
+{
+    return g_uart_instance_count;
+}
+
+mm_bool mm_uart_instance_get(size_t index, mm_u32 *base_out, const char **label_out)
+{
+    if (index >= g_uart_instance_count) return MM_FALSE;
+    if (base_out != 0) *base_out = g_uart_instances[index].base;
+    if (label_out != 0) *label_out = g_uart_instances[index].label;
+    return MM_TRUE;
 }
 
 void mm_uart_backend_detach(mm_u32 base)

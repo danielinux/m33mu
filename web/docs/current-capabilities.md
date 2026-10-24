@@ -14,12 +14,13 @@ Reviewed on 2026-10-24 at local `master` (see `git log`; tracker: `p0-progress.m
 | Board | NUCLEO-H563ZI (MB1404 H563ZI-C01) redrawn to scale. **CN7 pin 10 (PA5)** and **CN9 pin 1 (PA6)** are the only electrical contacts; all others are visual locators and the wiring tool refuses them. | `web/boards/nucleo-h563zi-pins.json`, `scripts/validate-web-boards.py` |
 | Editor | Place/move/rotate/delete parts, breadboard strips, wiring with snap and hit-testing, pan/zoom, undo/redo (200 steps), keyboard shortcuts, inspector (parameters, terminal voltages, branch current, pad mode/pull/drive/voltage/current, LED brightness), two-channel scope with cursors, sampled rising/falling threshold trigger, Auto/Normal/Single acquisition and manual hold/release, CSV export and SIGC voltage import/export preview, diagnostics panel with JSON report, v2 project save/open with embedded verified ELF and v1 migration, examples menu. | `web_browser_chromium_test`, scope, SIGC and diagnostics unit fixtures |
 | Examples | H563 LED blink, H563 RC button → EXTI → LED, DC divider, RC switch, NPN LED switch, op-amp gain ×2. | `web/public/examples/`, `examples.test.ts`, demo golden `web/fixtures/demos/golden.json` |
+| UART terminals | Every target UART (13 on the H563) is bound to a session TX ring/RX queue (`mm_web_uart_*`, worker `uartList`/`uartWrite` and `uart` events). The dock offers a UART picker and one terminal tab per selected UART, with line-ending choice and overflow warnings; the selection is remembered per browser. Loaded firmware now runs with any circuit, wired to a pad or not. | `scripts/test-web-uart.mjs` (in `wasm_worker_demos_test`), `web_browser_chromium_test` |
 | Offline | All assets, the worker and WASM are served from the app; the browser test blocks every non-local request. | `web_browser_chromium_test` |
 
 ## Not supported (shown as such in the UI)
 
 - ADC, DAC, PWM/timer outputs and every other alternate function on a pad: an AF-mode pad is high impedance and the bench raises an `unsupported` notice.
-- UART, SPI, I²C; serial console in the browser.
+- SPI and I²C have no pin-level signals: the emulator models them as transactions to emulated devices (SPI flash, TPM, secure elements), so their pads stay high impedance in the circuit. UART bytes are available as terminals (below) but not as electrical TX/RX waveforms.
 - Board contacts other than CN7-10 and CN9-1; the other 14 boards (display assets exist, no reviewed mapping, no browser firmware profile).
 - More than one MCU per bench; more than one emulator session per worker (process-global target state).
 - Op-amp frequency response, slew rate, common-mode range and input offset; regulator line/load transients, thermal and current limits, transformers, junction/gate capacitance, temperature. The available op-amp is a rail-limited macro model, not a device-specific IC.

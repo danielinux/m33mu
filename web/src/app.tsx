@@ -4,6 +4,7 @@ import { Inspector, type McuPadInfo, type Observation } from './Inspector.tsx';
 import { DiagnosticsPanel } from './DiagnosticsPanel.tsx';
 import { appendDiagnostic, type DiagnosticEntry, type DiagnosticSeverity, type DiagnosticSource } from './diagnostics.ts';
 import { Scope, ScopeAcquisitionEngine, ScopeBuffer } from './instruments/Scope.tsx';
+import { appendTerminal, Terminal, type UartInfo } from './instruments/Terminal.tsx';
 import { decodeSigc, SIGC_MAX_BYTES, SigcError } from './instruments/sigc.ts';
 import { CATALOG, formatSi, type PartKind, type Rotation } from './project/catalog.ts';
 import { commit, createHistory, redo, replace, undo } from './project/history.ts';
@@ -111,8 +112,34 @@ export function App() {
     setDiagnosticEntries((entries) => appendDiagnostic(entries, { source, severity, code, message, timeNs }));
   }
 
+  const [uarts, setUarts] = useState<UartInfo[]>([]);
+  const [openUarts, setOpenUarts] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('m33mu.openUarts') ?? '["USART3"]'); } catch { return ['USART3']; }
+  });
+  const [uartText, setUartText] = useState<Record<number, string>>({});
+  const [uartLost, setUartLost] = useState<Set<number>>(new Set());
+  const [dockTab, setDockTab] = useState<string>('scope');
+  function toggleUart(label: string) {
+    const next = openUarts.includes(label) ? openUarts.filter((l) => l !== label) : [...openUarts, label];
+    setOpenUarts(next);
+    try { localStorage.setItem('m33mu.openUarts', JSON.stringify(next)); } catch { /* per-viewer convenience only */ }
+    if (!next.includes(dockTab)) setDockTab(next.includes(label) ? label : 'scope');
+  }
+  async function sendUart(index: number, text: string) {
+    try {
+      const r = await worker().request<{ accepted: number; dropped: number }>('uartWrite', { index, text });
+      if (r.dropped) setMessage(`UART input queue full: ${r.dropped} bytes dropped`);
+    } catch (err) { setFault(err instanceof Error ? err.message : String(err)); }
+  }
+
   const onEvent = useCallback((e: WorkerEvent) => {
     const p = e.payload;
+    if (e.event === 'uart') {
+      const bytes = p.bytes as Uint8Array;
+      setUartText((old) => ({ ...old, [p.index]: appendTerminal(old[p.index] ?? '', bytes) }));
+      if (p.overflow) setUartLost((old) => new Set(old).add(p.index));
+      return;
+    }
     if (e.event === 'state') {
       setMachine(p);
       if (p.stopped) setRunState('stopped');
@@ -252,6 +279,9 @@ export function App() {
 
   async function loadElf(bytes: Uint8Array, name: string, hash: string) {
     await worker().request('loadFirmware', { bytes });
+    setUartText({}); setUartLost(new Set());
+    const list = await worker().request<{ uarts: UartInfo[] }>('uartList');
+    setUarts(list.uarts);
     setFirmware({ name, hash, bytes });
     setBenchActive(false); setBenchStale(false); setObservation(null); setStats(null);
     scope.current.clear(); setScopeVersion(scope.current.version);
@@ -318,7 +348,7 @@ export function App() {
         if (!benchActive || benchStale) await startBench();
         await worker().request('runUntil', realTime ? { maxRatio: 1 } : {});
         setMessage(compiled.pads.length ? `Firmware and circuit running on one virtual clock (${compiled.pads.join(', ')} coupled).`
-          : 'Analog-only circuit running.');
+          : firmware ? 'Firmware and circuit running on one virtual clock (no MCU pad wired).' : 'Analog-only circuit running.');
       } else {
         await worker().request('run');
         setMessage('Firmware running in bounded worker slices (no circuit attached).');
@@ -602,19 +632,48 @@ export function App() {
             onClear={() => setDiagnosticEntries([])} onExport={exportDiagnostics} />
         </aside>
       </div>
-      <Scope buffer={displayScope} version={heldScope ? displayScope.version : scopeVersion}
-        labels={displayLabels} units={displayUnits} captureKind={heldScope?.kind ?? null} onHold={toggleScopeHold}
-        windowNs={project.instruments.scope.windowNs}
-        trigger={project.instruments.scope.trigger ?? null} acquisition={acquisition}
-        fixedTriggerTime={heldScope?.triggerTime} onAcquisition={setScopeAcquisition}
-        onWindow={(ns) => {
-          const next = { ...project, instruments: { ...project.instruments,
-            scope: { ...project.instruments.scope, windowNs: ns } } };
-          view(next);
-          armScope(next, scope.current.lastTime());
-        }}
-        onTrigger={setScopeTrigger}
-        onExport={exportCsv} onExportSigc={exportSigc} onImportSigc={(file) => void importSigc(file)} />
+      <section className="dock">
+        <nav className="dock-tabs" role="tablist">
+          <button role="tab" aria-selected={dockTab === 'scope'} className={dockTab === 'scope' ? 'active' : ''}
+            onClick={() => setDockTab('scope')}>Scope</button>
+          {uarts.filter((u) => openUarts.includes(u.label)).map((u) => (
+            <button key={u.label} role="tab" aria-selected={dockTab === u.label} data-testid={`tab-${u.label}`}
+              className={dockTab === u.label ? 'active' : ''} onClick={() => setDockTab(u.label)}>
+              {u.label}{(uartText[u.index] ?? '').length > 0 && dockTab !== u.label ? ' •' : ''}
+            </button>
+          ))}
+          <details className="uart-picker">
+            <summary data-testid="uart-picker">UARTs…</summary>
+            <div className="uart-menu">{uarts.length === 0 ? <p className="muted">Load firmware to list the UARTs.</p> : uarts.map((u) => (
+              <label key={u.label}><input type="checkbox" checked={openUarts.includes(u.label)}
+                onChange={() => toggleUart(u.label)} data-testid={`uart-${u.label}`} /> {u.label}
+                <span className="muted"> 0x{u.base.toString(16)}</span></label>
+            ))}</div>
+          </details>
+        </nav>
+        <div className="dock-body" hidden={dockTab !== 'scope'}>
+          <Scope buffer={displayScope} version={heldScope ? displayScope.version : scopeVersion}
+            labels={displayLabels} units={displayUnits} captureKind={heldScope?.kind ?? null} onHold={toggleScopeHold}
+            windowNs={project.instruments.scope.windowNs}
+            trigger={project.instruments.scope.trigger ?? null} acquisition={acquisition}
+            fixedTriggerTime={heldScope?.triggerTime} onAcquisition={setScopeAcquisition}
+            onWindow={(ns) => {
+              const next = { ...project, instruments: { ...project.instruments,
+                scope: { ...project.instruments.scope, windowNs: ns } } };
+              view(next);
+              armScope(next, scope.current.lastTime());
+            }}
+            onTrigger={setScopeTrigger}
+            onExport={exportCsv} onExportSigc={exportSigc} onImportSigc={(file) => void importSigc(file)} />
+        </div>
+        {uarts.filter((u) => openUarts.includes(u.label) && dockTab === u.label).map((u) => (
+          <div className="dock-body" key={u.label}>
+            <Terminal uart={u} text={uartText[u.index] ?? ''} lost={uartLost.has(u.index)}
+              onSend={(text) => void sendUart(u.index, text)}
+              onClear={() => setUartText((old) => ({ ...old, [u.index]: '' }))} />
+          </div>
+        ))}
+      </section>
       <footer className="status">
         <span className={fault ? 'fault' : ''} data-testid="status-message">{fault || message}</span>
         <span className="spacer" />

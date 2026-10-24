@@ -41,6 +41,19 @@ struct mm_web_gpio_output_entry {
     mm_u64 virtual_time_ns;
 };
 
+struct mm_web_uart {
+    struct mm_web_session *session;
+    mm_u32 base;
+    const char *label;
+    mm_u8 tx[MM_WEB_UART_TX_CAPACITY];
+    size_t tx_head;
+    size_t tx_count;
+    mm_bool tx_overflow;
+    mm_u8 rx[MM_WEB_UART_RX_CAPACITY];
+    size_t rx_head;
+    size_t rx_count;
+};
+
 struct mm_web_session {
     struct mm_execution_state execution;
     size_t max_image_size;
@@ -64,9 +77,71 @@ struct mm_web_session {
     mm_bool pad_changed;
     mm_bool locked_up;
     mm_u32 lockup_pc;
+    struct mm_web_uart uarts[MM_UART_INSTANCE_MAX];
+    size_t uart_count;
 };
 
 static struct mm_web_session *g_web_active_session;
+
+static size_t web_uart_write_tx(void *opaque, const mm_u8 *data, size_t len)
+{
+    struct mm_web_uart *u = (struct mm_web_uart *)opaque;
+    size_t i;
+    for (i = 0; i < len; ++i) {
+        if (u->tx_count == MM_WEB_UART_TX_CAPACITY) {
+            u->tx_head = (u->tx_head + 1u) % MM_WEB_UART_TX_CAPACITY;
+            u->tx_count--;
+            u->tx_overflow = MM_TRUE;
+        }
+        u->tx[(u->tx_head + u->tx_count) % MM_WEB_UART_TX_CAPACITY] = data[i];
+        u->tx_count++;
+    }
+    return len;
+}
+
+static mm_bool web_uart_read_rx(void *opaque, mm_u8 *byte_out)
+{
+    struct mm_web_uart *u = (struct mm_web_uart *)opaque;
+    if (u->rx_count == 0u) return MM_FALSE;
+    *byte_out = u->rx[u->rx_head];
+    u->rx_head = (u->rx_head + 1u) % MM_WEB_UART_RX_CAPACITY;
+    u->rx_count--;
+    return MM_TRUE;
+}
+
+static const struct mm_uart_backend_ops g_web_uart_ops = {
+    web_uart_write_tx, web_uart_read_rx, 0
+};
+
+/* Bind every registered target UART to a session ring before firmware can
+ * enable it; the USART model opens its backend when UE is set. */
+static void web_attach_uarts(struct mm_web_session *session)
+{
+    size_t i;
+    session->uart_count = 0u;
+    for (i = 0; i < mm_uart_instance_count(); ++i) {
+        struct mm_web_uart *u = &session->uarts[session->uart_count];
+        mm_u32 base;
+        const char *label;
+        if (!mm_uart_instance_get(i, &base, &label)) continue;
+        mm_uart_backend_detach(base);
+        u->session = session;
+        u->base = base;
+        u->label = label;
+        if (mm_uart_backend_attach(base, label, &g_web_uart_ops, u)) {
+            session->uart_count++;
+        }
+    }
+}
+
+static void web_detach_uarts(struct mm_web_session *session)
+{
+    size_t i;
+    for (i = 0; i < session->uart_count; ++i) {
+        mm_uart_backend_detach(session->uarts[i].base);
+    }
+    session->uart_count = 0u;
+}
 
 static void web_queue_pad_state(struct mm_web_session *session,
                                 int bank,
@@ -573,6 +648,7 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
         if (error_out != 0) *error_out = MM_WEB_INITIALIZATION_FAILED;
         return 0;
     }
+    web_attach_uarts(session);
     if (error_out != 0) *error_out = MM_WEB_OK;
     return session;
 }
@@ -1154,10 +1230,59 @@ enum mm_web_error mm_web_cpu_snapshot(
     return MM_WEB_OK;
 }
 
+size_t mm_web_uart_count(const struct mm_web_session *session)
+{
+    return session != 0 ? session->uart_count : 0u;
+}
+
+enum mm_web_error mm_web_uart_info(const struct mm_web_session *session,
+                                   size_t index,
+                                   const char **label_out,
+                                   mm_u32 *base_out)
+{
+    if (session == 0 || index >= session->uart_count) return MM_WEB_INVALID_ARGUMENT;
+    if (label_out != 0) *label_out = session->uarts[index].label;
+    if (base_out != 0) *base_out = session->uarts[index].base;
+    return MM_WEB_OK;
+}
+
+size_t mm_web_uart_read(struct mm_web_session *session, size_t index,
+                        mm_u8 *buf, size_t max, mm_bool *overflow_out)
+{
+    struct mm_web_uart *u;
+    size_t n = 0u;
+    if (overflow_out != 0) *overflow_out = MM_FALSE;
+    if (session == 0 || index >= session->uart_count || buf == 0) return 0u;
+    u = &session->uarts[index];
+    while (n < max && u->tx_count != 0u) {
+        buf[n++] = u->tx[u->tx_head];
+        u->tx_head = (u->tx_head + 1u) % MM_WEB_UART_TX_CAPACITY;
+        u->tx_count--;
+    }
+    if (overflow_out != 0) *overflow_out = u->tx_overflow;
+    u->tx_overflow = MM_FALSE;
+    return n;
+}
+
+size_t mm_web_uart_write(struct mm_web_session *session, size_t index,
+                         const mm_u8 *data, size_t len)
+{
+    struct mm_web_uart *u;
+    size_t n = 0u;
+    if (session == 0 || index >= session->uart_count || data == 0) return 0u;
+    u = &session->uarts[index];
+    while (n < len && u->rx_count < MM_WEB_UART_RX_CAPACITY) {
+        u->rx[(u->rx_head + u->rx_count) % MM_WEB_UART_RX_CAPACITY] = data[n++];
+        u->rx_count++;
+    }
+    return n;
+}
+
 void mm_web_destroy(struct mm_web_session *session)
 {
     if (session == 0) return;
     if (session == g_web_active_session) {
+        web_detach_uarts(session);
         mm_gpio_set_pad_listener(0, 0);
         mm_gpio_set_pad_config_listener(0, 0);
         g_web_active_session = 0;

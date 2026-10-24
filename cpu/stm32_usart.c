@@ -393,6 +393,7 @@ void stm32_usart_register_instance(struct stm32_usart_state *state,
         strncpy(u->label, label, sizeof(u->label) - 1u);
         u->label[sizeof(u->label) - 1u] = '\0';
     }
+    mm_uart_instance_register(base, u->label);
     reg.base = base;
     reg.size = 0x400u;
     reg.opaque = u;

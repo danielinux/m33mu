@@ -130,3 +130,19 @@ kbd { font: 10px ui-monospace, monospace; color: var(--muted); margin-left: 6px;
   .palette, .side { border: 0; }
 }
 .toggle { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.dock { display: grid; grid-template-rows: 30px 1fr; min-height: 0; border-top: 1px solid var(--line); background: var(--panel); }
+.dock-tabs { display: flex; align-items: stretch; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.dock-tabs > button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 0 12px; font-size: 12px; color: var(--muted); }
+.dock-tabs > button.active { color: var(--accent); border-bottom-color: var(--accent); }
+.uart-picker { margin-left: auto; position: relative; font-size: 12px; align-self: center; }
+.uart-picker summary { cursor: pointer; color: var(--muted); }
+.uart-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 10; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 0; max-height: 60vh; overflow: auto; box-shadow: 0 6px 18px #0008; }
+.uart-menu label, .uart-menu p { display: block; white-space: nowrap; padding: 3px 12px; margin: 0; }
+.dock-body { min-height: 0; display: grid; }
+.dock-body[hidden] { display: none; }
+.dock-body > .scope { border-top: 0; }
+.terminal { display: grid; grid-template-rows: 26px 1fr 30px; min-height: 0; }
+.terminal header, .terminal form { display: flex; align-items: center; gap: 10px; padding: 0 10px; font-size: 12px; }
+.terminal pre { margin: 0; padding: 6px 10px; overflow: auto; background: var(--scope-bg); font: 12px/1.35 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.terminal input { flex: 1; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; font: 12px ui-monospace, monospace; }
+.terminal select, .terminal button { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; font-size: 12px; }
