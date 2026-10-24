@@ -14,6 +14,8 @@
 #include "m33mu/execution_exception.h"
 #include "m33mu/gpio.h"
 #include "m33mu/target_hal.h"
+#include "m33mu/i2c_bus.h"
+#include "m33mu/spi_bus.h"
 #include "m33mu/vector.h"
 
 #define MM_WEB_DEFAULT_IMAGE_LIMIT (32u * 1024u * 1024u)
@@ -79,6 +81,7 @@ struct mm_web_session {
     mm_u32 lockup_pc;
     struct mm_web_uart uarts[MM_UART_INSTANCE_MAX];
     size_t uart_count;
+    struct mm_web_bus_host bus_host;
 };
 
 static struct mm_web_session *g_web_active_session;
@@ -107,6 +110,44 @@ static mm_bool web_uart_read_rx(void *opaque, mm_u8 *byte_out)
     u->rx_head = (u->rx_head + 1u) % MM_WEB_UART_RX_CAPACITY;
     u->rx_count--;
     return MM_TRUE;
+}
+
+static mm_bool web_i2c_host_xfer(void *opaque, int bus, mm_u8 addr, mm_bool read,
+                                 mm_u8 *data, size_t len, enum mm_i2c_status *status)
+{
+    struct mm_web_session *session = (struct mm_web_session *)opaque;
+    int r;
+    if (session->bus_host.i2c_xfer == 0) return MM_FALSE;
+    r = session->bus_host.i2c_xfer(session->bus_host.opaque, bus, addr, read, data, len);
+    if (r < 0) return MM_FALSE;
+    *status = r > (int)MM_I2C_ARLO ? MM_I2C_NACK : (enum mm_i2c_status)r;
+    return MM_TRUE;
+}
+
+static mm_bool web_i2c_host_busy(void *opaque, int bus)
+{
+    struct mm_web_session *session = (struct mm_web_session *)opaque;
+    return session->bus_host.i2c_busy != 0 &&
+           session->bus_host.i2c_busy(session->bus_host.opaque, bus);
+}
+
+static mm_bool web_spi_host_xfer(void *opaque, int bus, mm_u8 out, mm_u8 *in)
+{
+    struct mm_web_session *session = (struct mm_web_session *)opaque;
+    int r;
+    if (session->bus_host.spi_xfer == 0) return MM_FALSE;
+    r = session->bus_host.spi_xfer(session->bus_host.opaque, bus, out);
+    if (r < 0) return MM_FALSE;
+    *in = (mm_u8)r;
+    return MM_TRUE;
+}
+
+static void web_spi_host_end(void *opaque, int bus)
+{
+    struct mm_web_session *session = (struct mm_web_session *)opaque;
+    if (session->bus_host.spi_end != 0) {
+        session->bus_host.spi_end(session->bus_host.opaque, bus);
+    }
 }
 
 static const struct mm_uart_backend_ops g_web_uart_ops = {
@@ -202,9 +243,10 @@ static void web_gpio_pad_config_changed(
     if (!web_pad_in_range(session, bank, pin)) return;
     pad = &session->pads[bank][pin];
     if (pad->mode == config->mode && pad->open_drain == config->open_drain &&
-        pad->pull == config->pull) {
+        pad->pull == config->pull && pad->af == config->af) {
         return;
     }
+    pad->af = config->af;
     pad->mode = config->mode;
     pad->open_drain = config->open_drain;
     pad->pull = config->pull;
@@ -1198,6 +1240,7 @@ enum mm_web_error mm_web_pop_gpio_output(
     event_out->mode = entry.pad.mode;
     event_out->open_drain = entry.pad.open_drain;
     event_out->pull = entry.pad.pull;
+    event_out->af = entry.pad.af;
     event_out->virtual_time_ns = entry.virtual_time_ns;
     return MM_WEB_OK;
 }
@@ -1227,6 +1270,29 @@ enum mm_web_error mm_web_cpu_snapshot(
     snapshot_out->security_state = (mm_u32)cpu->sec_state;
     snapshot_out->mode = (mm_u32)cpu->mode;
     snapshot_out->sleeping = cpu->sleeping;
+    return MM_WEB_OK;
+}
+
+enum mm_web_error mm_web_set_bus_host(struct mm_web_session *session,
+                                      const struct mm_web_bus_host *host)
+{
+    struct mm_i2c_host i2c;
+    struct mm_spi_host spi;
+    if (session == 0) return MM_WEB_INVALID_ARGUMENT;
+    if (session != g_web_active_session) return MM_WEB_INITIALIZATION_FAILED;
+    if (host != 0) {
+        session->bus_host = *host;
+    } else {
+        memset(&session->bus_host, 0, sizeof(session->bus_host));
+    }
+    i2c.xfer = web_i2c_host_xfer;
+    i2c.lines_busy = web_i2c_host_busy;
+    i2c.opaque = session;
+    spi.xfer = web_spi_host_xfer;
+    spi.end = web_spi_host_end;
+    spi.opaque = session;
+    mm_i2c_bus_set_host(host != 0 ? &i2c : 0);
+    mm_spi_bus_set_host(host != 0 ? &spi : 0);
     return MM_WEB_OK;
 }
 
@@ -1283,6 +1349,8 @@ void mm_web_destroy(struct mm_web_session *session)
     if (session == 0) return;
     if (session == g_web_active_session) {
         web_detach_uarts(session);
+        mm_i2c_bus_set_host(0);
+        mm_spi_bus_set_host(0);
         mm_gpio_set_pad_listener(0, 0);
         mm_gpio_set_pad_config_listener(0, 0);
         g_web_active_session = 0;

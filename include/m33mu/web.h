@@ -65,6 +65,7 @@ struct mm_web_pad_state {
     mm_u8 mode;
     mm_u8 open_drain;
     mm_u8 pull;
+    mm_u8 af;                   /* alternate function number (AF mode) */
 };
 
 struct mm_web_gpio_output_event {
@@ -73,6 +74,7 @@ struct mm_web_gpio_output_event {
     mm_u8 mode;
     mm_u8 open_drain;
     mm_u8 pull;
+    mm_u8 af;
     mm_u64 virtual_time_ns;
 };
 
@@ -179,6 +181,22 @@ size_t mm_web_uart_read(struct mm_web_session *session, size_t index,
 /* Queue host bytes for the firmware; returns how many were accepted. */
 size_t mm_web_uart_write(struct mm_web_session *session, size_t index,
                          const mm_u8 *data, size_t len);
+/* Logic-level bus host: the embedding page models which devices the wires
+ * reach. Callbacks run synchronously inside the transfer.
+ * i2c_xfer returns an mm_i2c_status (0 OK, 1 NACK, 2 BUSY, 3 arbitration
+ * lost) or -1 to fall through to the emulator's own devices; read data is
+ * written into data. spi_xfer returns the byte clocked in, or -1 to fall
+ * through. Bus numbers are 1-based peripheral instances (I2C1 = 1). */
+struct mm_web_bus_host {
+    int (*i2c_xfer)(void *opaque, int bus, mm_u8 addr, mm_bool read,
+                    mm_u8 *data, size_t len);
+    mm_bool (*i2c_busy)(void *opaque, int bus);
+    int (*spi_xfer)(void *opaque, int bus, mm_u8 out);
+    void (*spi_end)(void *opaque, int bus);
+    void *opaque;
+};
+enum mm_web_error mm_web_set_bus_host(struct mm_web_session *session,
+                                      const struct mm_web_bus_host *host);
 void mm_web_destroy(struct mm_web_session *session);
 
 #endif

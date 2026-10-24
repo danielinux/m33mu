@@ -340,6 +340,36 @@ try {
     assert.equal(await page.getByTestId('tab-scope2').count(), 0);
   });
 
+  await check('bus demo: modules on I2C/SPI, adapter terminal, sniffer, pull-up fault', async () => {
+    await page.getByTestId('examples').selectOption('h563-bus');
+    await page.waitForFunction(() => /bus demo/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
+    await page.getByTestId('real-time').uncheck();
+    await page.getByTestId('run').click();
+    await page.getByTestId('tab-USART3').click();
+    const vcp = page.getByTestId('terminal-USART3').locator('pre');
+    await vcp.getByText(/EEPROM W:OK R:OK=..A5 TEMP:OK=1900 JEDEC=EF4018/).first().waitFor({ timeout: 60000 });
+    await page.getByTestId('tab-uart1').click();
+    await page.getByTestId('terminal-uart1').locator('pre').getByText(/ping/).first().waitFor({ timeout: 30000 });
+    await page.getByTestId('terminal-uart1').getByRole('textbox').fill('hello adapter');
+    await page.getByTestId('terminal-uart1').getByRole('button', { name: 'Send' }).click();
+    await page.getByTestId('tab-USART3').click();
+    await vcp.getByText(/hello adapter/).waitFor({ timeout: 30000 });
+    await page.getByTestId('tab-sniff1').click();
+    await page.getByTestId('sniffer-sniff1').getByText(/I2C1 0x50 W \[10 /).first().waitFor({ timeout: 30000 });
+    await shot('08-bus-sniffer');
+    await page.getByRole('button', { name: 'Pause' }).click();
+    // Remove a pull-up resistor (its wires go with it).
+    await page.locator('g[data-part="r1"] rect.resistor-body').click({ force: true });
+    await page.keyboard.press('Delete');
+    await page.getByRole('button', { name: 'Apply and run' }).click();
+    await page.getByTestId('tab-USART3').click();
+    await vcp.getByText(/EEPROM W:BUSY/).waitFor({ timeout: 60000 });
+    await page.getByTestId('tab-sniff1').click();
+    await page.getByTestId('sniffer-sniff1').getByText(/BUSY, S(CL|DA) \(PB[89]\) low/).first().waitFor({ timeout: 30000 });
+    await page.getByRole('button', { name: 'Pause' }).click();
+    await page.getByTestId('real-time').check();
+  });
+
   await check('worker destroy and recreate in the browser', async () => {
     const r = await page.evaluate(async () => {
       const bytes = new Uint8Array(await (await fetch('examples/h563-blink.elf')).arrayBuffer());

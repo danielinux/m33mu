@@ -41,6 +41,7 @@
 #define ISR_STOPF    (1u << 5)
 #define ISR_TC       (1u << 6)
 #define ISR_TCR      (1u << 7)
+#define ISR_ARLO     (1u << 9)
 #define ISR_BUSY     (1u << 15)
 
 #define ICR_NACKCF   (1u << 4)
@@ -100,6 +101,21 @@ static void i2c_finish(struct stm32_i2c_inst *i2c)
     }
 }
 
+/* NACK ends the transfer with a STOP; lost arbitration releases the bus
+ * without one (RM0481 I2C ARLO); a busy bus leaves BUSY set. */
+static void i2c_fail(struct stm32_i2c_inst *i2c, enum mm_i2c_status status)
+{
+    if (status == MM_I2C_ARLO) {
+        i2c->regs[I2C_ISR / 4u] |= ISR_ARLO;
+        i2c_set_idle(i2c);
+    } else if (status == MM_I2C_BUSY) {
+        i2c->active = MM_FALSE;
+    } else {
+        i2c->regs[I2C_ISR / 4u] |= ISR_NACKF | ISR_STOPF;
+        i2c_set_idle(i2c);
+    }
+}
+
 static mm_u8 i2c_cr2_addr(mm_u32 cr2)
 {
     return (mm_u8)((cr2 & CR2_SADD_MASK) >> 1);
@@ -133,14 +149,22 @@ static void i2c_start(struct stm32_i2c_inst *i2c, mm_u32 cr2)
         return;
     }
 
+    if (mm_i2c_bus_lines_busy(i2c->bus_index)) {
+        /* SCL or SDA held low: the START never goes out; BUSY stays set
+         * while the lines are low (see i2c_read). */
+        i2c->active = MM_FALSE;
+        return;
+    }
     if (i2c->read_dir) {
+        enum mm_i2c_status status;
         if (nbytes == 0u) {
             i2c_finish(i2c);
             return;
         }
-        if (!mm_i2c_bus_read(i2c->bus_index, i2c->addr, i2c->rx_buf, nbytes)) {
-            i2c->regs[I2C_ISR / 4u] |= ISR_NACKF | ISR_STOPF;
-            i2c_set_idle(i2c);
+        status = mm_i2c_bus_transfer(i2c->bus_index, i2c->addr, MM_TRUE,
+                                     i2c->rx_buf, nbytes);
+        if (status != MM_I2C_OK) {
+            i2c_fail(i2c, status);
             return;
         }
         i2c->rx_len = nbytes;
@@ -169,10 +193,13 @@ static void i2c_txdr_write(struct stm32_i2c_inst *i2c, mm_u8 value)
     if (i2c->pos >= i2c->expected) {
         size_t len = i2c->expected;
         i2c->regs[I2C_ISR / 4u] &= ~ISR_TXIS;
-        if (!mm_i2c_bus_write(i2c->bus_index, i2c->addr, i2c->tx_buf, len)) {
-            i2c->regs[I2C_ISR / 4u] |= ISR_NACKF | ISR_STOPF;
-            i2c_set_idle(i2c);
-            return;
+        {
+            enum mm_i2c_status status = mm_i2c_bus_transfer(
+                i2c->bus_index, i2c->addr, MM_FALSE, i2c->tx_buf, len);
+            if (status != MM_I2C_OK) {
+                i2c_fail(i2c, status);
+                return;
+            }
         }
         i2c_finish(i2c);
     } else {
@@ -214,7 +241,13 @@ static mm_bool i2c_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
         memcpy(value_out, &v, size_bytes);
         return MM_TRUE;
     }
-    memcpy(value_out, (mm_u8 *)i2c->regs + offset, size_bytes);
+    memcpy(&v, (mm_u8 *)i2c->regs + (offset & ~3u), 4u);
+    if ((offset & ~3u) == I2C_ISR && !i2c->active &&
+        mm_i2c_bus_lines_busy(i2c->bus_index)) {
+        v |= ISR_BUSY;
+    }
+    v >>= (offset & 3u) * 8u;
+    memcpy(value_out, &v, size_bytes);
     return MM_TRUE;
 }
 
@@ -253,6 +286,9 @@ static mm_bool i2c_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
         }
         if ((value & ICR_STOPCF) != 0u) {
             clear |= ISR_STOPF;
+        }
+        if ((value & ISR_ARLO) != 0u) { /* ICR.ARLOCF shares the bit position */
+            clear |= ISR_ARLO;
         }
         i2c->regs[I2C_ISR / 4u] &= ~clear;
         return MM_TRUE;

@@ -134,12 +134,15 @@ static void gpio_notify_pad_config(struct stm32_gpio_state *g, int bank, mm_bool
     mm_u32 moder = g->regs[STM32_GPIO_MODER_OFFSET / 4];
     mm_u32 otyper = g->regs[STM32_GPIO_OTYPER_OFFSET / 4] & 0xFFFFu;
     mm_u32 pupdr = g->regs[STM32_GPIO_PUPDR_OFFSET / 4];
+    mm_u32 afrl = g->regs[STM32_GPIO_AFRL_OFFSET / 4];
+    mm_u32 afrh = g->regs[STM32_GPIO_AFRH_OFFSET / 4];
     int pin;
 
     if (!mm_gpio_pad_config_listener_present()) {
         return;
     }
-    if (!all && moder == g->pad_moder && otyper == g->pad_otyper && pupdr == g->pad_pupdr) {
+    if (!all && moder == g->pad_moder && otyper == g->pad_otyper && pupdr == g->pad_pupdr &&
+        afrl == g->pad_afr[0] && afrh == g->pad_afr[1]) {
         return;
     }
     for (pin = 0; pin < 16; ++pin) {
@@ -147,11 +150,16 @@ static void gpio_notify_pad_config(struct stm32_gpio_state *g, int bank, mm_bool
         mm_u32 bit = 1u << (mm_u32)pin;
         struct mm_gpio_pad_config config;
         mm_u32 pull;
+        mm_u32 afr = pin < 8 ? afrl : afrh;
+        mm_u32 afr_old = pin < 8 ? g->pad_afr[0] : g->pad_afr[1];
+        mm_u32 afshift = (mm_u32)(pin & 7) * 4u;
         if (!all && ((moder ^ g->pad_moder) >> shift & 3u) == 0u &&
             ((otyper ^ g->pad_otyper) & bit) == 0u &&
-            ((pupdr ^ g->pad_pupdr) >> shift & 3u) == 0u) {
+            ((pupdr ^ g->pad_pupdr) >> shift & 3u) == 0u &&
+            ((afr ^ afr_old) >> afshift & 0xFu) == 0u) {
             continue;
         }
+        config.af = (mm_u8)((afr >> afshift) & 0xFu);
         config.mode = (mm_u8)((moder >> shift) & 3u);
         config.open_drain = (otyper & bit) != 0u ? 1u : 0u;
         pull = (pupdr >> shift) & 3u;
@@ -162,6 +170,8 @@ static void gpio_notify_pad_config(struct stm32_gpio_state *g, int bank, mm_bool
     g->pad_moder = moder;
     g->pad_otyper = otyper;
     g->pad_pupdr = pupdr;
+    g->pad_afr[0] = afrl;
+    g->pad_afr[1] = afrh;
 }
 
 /* Output pins drive ODR onto the pad, except open-drain pins with ODR set. */

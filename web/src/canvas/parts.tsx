@@ -101,6 +101,29 @@ export function PartGlyph({ part, brightness, pressed }: { part: Part; brightnes
         <Leads part={part} />
       </g>
     );
+  case 'i2c-eeprom': case 'i2c-temp': case 'spi-flash': case 'usb-uart': case 'sniffer': {
+    const terms = CATALOG[part.kind].terminals(part.params);
+    const w = (terms.length - 1) * P + P;
+    const style = { 'i2c-eeprom': ['#1c5d99', 'EEPROM 24C02'], 'i2c-temp': ['#2d7d46', 'TMP102'],
+      'spi-flash': ['#6b3fa0', 'W25Q FLASH'], 'usb-uart': ['#b23a48', 'USB-UART'],
+      sniffer: ['#30343b', 'BUS SNIFFER'] }[part.kind];
+    return (
+      <g>
+        {part.kind === 'usb-uart' && <rect x={w / 2 - P * 0.9 - P / 2} y={-P * 3.3} width={P * 1.8} height={P * 0.9} rx={3} fill="#c9ced6" stroke="#666" />}
+        {part.kind === 'sniffer' && terms.slice(0, 4).map((t, i) => (
+          <path key={t.id} d={`M ${t.x} -8 C ${t.x} -${P * 0.9} ${t.x + 6} -${P * 0.9} ${t.x + 3} -${P * 1.4}`}
+            stroke={['#f4d35e', '#ee964b', '#4ea8de', '#90be6d'][i]} strokeWidth={4} fill="none" />
+        ))}
+        <rect x={-P / 2} y={-P * 2.6} width={w} height={P * 2.2} rx={5} fill={style[0]} stroke="#111" strokeWidth={1.5} />
+        <rect x={w / 2 - P * 0.8 - P / 2} y={-P * 2.1} width={P * 1.6} height={P * 0.9} rx={2} fill="#151515" />
+        <text x={w / 2 - P / 2} y={-P * 0.75} className="part-label light">{style[1]}</text>
+        {terms.map((t) => (
+          <text key={`l-${t.id}`} x={t.x} y={P * 0.75} className="pin-label">{t.label}</text>
+        ))}
+        <Leads part={part} />
+      </g>
+    );
+  }
   case 'regulator':
     return (
       <g>

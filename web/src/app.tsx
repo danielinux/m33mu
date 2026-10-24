@@ -5,6 +5,8 @@ import { DiagnosticsPanel } from './DiagnosticsPanel.tsx';
 import { appendDiagnostic, type DiagnosticEntry, type DiagnosticSeverity, type DiagnosticSource } from './diagnostics.ts';
 import { ScopeInstrument, type ScopeSink } from './instruments/ScopeInstrument.tsx';
 import { appendTerminal, Terminal, type UartInfo } from './instruments/Terminal.tsx';
+import { Sniffer } from './instruments/Sniffer.tsx';
+import type { BusRecord } from '../sim/buses.ts';
 import { CATALOG, formatSi, type PartKind, type Rotation } from './project/catalog.ts';
 import { commit, createHistory, redo, replace, undo } from './project/history.ts';
 import {
@@ -27,7 +29,8 @@ type BenchStats = {
 };
 
 const hex = (v: number) => `0x${(v >>> 0).toString(16).padStart(8, '0')}`;
-const PALETTE: PartKind[] = ['breadboard', 'resistor', 'capacitor', 'led', 'diode', 'switch', 'npn', 'nmos', 'opamp', 'regulator', 'supply', 'ground'];
+const PALETTE: PartKind[] = ['breadboard', 'resistor', 'capacitor', 'led', 'diode', 'switch', 'npn', 'nmos', 'opamp', 'regulator', 'supply', 'ground',
+  'i2c-eeprom', 'i2c-temp', 'spi-flash', 'usb-uart', 'sniffer'];
 
 async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
@@ -112,6 +115,8 @@ export function App() {
   // USART3 is the NUCLEO-H563ZI ST-LINK virtual COM port.
   const openUarts = project.instruments.terminals ?? ['USART3'];
   const [uartText, setUartText] = useState<Record<number, string>>({});
+  const [busLog, setBusLog] = useState<BusRecord[]>([]);
+  const [adapterText, setAdapterText] = useState<Record<string, string>>({});
   const [uartLost, setUartLost] = useState<Set<number>>(new Set());
   const [dockTab, setDockTab] = useState<string>('scope1');
   const [dockOpen, setDockOpen] = useState<boolean>(() => {
@@ -143,6 +148,17 @@ export function App() {
 
   const onEvent = useCallback((e: WorkerEvent) => {
     const p = e.payload;
+    if (e.event === 'busLog') {
+      setBusLog((old) => {
+        const next = [...old, ...(p.records as BusRecord[])];
+        return next.length > 5000 ? next.slice(next.length - 5000) : next;
+      });
+      return;
+    }
+    if (e.event === 'adapter') {
+      setAdapterText((old) => ({ ...old, [p.id]: appendTerminal(old[p.id] ?? '', p.bytes as Uint8Array) }));
+      return;
+    }
     if (e.event === 'uart') {
       const bytes = p.bytes as Uint8Array;
       setUartText((old) => ({ ...old, [p.index]: appendTerminal(old[p.index] ?? '', bytes) }));
@@ -360,7 +376,8 @@ export function App() {
     if (compiled.pads.length && !firmware) throw new Error(`The circuit uses ${compiled.pads.join(', ')}: load firmware first`);
     const { probes, columns } = probesFor(project);
     scopeColumns.current = columns;
-    await worker().request('createBench', { netlist: compiled.netlist, probes,
+    setBusLog([]);
+    await worker().request('createBench', { netlist: compiled.netlist, probes, logic: compiled.logic,
       options: { lookaheadNs: project.solver.lookaheadNs, sampleNs: project.solver.sampleNs, initial } });
     resetScopes();
     setBenchActive(true);
@@ -619,6 +636,14 @@ export function App() {
                 onClick={() => toggleUart(u.label)}>×</button>
             </span>
           ))}
+          {project.parts.filter((pt) => pt.kind === 'sniffer' || pt.kind === 'usb-uart').map((pt) => (
+            <span key={pt.id} className={dockTab === pt.id ? 'tab active' : 'tab'}>
+              <button role="tab" aria-selected={dockTab === pt.id} data-testid={`tab-${pt.id}`}
+                onClick={() => { setDockTab(pt.id); showDock(true); }}>
+                {pt.kind === 'sniffer' ? '⌁' : '⇄'} {pt.id}
+              </button>
+            </span>
+          ))}
           <button className="dock-add" onClick={addScope} disabled={project.instruments.scopes.length >= MAX_SCOPES}
             data-testid="add-scope">+ Scope</button>
           <details className="uart-picker">
@@ -652,6 +677,19 @@ export function App() {
                   onMessage={setMessage} onError={fail} />
               </div>
             </div>
+          </div>
+        ))}
+        {dockOpen && project.parts.filter((pt) => pt.id === dockTab && pt.kind === 'sniffer').map((pt) => (
+          <div className="dock-body" key={pt.id}>
+            <Sniffer id={pt.id} records={busLog} onClear={() => setBusLog([])}
+              clips={compiled.logic.devices.find((d) => d.id === pt.id)?.nets ?? {}} />
+          </div>
+        ))}
+        {dockOpen && project.parts.filter((pt) => pt.id === dockTab && pt.kind === 'usb-uart').map((pt) => (
+          <div className="dock-body" key={pt.id}>
+            <Terminal uart={{ index: -1, label: pt.id, base: 0 }} text={adapterText[pt.id] ?? ''} lost={false} crt={crt}
+              onSend={(text) => void worker().request('adapterWrite', { id: pt.id, text }).catch(fail)}
+              onClear={() => setAdapterText((old) => ({ ...old, [pt.id]: '' }))} />
           </div>
         ))}
         {dockOpen && uarts.filter((u) => openUarts.includes(u.label) && dockTab === u.label).map((u) => (

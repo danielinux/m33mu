@@ -103,7 +103,8 @@ export function newId(prefix: string): string {
 /** Next free id like r1, r2 for a part kind. */
 export function nextPartId(project: Project, kind: PartKind): string {
   const prefix = { breadboard: 'bb', resistor: 'r', capacitor: 'c', led: 'led', diode: 'd', switch: 'sw',
-    npn: 'q', nmos: 'm', opamp: 'u', regulator: 'ldo', supply: 'v', ground: 'gnd' }[kind];
+    npn: 'q', nmos: 'm', opamp: 'u', regulator: 'ldo', 'i2c-eeprom': 'eeprom', 'i2c-temp': 'temp', 'spi-flash': 'flash',
+    'usb-uart': 'uart', sniffer: 'sniff', supply: 'v', ground: 'gnd' }[kind];
   const used = new Set(project.parts.map((p) => p.id));
   for (let i = 1; ; i++) if (!used.has(`${prefix}${i}`)) return `${prefix}${i}`;
 }

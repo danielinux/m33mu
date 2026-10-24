@@ -1,0 +1,461 @@
+{
+  "schemaVersion": 2,
+  "projectId": "example-h563-bus",
+  "name": "H563 I\u00b2C/SPI/UART bus demo",
+  "simulator": {
+    "cpu": "stm32h563",
+    "firmwareFormat": "elf",
+    "firmwareSha256": "3c835d408e28200b823bb35f59338f25a18cebb83cd309f84193a5a8ed6174f1",
+    "firmwareName": "h563-bus.elf"
+  },
+  "boards": [
+    {
+      "id": "board1",
+      "cpu": "stm32h563",
+      "layoutRevision": "MB1404 H563ZI-C01",
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "parts": [
+    {
+      "id": "eeprom1",
+      "kind": "i2c-eeprom",
+      "x": 900,
+      "y": 260,
+      "rotation": 0,
+      "params": {
+        "addressPins": "0"
+      }
+    },
+    {
+      "id": "temp1",
+      "kind": "i2c-temp",
+      "x": 900,
+      "y": 420,
+      "rotation": 0,
+      "params": {
+        "addressPins": "0",
+        "celsius": 25
+      }
+    },
+    {
+      "id": "flash1",
+      "kind": "spi-flash",
+      "x": 900,
+      "y": 620,
+      "rotation": 0,
+      "params": {}
+    },
+    {
+      "id": "uart1",
+      "kind": "usb-uart",
+      "x": 900,
+      "y": 820,
+      "rotation": 0,
+      "params": {}
+    },
+    {
+      "id": "sniff1",
+      "kind": "sniffer",
+      "x": 1150,
+      "y": 120,
+      "rotation": 0,
+      "params": {}
+    },
+    {
+      "id": "r1",
+      "kind": "resistor",
+      "x": 760,
+      "y": 100,
+      "rotation": 90,
+      "params": {
+        "ohms": 4700
+      }
+    },
+    {
+      "id": "r2",
+      "kind": "resistor",
+      "x": 800,
+      "y": 100,
+      "rotation": 90,
+      "params": {
+        "ohms": 4700
+      }
+    }
+  ],
+  "wires": [
+    {
+      "id": "w1",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN8-7"
+      },
+      "to": {
+        "kind": "part",
+        "part": "eeprom1",
+        "terminal": "VCC"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w2",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN8-11"
+      },
+      "to": {
+        "kind": "part",
+        "part": "eeprom1",
+        "terminal": "GND"
+      },
+      "color": "#222222"
+    },
+    {
+      "id": "w3",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN8-7"
+      },
+      "to": {
+        "kind": "part",
+        "part": "temp1",
+        "terminal": "VCC"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w4",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN8-11"
+      },
+      "to": {
+        "kind": "part",
+        "part": "temp1",
+        "terminal": "GND"
+      },
+      "color": "#222222"
+    },
+    {
+      "id": "w5",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN8-7"
+      },
+      "to": {
+        "kind": "part",
+        "part": "flash1",
+        "terminal": "VCC"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w6",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN8-11"
+      },
+      "to": {
+        "kind": "part",
+        "part": "flash1",
+        "terminal": "GND"
+      },
+      "color": "#222222"
+    },
+    {
+      "id": "w7",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-2"
+      },
+      "to": {
+        "kind": "part",
+        "part": "eeprom1",
+        "terminal": "SCL"
+      },
+      "color": "#f4d35e"
+    },
+    {
+      "id": "w8",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-4"
+      },
+      "to": {
+        "kind": "part",
+        "part": "eeprom1",
+        "terminal": "SDA"
+      },
+      "color": "#2fb34a"
+    },
+    {
+      "id": "w9",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-2"
+      },
+      "to": {
+        "kind": "part",
+        "part": "temp1",
+        "terminal": "SCL"
+      },
+      "color": "#f4d35e"
+    },
+    {
+      "id": "w10",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-4"
+      },
+      "to": {
+        "kind": "part",
+        "part": "temp1",
+        "terminal": "SDA"
+      },
+      "color": "#2fb34a"
+    },
+    {
+      "id": "w11",
+      "from": {
+        "kind": "part",
+        "part": "r1",
+        "terminal": "a"
+      },
+      "to": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN8-7"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w12",
+      "from": {
+        "kind": "part",
+        "part": "r1",
+        "terminal": "b"
+      },
+      "to": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-2"
+      },
+      "color": "#f4d35e"
+    },
+    {
+      "id": "w13",
+      "from": {
+        "kind": "part",
+        "part": "r2",
+        "terminal": "a"
+      },
+      "to": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN8-7"
+      },
+      "color": "#d7263d"
+    },
+    {
+      "id": "w14",
+      "from": {
+        "kind": "part",
+        "part": "r2",
+        "terminal": "b"
+      },
+      "to": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-4"
+      },
+      "color": "#2fb34a"
+    },
+    {
+      "id": "w15",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-16"
+      },
+      "to": {
+        "kind": "part",
+        "part": "flash1",
+        "terminal": "CS"
+      },
+      "color": "#e6e6e6"
+    },
+    {
+      "id": "w16",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-10"
+      },
+      "to": {
+        "kind": "part",
+        "part": "flash1",
+        "terminal": "SCK"
+      },
+      "color": "#f49d37"
+    },
+    {
+      "id": "w17",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-14"
+      },
+      "to": {
+        "kind": "part",
+        "part": "flash1",
+        "terminal": "MOSI"
+      },
+      "color": "#2e86de"
+    },
+    {
+      "id": "w18",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-12"
+      },
+      "to": {
+        "kind": "part",
+        "part": "flash1",
+        "terminal": "MISO"
+      },
+      "color": "#6c4ab6"
+    },
+    {
+      "id": "w19",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN9-12"
+      },
+      "to": {
+        "kind": "part",
+        "part": "uart1",
+        "terminal": "GND"
+      },
+      "color": "#222222"
+    },
+    {
+      "id": "w20",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN9-6"
+      },
+      "to": {
+        "kind": "part",
+        "part": "uart1",
+        "terminal": "RX"
+      },
+      "color": "#2fb34a"
+    },
+    {
+      "id": "w21",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN9-4"
+      },
+      "to": {
+        "kind": "part",
+        "part": "uart1",
+        "terminal": "TX"
+      },
+      "color": "#2e86de"
+    },
+    {
+      "id": "w22",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-2"
+      },
+      "to": {
+        "kind": "part",
+        "part": "sniff1",
+        "terminal": "CH1"
+      },
+      "color": "#f4d35e"
+    },
+    {
+      "id": "w23",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-4"
+      },
+      "to": {
+        "kind": "part",
+        "part": "sniff1",
+        "terminal": "CH2"
+      },
+      "color": "#2fb34a"
+    },
+    {
+      "id": "w24",
+      "from": {
+        "kind": "board",
+        "board": "board1",
+        "contact": "CN7-8"
+      },
+      "to": {
+        "kind": "part",
+        "part": "sniff1",
+        "terminal": "GND"
+      },
+      "color": "#222222"
+    }
+  ],
+  "instruments": {
+    "scopes": [
+      {
+        "id": "scope1",
+        "name": "Scope 1",
+        "channels": [
+          {
+            "kind": "voltage",
+            "at": {
+              "kind": "board",
+              "board": "board1",
+              "contact": "CN7-2"
+            }
+          },
+          {
+            "kind": "voltage",
+            "at": {
+              "kind": "board",
+              "board": "board1",
+              "contact": "CN7-4"
+            }
+          }
+        ],
+        "windowNs": 1000000
+      }
+    ]
+  },
+  "solver": {
+    "lookaheadNs": 50000,
+    "sampleNs": 1000
+  },
+  "ui": {
+    "zoom": 0.5,
+    "panX": 40,
+    "panY": 20
+  }
+}

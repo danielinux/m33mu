@@ -50,7 +50,8 @@
             "destroyBench",
             "diagnostics",
             "uartList",
-            "uartWrite"
+            "uartWrite",
+            "adapterWrite"
           ]
         },
         "payload": {
@@ -441,7 +442,9 @@
             "fault",
             "traceChunk",
             "capabilities",
-            "bench"
+            "bench",
+            "busLog",
+            "adapter"
           ]
         },
         "payload": {

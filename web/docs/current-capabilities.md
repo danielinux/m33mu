@@ -20,7 +20,7 @@ Reviewed on 2026-10-24 at local `master` (see `git log`; tracker: `p0-progress.m
 ## Not supported (shown as such in the UI)
 
 - ADC, DAC, PWM/timer outputs and every other alternate function on a pad: an AF-mode pad is high impedance and the bench raises an `unsupported` notice.
-- SPI and I²C have no pin-level signals: the emulator models them as transactions to emulated devices (SPI flash, TPM, secure elements), so their pads stay high impedance in the circuit. UART bytes are available as terminals (below) but not as electrical TX/RX waveforms.
+- I²C, SPI and UART are logic level (transactions, not bit edges): wiring and solved line levels decide routing and faults (see `buses.md`). Bus pads stay high impedance in the analog circuit; device outputs are not analog drivers.
 - Board contacts other than CN7-10 and CN9-1; the other 14 boards (display assets exist, no reviewed mapping, no browser firmware profile).
 - More than one MCU per bench; more than one emulator session per worker (process-global target state).
 - Op-amp frequency response, slew rate, common-mode range and input offset; regulator line/load transients, thermal and current limits, transformers, junction/gate capacitance, temperature. The available op-amp is a rail-limited macro model, not a device-specific IC.

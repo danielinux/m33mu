@@ -35,7 +35,7 @@ export function createMcuPort(api, session, onError) {
         out.push({
           socPad: api.gpioOutputPad(), level: api.gpioOutputLevel(),
           mode: config & 0xff, openDrain: ((config >> 8) & 0xff) !== 0,
-          pull: (config >> 16) & 0xff,
+          pull: (config >> 16) & 0xff, af: (config >>> 24) & 0xff,
           timeNs: Number((BigInt(api.gpioOutputTimeHigh() >>> 0) << 32n) |
             BigInt(api.gpioOutputTimeLow() >>> 0))
         });
@@ -47,7 +47,8 @@ export function createMcuPort(api, session, onError) {
       if (packed < 0) onError(api.lastError());
       return {
         level: packed & 0xff, mode: (packed >> 8) & 0xff,
-        openDrain: ((packed >> 16) & 0xff) !== 0, pull: (packed >>> 24) & 0xff
+        openDrain: ((packed >> 16) & 0xff) !== 0, pull: (packed >>> 24) & 0x3,
+        af: (packed >>> 26) & 0xf
       };
     },
     scheduleInput(socPad, level, timeNs) {

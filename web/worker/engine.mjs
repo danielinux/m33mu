@@ -114,7 +114,8 @@ export function attachM33muWorker(scope, createModule) {
         uartBase: wrap('mm_web_abi_uart_base', 'number', ['number', 'number']),
         uartRead: wrap('mm_web_abi_uart_read', 'number', ['number', 'number', 'number', 'number']),
         uartOverflow: wrap('mm_web_abi_uart_overflow', 'number', []),
-        uartWrite: wrap('mm_web_abi_uart_write', 'number', ['number', 'number', 'number', 'number'])
+        uartWrite: wrap('mm_web_abi_uart_write', 'number', ['number', 'number', 'number', 'number']),
+        enableBusHost: wrap('mm_web_abi_enable_bus_host', 'number', ['number', 'number'])
       };
     }
     return wasm;
@@ -199,6 +200,9 @@ export function attachM33muWorker(scope, createModule) {
         const overflow = api.uartOverflow() !== 0;
         if (got === 0 && !overflow) break;
         const bytes = wasm.HEAPU8.slice(uartScratch, uartScratch + got);
+        if (bench?.bus && got > 0) {
+          for (const d of bench.bus.uartTx(api.uartLabel(session, i), bytes)) deliverUart(d.label, d.data);
+        }
         scope.postMessage({ schemaVersion: 1, kind: 'event', sequence: ++sequence, event: 'uart',
           payload: { requestId, index: i, bytes, overflow } }, [bytes.buffer]);
         if (got < UART_CHUNK) break;
@@ -206,8 +210,59 @@ export function attachM33muWorker(scope, createModule) {
     }
   }
 
+  /** Queue bytes into the RX of the MCU UART with this label. */
+  function deliverUart(label, data) {
+    const wasm = moduleInstance;
+    const n = api.uartCount(session);
+    for (let i = 0; i < n; i++) {
+      if (api.uartLabel(session, i) !== label) continue;
+      const ptr = wasm._malloc(Math.max(data.length, 1));
+      try {
+        wasm.HEAPU8.set(data, ptr);
+        api.uartWrite(session, i, ptr, data.length);
+      } finally {
+        wasm._free(ptr);
+      }
+    }
+  }
+
+  /** Post bus transactions and USB-UART adapter output. */
+  function drainBus(requestId) {
+    const bus = bench?.bus;
+    if (!bus) return;
+    const log = bus.takeLog();
+    if (log.length) postEvent('busLog', { requestId, records: log });
+    for (const [id, rx] of bus.adapterRx) {
+      if (rx.length === 0) continue;
+      const bytes = Uint8Array.from(rx.splice(0, rx.length));
+      scope.postMessage({ schemaVersion: 1, kind: 'event', sequence: ++sequence, event: 'adapter',
+        payload: { requestId, id, bytes } }, [bytes.buffer]);
+    }
+  }
+
+  function installBusHost(enable) {
+    const wasm = moduleInstance;
+    if (!wasm || !session) return;
+    if (!enable) {
+      wasm.m33muBus = null;
+      api.enableBusHost(session, 0);
+      return;
+    }
+    wasm.m33muBus = {
+      i2c: (bus, addr, read, ptr, len) => {
+        const view = wasm.HEAPU8.subarray(ptr, ptr + len);
+        return bench?.bus ? bench.bus.i2c(bus, addr, read, view) : -1;
+      },
+      i2cBusy: (bus) => !!bench?.bus && bench.bus.i2cBusy(bus),
+      spi: (bus, out) => (bench?.bus ? bench.bus.spi(bus, out) : -1),
+      spiEnd: (bus) => bench?.bus?.spiEnd(bus)
+    };
+    api.enableBusHost(session, 1);
+  }
+
   function emitState(requestId, stopped = false, extra = {}) {
     drainUarts(requestId);
+    drainBus(requestId);
     postEvent('state', { requestId, ...snapshot(), stopped, ...extra });
   }
 
@@ -500,6 +555,12 @@ export function attachM33muWorker(scope, createModule) {
         const circuit = new Circuit(payload.netlist, solver);
         bench = new Bench(circuit, port, probes, options);
         if (benchFault) { const f = benchFault; bench = null; throw f; }
+        if (port && payload.logic) {
+          bench.attachBuses(payload.logic);
+          installBusHost(true);
+        } else if (port) {
+          installBusHost(false);
+        }
         postResponse(requestId, {
           created: true, nets: circuit.netNames, pads, probes: probes.map((p) => p.id),
           timeNs: Math.round(bench.timeNs).toString()
@@ -574,8 +635,20 @@ export function attachM33muWorker(scope, createModule) {
         });
         return;
       }
+      case 'adapterWrite': {
+        if (!bench?.bus) throw Object.assign(new Error('No bench with buses'), { code: 'NO_BENCH' });
+        const text = typeof payload.text === 'string' ? payload.text : '';
+        if (typeof payload.id !== 'string' || text.length > 4096) throw invalid('adapterWrite requires id and text');
+        const data = new TextEncoder().encode(text);
+        const deliveries = bench.bus.adapterTx(payload.id, data);
+        for (const d of deliveries) deliverUart(d.label, d.data);
+        drainBus(requestId);
+        postResponse(requestId, { delivered: deliveries.map((d) => d.label) });
+        return;
+      }
       case 'destroyBench':
         ++runGeneration;
+        if (bench?.bus) installBusHost(false);
         bench = null;
         postResponse(requestId, { destroyed: true });
         return;

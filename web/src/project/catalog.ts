@@ -3,12 +3,14 @@
 
 import type { DeviceSpec } from '../../sim/netlist.ts';
 import { MODELS } from '../../sim/netlist.ts';
+import type { LogicDeviceKind } from '../../sim/buses.ts';
 
 export const PITCH = 25.4;
 
 export type PartKind =
   | 'breadboard' | 'resistor' | 'capacitor' | 'led' | 'diode' | 'switch'
-  | 'npn' | 'nmos' | 'opamp' | 'regulator' | 'supply' | 'ground';
+  | 'npn' | 'nmos' | 'opamp' | 'regulator' | 'supply' | 'ground'
+  | 'i2c-eeprom' | 'i2c-temp' | 'spi-flash' | 'usb-uart' | 'sniffer';
 
 export type ParamSpec = {
   key: string;
@@ -30,7 +32,21 @@ export type PartDef = {
   terminals(params: Record<string, number | string>): Terminal[];
   /** Solver devices; `net(terminalId)` gives the net name of a terminal. */
   devices(id: string, params: Record<string, number | string>, net: (t: string) => string): DeviceSpec[];
+  /** Logic-level bus device behaviour (see sim/buses.ts). */
+  logic?: LogicDeviceKind;
 };
+
+/** A breakout module: one row of header pins, named in the order given. */
+function header(names: string[]): Terminal[] {
+  return names.map((n, i) => ({ id: n, x: i * PITCH, y: 0, label: n }));
+}
+
+/** Supply draw of a powered module (about 33 uA at 3.3 V). */
+function moduleLoad(id: string, net: (t: string) => string): DeviceSpec[] {
+  return [{ kind: 'resistor', id: `${id}.iq`, a: net('VCC'), b: net('GND'), ohms: 100e3 }];
+}
+
+const ADDRESS_CHOICES = [0, 1, 2, 3, 4, 5, 6, 7].map((v) => ({ value: String(v), label: `A2..A0 = ${v}` }));
 
 // Breadboard: 30 columns, rows a-e and f-j, plus two rail pairs.
 export const BB_COLUMNS = 30;
@@ -155,6 +171,42 @@ export const CATALOG: Record<PartKind, PartDef> = {
     ],
     devices: (id, p, net) => [{ kind: 'regulator', id, in: net('in'), out: net('out'), gnd: net('gnd'),
       model: { vset: Number(p.vset), dropout: Number(p.dropout), rOut: Number(p.rOut), iq: Number(p.iq) } }]
+  },
+  'i2c-eeprom': {
+    kind: 'i2c-eeprom', title: 'I²C EEPROM 24C02 (0x50)', logic: 'i2c-eeprom',
+    params: [{ key: 'addressPins', label: 'Address pins', unit: '', min: 0, max: 0, choices: ADDRESS_CHOICES }],
+    defaults: { addressPins: '0' },
+    terminals: () => header(['VCC', 'GND', 'SCL', 'SDA']),
+    devices: (id, _p, net) => moduleLoad(id, net)
+  },
+  'i2c-temp': {
+    kind: 'i2c-temp', title: 'I²C temperature sensor TMP102 (0x48)', logic: 'i2c-temp',
+    params: [
+      { key: 'addressPins', label: 'ADD0', unit: '', min: 0, max: 0, choices: ADDRESS_CHOICES.slice(0, 4) },
+      { key: 'celsius', label: 'Temperature', unit: '°C', min: -40, max: 125 }
+    ],
+    defaults: { addressPins: '0', celsius: 25 },
+    terminals: () => header(['VCC', 'GND', 'SCL', 'SDA']),
+    devices: (id, _p, net) => moduleLoad(id, net)
+  },
+  'spi-flash': {
+    kind: 'spi-flash', title: 'SPI NOR flash W25Q (JEDEC EF 40 18)', logic: 'spi-flash', params: [], defaults: {},
+    terminals: () => header(['VCC', 'GND', 'CS', 'SCK', 'MOSI', 'MISO']),
+    devices: (id, _p, net) => moduleLoad(id, net)
+  },
+  'usb-uart': {
+    kind: 'usb-uart', title: 'USB-UART adapter (opens a terminal)', logic: 'usb-uart', params: [], defaults: {},
+    terminals: () => header(['GND', 'TX', 'RX']),
+    // The adapter's TX idles high (3.3 V through 1 kOhm) like a real UART driver.
+    devices: (id, _p, net) => [
+      { kind: 'vsource', id: `${id}.vtx`, p: `${id}.txdrv`, n: net('GND'), volts: 3.3 },
+      { kind: 'resistor', id: `${id}.rtx`, a: `${id}.txdrv`, b: net('TX'), ohms: 1000 }
+    ]
+  },
+  sniffer: {
+    kind: 'sniffer', title: 'Bus sniffer (4 clips, decodes I²C/SPI/UART)', logic: 'sniffer', params: [], defaults: {},
+    terminals: () => header(['CH1', 'CH2', 'CH3', 'CH4', 'GND']),
+    devices: () => []
   },
   supply: {
     kind: 'supply', title: 'DC supply',

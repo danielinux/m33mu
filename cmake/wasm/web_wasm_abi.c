@@ -3,6 +3,60 @@
  */
 
 #include "m33mu/web.h"
+#include <emscripten.h>
+
+/* Bus callbacks into the worker: Module.m33muBus = { i2c, i2cBusy, spi,
+ * spiEnd } is installed by the worker's bench layer. */
+EM_JS(int, web_js_i2c_xfer, (int bus, int addr, int read, mm_u8 *data, int len), {
+  const host = Module.m33muBus;
+  return host && host.i2c ? host.i2c(bus, addr, read !== 0, data, len) : -1;
+});
+EM_JS(int, web_js_i2c_busy, (int bus), {
+  const host = Module.m33muBus;
+  return host && host.i2cBusy && host.i2cBusy(bus) ? 1 : 0;
+});
+EM_JS(int, web_js_spi_xfer, (int bus, int out), {
+  const host = Module.m33muBus;
+  return host && host.spi ? host.spi(bus, out) : -1;
+});
+EM_JS(void, web_js_spi_end, (int bus), {
+  const host = Module.m33muBus;
+  if (host && host.spiEnd) host.spiEnd(bus);
+});
+
+static int abi_i2c_xfer(void *opaque, int bus, mm_u8 addr, mm_bool read,
+                        mm_u8 *data, size_t len)
+{
+    (void)opaque;
+    return web_js_i2c_xfer(bus, addr, read ? 1 : 0, data, (int)len);
+}
+
+static mm_bool abi_i2c_busy(void *opaque, int bus)
+{
+    (void)opaque;
+    return web_js_i2c_busy(bus) != 0 ? MM_TRUE : MM_FALSE;
+}
+
+static int abi_spi_xfer(void *opaque, int bus, mm_u8 out)
+{
+    (void)opaque;
+    return web_js_spi_xfer(bus, out);
+}
+
+static void abi_spi_end(void *opaque, int bus)
+{
+    (void)opaque;
+    web_js_spi_end(bus);
+}
+
+int mm_web_abi_enable_bus_host(void *session, int enable)
+{
+    static const struct mm_web_bus_host host = {
+        abi_i2c_xfer, abi_i2c_busy, abi_spi_xfer, abi_spi_end, 0
+    };
+    return (int)mm_web_set_bus_host((struct mm_web_session *)session,
+                                    enable ? &host : 0);
+}
 
 static enum mm_web_error g_last_error = MM_WEB_OK;
 static struct mm_web_step_result g_last_step;
@@ -77,8 +131,8 @@ int mm_web_abi_cancel_gpio_inputs(void *session,
     return g_last_error == MM_WEB_OK ? (int)removed : -1;
 }
 
-/* Packed pad state: level | mode << 8 | open_drain << 16 | pull << 24,
- * or -1 on error. */
+/* Packed pad state: level | mode << 8 | open_drain << 16 | pull << 24 |
+ * af << 26, or -1 on error. */
 int mm_web_abi_pad_state(void *session, const char *pad)
 {
     struct mm_web_pad_state state;
@@ -87,7 +141,7 @@ int mm_web_abi_pad_state(void *session, const char *pad)
     if (g_last_error != MM_WEB_OK) return -1;
     return (int)((mm_u32)state.level | ((mm_u32)state.mode << 8) |
                  ((mm_u32)state.open_drain << 16) |
-                 ((mm_u32)state.pull << 24));
+                 ((mm_u32)state.pull << 24) | ((mm_u32)state.af << 26));
 }
 
 unsigned int mm_web_abi_has_pending_deadline(void *session)
@@ -138,7 +192,8 @@ unsigned int mm_web_abi_gpio_output_config(void)
 {
     return (unsigned int)g_last_gpio_output.mode |
            ((unsigned int)g_last_gpio_output.open_drain << 8) |
-           ((unsigned int)g_last_gpio_output.pull << 16);
+           ((unsigned int)g_last_gpio_output.pull << 16) |
+           ((unsigned int)g_last_gpio_output.af << 24);
 }
 
 unsigned int mm_web_abi_gpio_output_time_low(void)

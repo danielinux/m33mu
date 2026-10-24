@@ -91,6 +91,7 @@ struct mm_gpio_pad_config {
     mm_u8 mode;
     mm_u8 open_drain;
     mm_u8 pull;
+    mm_u8 af;           /* alternate-function number, meaningful in AF mode */
 };
 typedef void (*mm_gpio_pad_config_listener_fn)(void *opaque, int bank, int pin,
                                                const struct mm_gpio_pad_config *config);

@@ -24,6 +24,27 @@ struct mm_i2c_device {
     void *opaque;
 };
 
+enum mm_i2c_status {
+    MM_I2C_OK = 0,
+    MM_I2C_NACK,
+    MM_I2C_BUSY,        /* a line is held low: the controller cannot start */
+    MM_I2C_ARLO         /* another driver won arbitration */
+};
+
+/* Optional host model of the wires. It sees every transfer first: return
+ * MM_TRUE with *status set to handle it, or MM_FALSE to fall through to the
+ * registered devices. lines_busy reports SCL/SDA held low between transfers. */
+struct mm_i2c_host {
+    mm_bool (*xfer)(void *opaque, int bus, mm_u8 addr, mm_bool read,
+                    mm_u8 *data, size_t len, enum mm_i2c_status *status);
+    mm_bool (*lines_busy)(void *opaque, int bus);
+    void *opaque;
+};
+
+void mm_i2c_bus_set_host(const struct mm_i2c_host *host);
+enum mm_i2c_status mm_i2c_bus_transfer(int bus, mm_u8 addr, mm_bool read,
+                                       mm_u8 *data, size_t len);
+mm_bool mm_i2c_bus_lines_busy(int bus);
 mm_bool mm_i2c_bus_register_device(const struct mm_i2c_device *dev);
 mm_bool mm_i2c_bus_write(int bus, mm_u8 addr, const mm_u8 *data, size_t len);
 mm_bool mm_i2c_bus_read(int bus, mm_u8 addr, mm_u8 *data, size_t len);

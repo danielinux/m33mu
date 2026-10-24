@@ -127,7 +127,12 @@
        "opamp",
        "regulator",
        "supply",
-       "ground"
+       "ground",
+       "i2c-eeprom",
+       "i2c-temp",
+       "spi-flash",
+       "usb-uart",
+       "sniffer"
       ]
      },
      "x": {

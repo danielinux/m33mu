@@ -15,6 +15,7 @@
 // the virtual nanosecond the MCU reported for it.
 
 import { Circuit, type Crossing, type Snapshot } from './circuit.ts';
+import { BusLayer, H563_AF, type LineView, type LogicNetlist } from './buses.ts';
 import type { PadDrive, PadPull } from './netlist.ts';
 
 export type McuPadEvent = {
@@ -23,6 +24,7 @@ export type McuPadEvent = {
   mode: number;
   openDrain: boolean;
   pull: number;
+  af?: number;
   timeNs: number;
 };
 
@@ -115,6 +117,9 @@ export class Bench {
   private sync: Snapshot;
   private syncNs = 0;
   private stopped = false;
+  /** GPIO mode and alternate function of every pad the MCU reported. */
+  readonly padConfigs = new Map<string, { mode: number; af: number }>();
+  bus: BusLayer | null = null;
 
   constructor(circuit: Circuit, mcu: McuPort | null, probes: Probe[] = [],
     options: Partial<BenchOptions> = {}) {
@@ -141,6 +146,12 @@ export class Bench {
     }
     circuit.t = t0 * 1e-9;
     if (this.opts.initial === 'zero') circuit.zeroState(); else circuit.operatingPoint();
+    if (mcu) {
+      for (const socPad of Object.keys(H563_AF)) {
+        const st = mcu.padState(socPad);
+        this.padConfigs.set(socPad, { mode: st.mode, af: st.af ?? 0 });
+      }
+    }
     circuit.onCommit = (c) => this.record(c);
     this.nextSampleNs = t0;
     this.record(circuit);
@@ -296,10 +307,12 @@ export class Bench {
       tm = mcu.nowNs();
       const events = mcu.popPadEvents();
       for (const e of events) {
+        this.padConfigs.set(e.socPad, { mode: e.mode, af: e.af ?? 0 });
         this.events.push({ kind: 'gpio', socPad: e.socPad, level: e.level, mode: e.mode, pull: e.pull, timeNs: e.timeNs });
       }
       const relevant = events.filter((e) => c.hasPad(e.socPad));
       if (relevant.length > 0) this.applyPadEvents(relevant, tm);
+      if (events.length > 0) this.bus?.onPadChange();
       if (r.stopped) {
         this.stopped = true;
         report.mcuStopped = true;
@@ -314,6 +327,22 @@ export class Bench {
     report.solverSteps = c.stepCount - steps0;
     report.rollbacks = this.rollbacks;
     return report;
+  }
+
+  /** Attach the logic-level bus layer for this circuit. */
+  attachBuses(logic: LogicNetlist): BusLayer {
+    const c = this.circuit;
+    const lines: LineView = {
+      level: (net) => {
+        if (!c.netIndex.has(net) && !c.groundNets.has(net)) return null;
+        return c.nodeVoltage(net) >= 1.65 ? 1 : 0;
+      },
+      volts: (net) => c.nodeVoltage(net),
+      padConfig: (pad) => this.padConfigs.get(pad) ?? null,
+      nowNs: () => this.timeNs
+    };
+    this.bus = new BusLayer(logic, lines);
+    return this.bus;
   }
 
   /** Operate a switch at the current bench time. Speculative circuit state
@@ -360,7 +389,11 @@ export class Bench {
     for (const e of events) {
       if (c.t * 1e9 < e.timeNs) this.deliver(c.advanceTo(e.timeNs * 1e-9), tm);
       const { drive, pull } = padDriveFromMcu(e.level, e.pull);
-      if (e.mode === 2) {
+      // AF pins carrying a bus signal are handled by the logic-level bus layer.
+      // AF0 on a bus-capable pad is the transient between the MODER and AFR
+      // writes of ordinary pin setup.
+      const busPad = this.bus && H563_AF[e.socPad];
+      if (e.mode === 2 && !(busPad && (busPad[e.af ?? 0] || !e.af))) {
         this.events.push({ kind: 'unsupported', socPad: e.socPad, timeNs: e.timeNs, message: AF_MESSAGE });
       }
       if (c.setPad(e.socPad, drive, pull)) {

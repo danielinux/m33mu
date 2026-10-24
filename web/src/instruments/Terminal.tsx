@@ -39,7 +39,7 @@ export function Terminal({ uart, text, lost, crt, onSend, onClear }: Props) {
     <section className={crt ? 'terminal crt' : 'terminal'} aria-label={`${uart.label} terminal`} data-testid={`terminal-${uart.label}`}>
       <header>
         <strong>{uart.label}</strong>
-        <span className="muted">0x{uart.base.toString(16).padStart(8, '0')}</span>
+        <span className="muted">{uart.base ? `0x${uart.base.toString(16).padStart(8, '0')}` : 'USB-UART adapter'}</span>
         {lost && <span className="warning">output overflowed: some bytes were lost</span>}
         <span className="spacer" />
         <button type="button" onClick={onClear}>Clear</button>

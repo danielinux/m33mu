@@ -2,6 +2,7 @@
 // compiled to a solver netlist.
 
 import type { DeviceSpec, Netlist } from '../../sim/netlist.ts';
+import type { LogicNetlist } from '../../sim/buses.ts';
 import { defaultPad } from '../../sim/netlist.ts';
 import { breadboardStrip, CATALOG, rotate, type Terminal } from './catalog.ts';
 import { type Project, type TerminalRef, refKey } from './model.ts';
@@ -47,6 +48,8 @@ export type CompiledCircuit = {
   nets: Map<string, string[]>;
   /** SoC pads that are wired into the circuit. */
   pads: string[];
+  /** Logic-level bus devices and the wired MCU pads, for sim/buses.ts. */
+  logic: LogicNetlist;
   diagnostics: Diagnostic[];
 };
 
@@ -213,7 +216,8 @@ export function compileCircuit(project: Project, layouts: Map<string, BoardLayou
     if (part.kind === 'ground') hasGround = true;
     if (part.kind === 'supply') hasSource = true;
     for (const t of partTerminals(project, part.id)) {
-      if (!touched.has(t.key)) {
+      // Spare sniffer clips are normal.
+      if (!touched.has(t.key) && part.kind !== 'sniffer') {
         diagnostics.push({ severity: 'warning', refs: [t.key], message: `${t.label} is not connected` });
       }
     }
@@ -255,5 +259,17 @@ export function compileCircuit(project: Project, layouts: Map<string, BoardLayou
     diagnostics.push({ severity: 'error', message: 'Add a ground reference: supplies and MCU pads are referenced to ground' });
   }
   // Ground symbols are nets named after their terminal; unify the name.
-  return { netlist: { schemaVersion: 1, devices }, terminalNet, nets, pads: pads.sort(), diagnostics };
+  const logic: LogicNetlist = { devices: [], pins: {} };
+  for (const pad of pads) logic.pins[pad] = pad;
+  for (const part of project.parts) {
+    const def = CATALOG[part.kind];
+    if (!def.logic) continue;
+    const nets: Record<string, string> = {};
+    for (const t of def.terminals(part.params)) {
+      const key = refKey({ kind: 'part', part: part.id, terminal: t.id });
+      if (touched.has(key)) nets[t.id] = terminalNet.get(key)!;
+    }
+    logic.devices.push({ id: part.id, kind: def.logic, nets, params: part.params });
+  }
+  return { netlist: { schemaVersion: 1, devices }, terminalNet, nets, pads: pads.sort(), logic, diagnostics };
 }

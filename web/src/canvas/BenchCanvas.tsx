@@ -217,21 +217,54 @@ export function BenchCanvas(props: Props) {
             </g>
           );
         })}
-        {project.wires.map((w) => {
-          const a = pos(refKey(w.from));
-          const b = pos(refKey(w.to));
-          if (!a || !b) return null;
-          const sel = selection?.kind === 'wire' && selection.id === w.id;
-          const d = `M ${a.x} ${a.y} L ${b.x} ${a.y} L ${b.x} ${b.y}`;
+        {(() => {
+          // Wires between the same two owners (module, part, or board
+          // connector) travel together as a ribbon held by a zip tie.
+          const owner = (r: TerminalRef) => r.kind === 'part' ? `p:${r.part}` : `b:${r.board}:${r.contact.split('-')[0]}`;
+          const groups = new Map<string, string[]>();
+          for (const w of project.wires) {
+            const k = [owner(w.from), owner(w.to)].sort().join('|');
+            groups.set(k, [...(groups.get(k) ?? []), w.id]);
+          }
+          const ties: { x: number; y: number; angle: number; key: string }[] = [];
+          const drawn = project.wires.map((w) => {
+            const a = pos(refKey(w.from));
+            const b = pos(refKey(w.to));
+            if (!a || !b) return null;
+            const sel = selection?.kind === 'wire' && selection.id === w.id;
+            const k = [owner(w.from), owner(w.to)].sort().join('|');
+            const group = groups.get(k)!;
+            // A jumper sags under its own weight: control points below the ends.
+            const len = Math.hypot(b.x - a.x, b.y - a.y);
+            const sag = Math.min(120, 20 + len * 0.25);
+            const d = `M ${a.x} ${a.y} C ${a.x} ${a.y + sag} ${b.x} ${b.y + sag} ${b.x} ${b.y}`;
+            if (group.length > 1 && group[0] === w.id) {
+              const mx = 0.125 * a.x + 0.375 * a.x + 0.375 * b.x + 0.125 * b.x;
+              const my = 0.125 * a.y + 0.375 * (a.y + sag) + 0.375 * (b.y + sag) + 0.125 * b.y;
+              ties.push({ x: mx, y: my, angle: Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI, key: k });
+            }
+            return (
+              <g key={w.id} data-wire={w.id} onPointerDown={(e) => wireDown(e, w.id)}>
+                <path d={d} className="wire-hit" />
+                <path d={d} className="wire-shadow" />
+                <path d={d} className={sel ? 'wire selected' : 'wire'} stroke={w.color} />
+                <path d={d} className="wire-shine" />
+                <rect x={a.x - 6} y={a.y - 2} width={12} height={22} rx={2} className="dupont" />
+                <rect x={b.x - 6} y={b.y - 2} width={12} height={22} rx={2} className="dupont" />
+              </g>
+            );
+          });
           return (
-            <g key={w.id} data-wire={w.id} onPointerDown={(e) => wireDown(e, w.id)}>
-              <path d={d} className="wire-hit" />
-              <path d={d} className={sel ? 'wire selected' : 'wire'} stroke={w.color} />
-              <circle cx={a.x} cy={a.y} r={4} fill={w.color} />
-              <circle cx={b.x} cy={b.y} r={4} fill={w.color} />
-            </g>
+            <>
+              {drawn}
+              {ties.map((t) => (
+                <g key={`tie-${t.key}`} transform={`translate(${t.x} ${t.y}) rotate(${t.angle})`} className="zip-tie">
+                  <rect x={-4} y={-30} width={8} height={60} rx={3} />
+                </g>
+              ))}
+            </>
           );
-        })}
+        })()}
         {tool.kind === 'wire' && terminals.filter((t) => t.ref.kind === 'part').map((t) => (
           <circle key={`lead-${t.key}`} cx={t.x} cy={t.y} r={5} className="lead-target" />
         ))}

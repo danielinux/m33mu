@@ -59,6 +59,10 @@ kbd { font: 10px ui-monospace, monospace; color: var(--muted); margin-left: 6px;
 .lead { fill: #c9ced6; stroke: #555; stroke-width: 1; }
 .lead-target { fill: transparent; stroke: var(--accent); stroke-width: 1.5; pointer-events: none; }
 .wire { fill: none; stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; }
+.wire-shadow { fill: none; stroke: #0007; stroke-width: 7; transform: translate(2px, 4px); pointer-events: none; }
+.wire-shine { fill: none; stroke: #fff5; stroke-width: 1.2; transform: translate(-1px, -1.5px); pointer-events: none; }
+.dupont { fill: #151515; stroke: #444; stroke-width: 1; pointer-events: none; }
+.zip-tie rect { fill: #e6e2d6; stroke: #8d8878; stroke-width: 1.5; pointer-events: none; }
 .wire.selected { stroke-width: 8; filter: drop-shadow(0 0 4px #fff); }
 .wire.pending { stroke: var(--accent); stroke-dasharray: 8 6; pointer-events: none; }
 .wire-hit { fill: none; stroke: transparent; stroke-width: 16; }
@@ -187,3 +191,14 @@ kbd { font: 10px ui-monospace, monospace; color: var(--muted); margin-left: 6px;
 .terminal.crt .cursor { opacity: 1; animation: blink 1s steps(2) infinite; }
 .terminal.crt input, .terminal.crt select, .terminal.crt button { background: #031407; color: #39ff6a; border-color: #1f5a2c; }
 @keyframes blink { 50% { opacity: 0; } }
+.pin-label { font: 9px ui-monospace, monospace; fill: #c6cdd4; text-anchor: middle; pointer-events: none; }
+.sniffer { display: grid; grid-template-rows: 30px 1fr; min-height: 0; border-radius: 12px; padding: 6px 8px;
+  background: linear-gradient(180deg, #3b4048, #24282e); border: 2px solid #15181c; box-shadow: inset 0 2px 0 #565c66, 0 6px 14px #0007; }
+.sniffer header { display: flex; align-items: center; gap: 10px; font-size: 12px; color: #d7dde4; }
+.sniffer header button { background: #1b1f24; border: 1px solid #555c66; border-radius: 4px; padding: 2px 8px; font-size: 12px; color: #d7dde4; }
+.sniff-list { overflow: auto; min-height: 0; background: #0b0f12; border-radius: 6px; padding: 4px 8px; box-shadow: inset 0 2px 6px #000;
+  font: 12px/1.45 ui-monospace, monospace; color: #9fe7ff; }
+.sniff-row { display: grid; grid-template-columns: 90px 70px 1fr; gap: 10px; }
+.sniff-row .t { color: #6c7a86; }
+.sniff-row .bus { color: #f4d35e; }
+.sniff-row.bad .msg { color: #ff8a80; }

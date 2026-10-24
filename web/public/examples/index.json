@@ -37,6 +37,13 @@
       "description": "Analog only: the button drives 10 kΩ into a 2N3904-like base; the transistor saturates and sinks the LED current through 220 Ω."
     },
     {
+      "id": "h563-bus",
+      "name": "H563 I²C/SPI/UART bus demo",
+      "project": "h563-bus.m33mu.json",
+      "firmware": "h563-bus.elf",
+      "description": "Firmware talks to a 24C02 EEPROM and a TMP102 on I2C1, reads a W25Q flash JEDEC ID on SPI1 and sends 'ping' to a USB-UART adapter on USART2; results print on USART3. Remove a pull-up or an SDA wire to see BUSY or NACK."
+    },
+    {
       "id": "opamp-gain",
       "name": "Op-amp non-inverting gain ×2",
       "project": "opamp-gain.m33mu.json",

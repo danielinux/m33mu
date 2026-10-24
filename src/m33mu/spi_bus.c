@@ -66,9 +66,25 @@ static struct mm_spi_device *spi_bus_select(int bus)
     return fallback;
 }
 
+static struct mm_spi_host g_spi_host;
+
+void mm_spi_bus_set_host(const struct mm_spi_host *host)
+{
+    if (host != 0) {
+        g_spi_host = *host;
+    } else {
+        memset(&g_spi_host, 0, sizeof(g_spi_host));
+    }
+}
+
 mm_u8 mm_spi_bus_xfer(int bus, mm_u8 out)
 {
-    struct mm_spi_device *dev = spi_bus_select(bus);
+    struct mm_spi_device *dev;
+    mm_u8 in = 0xFFu;
+    if (g_spi_host.xfer != 0 && g_spi_host.xfer(g_spi_host.opaque, bus, out, &in)) {
+        return in;
+    }
+    dev = spi_bus_select(bus);
     if (dev == 0) {
         return 0xFFu;
     }
@@ -78,6 +94,9 @@ mm_u8 mm_spi_bus_xfer(int bus, mm_u8 out)
 void mm_spi_bus_end(int bus)
 {
     size_t i;
+    if (g_spi_host.end != 0) {
+        g_spi_host.end(g_spi_host.opaque, bus);
+    }
     for (i = 0; i < g_spi_device_count; ++i) {
         struct mm_spi_device *dev = &g_spi_devices[i];
         if (dev->bus != bus) {

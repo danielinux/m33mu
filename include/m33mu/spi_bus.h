@@ -36,6 +36,16 @@ struct mm_spi_device {
     void *opaque;
 };
 
+/* Optional host model of the wires; it sees each byte first. xfer returns
+ * MM_TRUE with *in set to handle the byte, MM_FALSE to fall through to the
+ * registered devices. end marks the end of a transfer (EOT/CS release). */
+struct mm_spi_host {
+    mm_bool (*xfer)(void *opaque, int bus, mm_u8 out, mm_u8 *in);
+    void (*end)(void *opaque, int bus);
+    void *opaque;
+};
+
+void mm_spi_bus_set_host(const struct mm_spi_host *host);
 mm_bool mm_spi_bus_register_device(const struct mm_spi_device *dev);
 mm_u8 mm_spi_bus_xfer(int bus, mm_u8 out);
 void mm_spi_bus_end(int bus);

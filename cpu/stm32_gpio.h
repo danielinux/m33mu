@@ -52,6 +52,7 @@ struct stm32_gpio_state {
     mm_u32 pad_moder;  /* MODER/OTYPER/PUPDR last reported to the config listener */
     mm_u32 pad_otyper;
     mm_u32 pad_pupdr;
+    mm_u32 pad_afr[2];
 };
 
 /* Context structure passed to read/write functions */

@@ -149,13 +149,68 @@ EXAMPLES.append(("npn-led", project(
     "Analog only: the button drives 10 kΩ into a 2N3904-like base; the transistor saturates and sinks the LED current through 220 Ω."))
 
 
+
+# Bus demo: modules on I2C1/SPI1, a USB-UART adapter on USART2, a sniffer on
+# the I2C lines. Header pins: UM3115 Rev 3 Tables 21-23.
+def board_wire(n, contact, part_id, terminal, color):
+    return wire(n, board(contact), pt(part_id, terminal), color)
+
+bus_parts = [
+    part("eeprom1", "i2c-eeprom", 900, 260, addressPins="0"),
+    part("temp1", "i2c-temp", 900, 420, addressPins="0", celsius=25),
+    part("flash1", "spi-flash", 900, 620),
+    part("uart1", "usb-uart", 900, 820),
+    part("sniff1", "sniffer", 1150, 120),
+    part("r1", "resistor", 760, 100, 90, ohms=4700),
+    part("r2", "resistor", 800, 100, 90, ohms=4700),
+]
+RED, BLK, YEL, GRN, BLU, ORG, PUR, WHT = "#d7263d", "#222222", "#f4d35e", "#2fb34a", "#2e86de", "#f49d37", "#6c4ab6", "#e6e6e6"
+bus_wires = []
+n = 0
+def add(contact_or_pair, *rest):
+    global n
+    n += 1
+    bus_wires.append(wire(n, *rest) if contact_or_pair is None else board_wire(n, *contact_or_pair, *rest))
+for mod in ("eeprom1", "temp1", "flash1"):
+    add(("CN8-7", mod, "VCC"), RED)
+    add(("CN8-11", mod, "GND"), BLK)
+for mod in ("eeprom1", "temp1"):
+    add(("CN7-2", mod, "SCL"), YEL)
+    add(("CN7-4", mod, "SDA"), GRN)
+add(None, pt("r1", "a"), board("CN8-7"), RED)
+add(None, pt("r1", "b"), board("CN7-2"), YEL)
+add(None, pt("r2", "a"), board("CN8-7"), RED)
+add(None, pt("r2", "b"), board("CN7-4"), GRN)
+add(("CN7-16", "flash1", "CS"), WHT)
+add(("CN7-10", "flash1", "SCK"), ORG)
+add(("CN7-14", "flash1", "MOSI"), BLU)
+add(("CN7-12", "flash1", "MISO"), PUR)
+add(("CN9-12", "uart1", "GND"), BLK)
+add(("CN9-6", "uart1", "RX"), GRN)
+add(("CN9-4", "uart1", "TX"), BLU)
+add(("CN7-2", "sniff1", "CH1"), YEL)
+add(("CN7-4", "sniff1", "CH2"), GRN)
+add(("CN7-8", "sniff1", "GND"), BLK)
+EXAMPLES.append(("h563-bus", project(
+    "example-h563-bus", "H563 I²C/SPI/UART bus demo", bus_parts, bus_wires,
+    [{"kind": "voltage", "at": board("CN7-2")}, {"kind": "voltage", "at": board("CN7-4")}],
+    1_000_000, firmware="h563-bus.elf", sample_ns=1_000, lookahead_ns=50_000),
+    "Firmware talks to a 24C02 EEPROM and a TMP102 on I2C1, reads a W25Q flash JEDEC ID on SPI1 and sends 'ping' to a USB-UART adapter on USART2; results print on USART3. Remove a pull-up or an SDA wire to see BUSY or NACK."))
+
+
 def main():
     index = []
     for name, proj, description in EXAMPLES:
         (OUT / f"{name}.m33mu.json").write_text(json.dumps(proj, indent=2) + "\n", encoding="utf-8")
         index.append({"id": name, "name": proj["name"], "project": f"{name}.m33mu.json",
                       "firmware": proj["simulator"]["firmwareName"] or None, "description": description})
-    (OUT / "index.json").write_text(json.dumps({"schemaVersion": 1, "examples": index}, indent=2) + "\n", encoding="utf-8")
+    # Keep examples maintained outside this script (e.g. opamp-gain).
+    path = OUT / "index.json"
+    known = {e["id"] for e in index}
+    if path.exists():
+        index += [e for e in json.loads(path.read_text(encoding="utf-8"))["examples"] if e["id"] not in known]
+    path.write_text(json.dumps({"schemaVersion": 1, "examples": index}, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
 
 
 if __name__ == "__main__":
