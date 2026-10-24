@@ -236,6 +236,78 @@ static size_t make_h563_pendsv_elf(mm_u8 image[172])
     return 172u;
 }
 
+/* An ITE LE block whose first (taken) instruction pends PendSV: the
+ * exception arrives before the second (not-taken) MOVGT, and after the
+ * handler's EXC_RETURN the restored ITSTATE must still skip it, leaving r2=0
+ * at the BKPT. */
+static size_t make_h563_it_irq_elf(mm_u8 image[180])
+{
+    static const mm_u16 code[] = {
+        0x4804u, /* ldr r0, =ICSR */
+        0x4905u, /* ldr r1, =PENDSVSET */
+        0x2200u, /* movs r2, #0 */
+        0x2300u, /* movs r3, #0 */
+        0x2b08u, /* cmp r3, #8: LE holds, GT does not */
+        0xbfd4u, /* ite le */
+        0x6001u, /* strle r1, [r0]: pends PendSV */
+        0x2201u, /* movgt r2, #1: must be skipped */
+        0xbeabu, /* bkpt #0xab */
+        0xbf00u
+    };
+    const mm_u32 flash_base = 0x0c000000u;
+    const mm_u32 code_offset = 64u;
+    const mm_u32 payload_size = 96u;
+    mm_u32 i;
+    memset(image, 0, 180u);
+    image[0] = 0x7fu; image[1] = 'E'; image[2] = 'L'; image[3] = 'F';
+    image[4] = 1u; image[5] = 1u; image[6] = 1u;
+    put_le16(image + 18u, 40u);
+    put_le32(image + 24u, flash_base + code_offset + 1u);
+    put_le32(image + 28u, 52u);
+    put_le16(image + 40u, 52u);
+    put_le16(image + 42u, 32u);
+    put_le16(image + 44u, 1u);
+    put_le32(image + 52u, 1u);
+    put_le32(image + 56u, 84u);
+    put_le32(image + 60u, flash_base);
+    put_le32(image + 64u, flash_base);
+    put_le32(image + 68u, payload_size);
+    put_le32(image + 72u, payload_size);
+    put_le32(image + 76u, 4u);
+    put_le32(image + 84u, 0x30080000u);
+    put_le32(image + 88u, flash_base + code_offset + 1u);
+    put_le32(image + 84u + MM_VECT_PENDSV * 4u, flash_base + code_offset + 0x1du);
+    for (i = 0u; i < sizeof(code) / sizeof(code[0]); ++i) {
+        put_le16(image + 84u + code_offset + i * 2u, code[i]);
+    }
+    put_le32(image + 84u + code_offset + 0x14u, 0xe000ed04u);
+    put_le32(image + 84u + code_offset + 0x18u, 0x10000000u);
+    put_le16(image + 84u + code_offset + 0x1cu, 0x4770u); /* bx lr: EXC_RETURN */
+    return 180u;
+}
+
+static int test_it_block_survives_exception(void)
+{
+    mm_u8 image[180];
+    struct mm_web_config config = { 0, sizeof(image) };
+    struct mm_web_step_result step;
+    struct mm_web_cpu_state cpu;
+    enum mm_web_error error;
+    struct mm_web_session *session;
+    (void)make_h563_it_irq_elf(image);
+    session = mm_web_create(&config, &error);
+    if (session == 0 || mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK ||
+        mm_web_step_instructions(session, 32u, &step) != MM_WEB_OK || !step.stopped ||
+        mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK || cpu.r[2] != 0u) {
+        fprintf(stderr, "web_session_test: IT block lost across exception return (r2=%u)\n",
+                (unsigned)cpu.r[2]);
+        mm_web_destroy(session);
+        return 1;
+    }
+    mm_web_destroy(session);
+    return 0;
+}
+
 /* Enables GPIOA, makes PA5 a pulled-up push-pull output, drives it high and
  * low, then stops at BKPT #0x7f. */
 static size_t make_h563_pad_elf(mm_u8 image[200])
@@ -840,6 +912,7 @@ int main(void)
     if (test_run_until_pad_changes() != 0) return 1;
     if (test_run_until_sleeping() != 0) return 1;
     if (test_lockup() != 0) return 1;
+    if (test_it_block_survives_exception() != 0) return 1;
     puts("web_session_test: ok");
     return 0;
 }

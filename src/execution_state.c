@@ -745,6 +745,8 @@ mm_bool mm_execution_state_apply_reset_vector(
                                boot_security)) {
         return MM_FALSE;
     }
+    /* Architectural reset value of LR, as the CLI loop sets it. */
+    state->cores[0].cpu.r[14] = 0xFFFFFFFFu;
     for (i = 0u; i < state->target.core_count && i < 2u; ++i) {
         state->cores[i].scs.vtor_s = state->cores[i].cpu.vtor_s;
         state->cores[i].scs.vtor_ns = state->cores[i].cpu.vtor_ns;

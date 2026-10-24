@@ -535,7 +535,12 @@ static mm_bool web_handle_pc_write(struct mm_cpu *cpu,
     (void)map;
     (void)scs;
     if (cpu != 0 && (value & 0xffffff00u) == 0xffffff00u) {
-        return web_execution_exc_return(cpu, map, scs, value);
+        if (!web_execution_exc_return(cpu, map, scs, value)) return MM_FALSE;
+        /* The unstacked xPSR may resume an interrupted IT block. */
+        if (it_pattern != 0 && it_remaining != 0 && it_cond != 0) {
+            itstate_sync_from_xpsr(cpu->xpsr, it_pattern, it_remaining, it_cond);
+        }
+        return MM_TRUE;
     }
     if (cpu == 0) {
         if (g_web_active_session != 0) {
