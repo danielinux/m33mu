@@ -643,7 +643,7 @@ if(M33MU_BUILD_TESTS)
     endif()
   endforeach()
   # Native web-session runner for the web acceptance matrix.
-  add_executable(web_parity_runner "${CMAKE_SOURCE_DIR}/web/tools/web_parity_runner.c")
+  add_executable(web_parity_runner "${CMAKE_SOURCE_DIR}/tools/web_parity_runner.c")
   target_link_libraries(web_parity_runner PRIVATE m33mu_lib)
   target_compile_options(web_parity_runner PRIVATE ${M33MU_COMMON_WARN_FLAGS} ${M33MU_COMMON_OPT_FLAGS})
   find_package(Python3 COMPONENTS Interpreter)

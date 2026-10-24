@@ -62,6 +62,11 @@ static enum mm_web_error g_last_error = MM_WEB_OK;
 static struct mm_web_step_result g_last_step;
 static struct mm_web_gpio_output_event g_last_gpio_output;
 
+int mm_web_abi_version(void)
+{
+    return MM_WEB_ABI_VERSION;
+}
+
 void *mm_web_abi_create(void)
 {
     const struct mm_web_config config = { "stm32h563", 32u * 1024u * 1024u };
