@@ -32,6 +32,10 @@ It can run as:
 - [Supported HSE simulators](docs/supported-HSEs.md)
 - [CI and automated testing](docs/ci-testing.md)
 
+The browser workbench (virtual boards, circuits, scopes) is the separate
+m33mu-lab project; it builds this tree's WASM ABI with
+`scripts/build-wasm-api.sh`.
+
 ## Example
 
 Run the STM32H563 wolfSSL IoTSAFE mutual-TLS demo against the built-in modem+SIM

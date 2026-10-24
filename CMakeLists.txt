@@ -28,53 +28,23 @@ option(M33MU_ENABLE_WOLFSSL     "Enable wolfSSL integration if found"   ON)
 option(M33MU_ENABLE_LIBDW       "Enable libdw/libdwfl symbolization if found" ON)
 option(M33MU_ENABLE_RUST_PLUGINS "Enable Rust simulator plugins (ATECC608/SE050/STSAFE) if cargo is found" ON)
 option(M33MU_ENABLE_ONNXRUNTIME "Enable the optional ONNX Runtime NPU model backend" OFF)
-option(M33MU_ENABLE_WEB_UI      "Enable the web workbench (WASM worker + app) if Emscripten, Node.js and npm are found" ON)
+option(M33MU_ENABLE_WASM        "Enable WASM core/ABI smoke tests if Emscripten and Node.js are found" ON)
 
 # -----------------------------------------------------------------------------
-# Web workbench (optional: needs Emscripten, Node.js and npm)
+# WASM core (optional: needs Emscripten and Node.js). The browser workbench
+# itself lives in the separate m33mu-lab project; m33mu only provides the
+# mm_web_abi_* WASM build (scripts/build-wasm-api.sh) and its smoke tests.
 # -----------------------------------------------------------------------------
-set(M33MU_HAS_WEB_UI OFF)
-set(M33MU_WEB_UI_MISSING "")
-if(M33MU_ENABLE_WEB_UI)
+set(M33MU_HAS_WASM OFF)
+if(M33MU_ENABLE_WASM)
   find_program(M33MU_EMCC emcc)
   find_program(M33MU_EMCMAKE emcmake)
   find_program(M33MU_NODE node)
-  find_program(M33MU_NPM npm)
-  foreach(web_tool EMCC EMCMAKE NODE NPM)
-    if(NOT M33MU_${web_tool})
-      string(TOLOWER "${web_tool}" web_tool_name)
-      list(APPEND M33MU_WEB_UI_MISSING "${web_tool_name}")
-    endif()
-  endforeach()
-  if(M33MU_WEB_UI_MISSING)
-    list(JOIN M33MU_WEB_UI_MISSING ", " M33MU_WEB_UI_MISSING)
-    message(STATUS "Web UI disabled: missing ${M33MU_WEB_UI_MISSING}")
+  if(M33MU_EMCC AND M33MU_EMCMAKE AND M33MU_NODE)
+    set(M33MU_HAS_WASM ON)
   else()
-    set(M33MU_HAS_WEB_UI ON)
+    message(STATUS "WASM tests disabled: emcc, emcmake or node not found")
   endif()
-endif()
-
-if(M33MU_HAS_WEB_UI)
-  set(M33MU_WEB_TOOL_ENV
-    "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
-    "M33MU_NODE=${M33MU_NODE}"
-    "M33MU_NPM=${M33MU_NPM}")
-  # Build the browser worker and static app into web/dist/.
-  add_custom_target(web-app
-    COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
-      "${CMAKE_SOURCE_DIR}/scripts/build-web-app.sh" --install
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    USES_TERMINAL
-    COMMENT "Building the web workbench into web/dist/"
-  )
-  # Build the browser worker and app, then keep the local Vite server running.
-  add_custom_target(webserver
-    COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
-      "${CMAKE_SOURCE_DIR}/scripts/run-webserver.sh"
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    USES_TERMINAL
-    COMMENT "Building and serving the web workbench at http://127.0.0.1:5173/"
-  )
 endif()
 
 # -----------------------------------------------------------------------------
@@ -661,24 +631,7 @@ if(M33MU_BUILD_TESTS)
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
   endif()
-  if(M33MU_HAS_WEB_UI)
-    add_test(NAME web_sim_unit_test
-      COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
-        "${CMAKE_SOURCE_DIR}/scripts/test-web-unit.sh")
-    set_tests_properties(web_sim_unit_test PROPERTIES
-      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-    find_program(M33MU_CHROMIUM NAMES chromium chromium-browser google-chrome)
-    if(M33MU_CHROMIUM)
-      add_test(NAME web_browser_chromium_test
-        COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
-          "M33MU_CHROMIUM=${M33MU_CHROMIUM}"
-          "${CMAKE_SOURCE_DIR}/scripts/test-web-browser.sh")
-      set_tests_properties(web_browser_chromium_test PROPERTIES
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-        RUN_SERIAL TRUE
-      )
-    endif()
+  if(M33MU_HAS_WASM)
     add_test(NAME wasm_core_build_test
       COMMAND "${CMAKE_COMMAND}" -E env
         "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
@@ -703,61 +656,6 @@ if(M33MU_BUILD_TESTS)
     set_tests_properties(wasm_execution_state_test PROPERTIES
       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
-    add_test(NAME wasm_worker_api_test
-      COMMAND "${CMAKE_COMMAND}" -E env
-        "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
-        "M33MU_NODE=${M33MU_NODE}"
-        "M33MU_CLI=$<TARGET_FILE:m33mu>"
-        "${CMAKE_SOURCE_DIR}/scripts/test-web-worker.sh")
-    set_tests_properties(wasm_worker_api_test PROPERTIES
-      WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-    find_program(M33MU_ARM_NONE_EABI_GCC arm-none-eabi-gcc)
-    if(M33MU_ARM_NONE_EABI_GCC)
-      add_test(NAME wasm_worker_wfi_exti_test
-        COMMAND "${CMAKE_COMMAND}" -E env
-          "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
-          "M33MU_NODE=${M33MU_NODE}"
-          "M33MU_CLI=$<TARGET_FILE:m33mu>"
-          "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
-          "${CMAKE_SOURCE_DIR}/scripts/test-web-worker-wfi.sh")
-      set_tests_properties(wasm_worker_wfi_exti_test PROPERTIES
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-      )
-      add_test(NAME wasm_worker_active_exti_boundary_test
-        COMMAND "${CMAKE_COMMAND}" -E env
-          "M33MU_EMCMAKE=${M33MU_EMCMAKE}"
-          "M33MU_NODE=${M33MU_NODE}"
-          "M33MU_CLI=$<TARGET_FILE:m33mu>"
-          "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
-          "${CMAKE_SOURCE_DIR}/scripts/test-web-worker-active-exti.sh")
-      set_tests_properties(wasm_worker_active_exti_boundary_test PROPERTIES
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-      )
-      add_test(NAME web_acceptance_matrix_test
-        COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
-          "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
-          "M33MU_CLI=$<TARGET_FILE:m33mu>"
-          "M33MU_PARITY_RUNNER=$<TARGET_FILE:web_parity_runner>"
-          "${CMAKE_SOURCE_DIR}/scripts/test-web-acceptance-matrix.sh")
-      set_tests_properties(web_acceptance_matrix_test PROPERTIES
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-        RUN_SERIAL TRUE
-      )
-      add_test(NAME wasm_worker_demos_test
-        COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
-          "${CMAKE_SOURCE_DIR}/scripts/test-web-demos.sh")
-      set_tests_properties(wasm_worker_demos_test PROPERTIES
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-      )
-      add_test(NAME wasm_worker_bench_rc_exti_test
-        COMMAND "${CMAKE_COMMAND}" -E env ${M33MU_WEB_TOOL_ENV}
-          "M33MU_ARM_NONE_EABI_GCC=${M33MU_ARM_NONE_EABI_GCC}"
-          "${CMAKE_SOURCE_DIR}/scripts/test-web-bench.sh")
-      set_tests_properties(wasm_worker_bench_rc_exti_test PROPERTIES
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-      )
-    endif()
   endif()
 endif()
 
@@ -1073,17 +971,15 @@ message(STATUS "${M33MU_COLOR_YELLOW}  vde-2: ${M33MU_STATUS_VDE} (${M33MU_STATU
 message(STATUS "${M33MU_COLOR_YELLOW}  ncurses: ${M33MU_STATUS_NCURSES}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_YELLOW}  libelf: ${M33MU_STATUS_LIBELF}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_YELLOW}  libdw/libdwfl: ${M33MU_STATUS_LIBDW}${M33MU_COLOR_RESET}")
-if(M33MU_HAS_WEB_UI)
-  set(M33MU_STATUS_WEB_UI "${M33MU_COLOR_GREEN}enabled (targets: web-app, webserver)${M33MU_COLOR_RESET}")
-elseif(NOT M33MU_ENABLE_WEB_UI)
-  set(M33MU_STATUS_WEB_UI "${M33MU_COLOR_RED}disabled${M33MU_COLOR_RESET}")
+if(M33MU_HAS_WASM)
+  set(M33MU_STATUS_WASM "${M33MU_COLOR_GREEN}enabled (scripts/build-wasm-api.sh; workbench: m33mu-lab)${M33MU_COLOR_RESET}")
 else()
-  set(M33MU_STATUS_WEB_UI "${M33MU_COLOR_RED}not found (missing ${M33MU_WEB_UI_MISSING})${M33MU_COLOR_RESET}")
+  set(M33MU_STATUS_WASM "${M33MU_COLOR_RED}disabled${M33MU_COLOR_RESET}")
 endif()
-message(STATUS "${M33MU_COLOR_YELLOW}  web UI: ${M33MU_STATUS_WEB_UI}${M33MU_COLOR_RESET}")
+message(STATUS "${M33MU_COLOR_YELLOW}  wasm: ${M33MU_STATUS_WASM}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_YELLOW}  tests enabled: ${M33MU_BUILD_TESTS}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_MAGENTA}  --------------------------------------------${M33MU_COLOR_RESET}")
-message(STATUS "${M33MU_COLOR_YELLOW}  features: capstone=${M33MU_HAS_CAPSTONE} tpm=${M33MU_HAS_LIBTPMS} wolfssl=${M33MU_HAS_WOLFSSL} vde=${M33MU_HAS_VDE} tui=${M33MU_HAS_NCURSES} libelf=${M33MU_HAS_LIBELF} libdw=${M33MU_HAS_LIBDW} onnxruntime=${M33MU_HAS_ONNXRUNTIME} web=${M33MU_HAS_WEB_UI}${M33MU_COLOR_RESET}")
+message(STATUS "${M33MU_COLOR_YELLOW}  features: capstone=${M33MU_HAS_CAPSTONE} tpm=${M33MU_HAS_LIBTPMS} wolfssl=${M33MU_HAS_WOLFSSL} vde=${M33MU_HAS_VDE} tui=${M33MU_HAS_NCURSES} libelf=${M33MU_HAS_LIBELF} libdw=${M33MU_HAS_LIBDW} onnxruntime=${M33MU_HAS_ONNXRUNTIME} wasm=${M33MU_HAS_WASM}${M33MU_COLOR_RESET}")
 
 if(M33MU_CONFIG_WARNINGS)
   foreach(msg IN LISTS M33MU_CONFIG_WARNINGS)
