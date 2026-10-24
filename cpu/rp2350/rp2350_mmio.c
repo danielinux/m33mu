@@ -1208,9 +1208,119 @@ void mm_rp2350_sio_pad_state(mm_u32 *out_lo, mm_u32 *out_hi, mm_u32 *oe_lo, mm_u
     if (oe_hi != 0) *oe_hi = sio.oe_hi;
 }
 
+/* External drive on GPIO0..47 (bit n), set through the mm_gpio external
+ * input writer by a host circuit or signal replay. */
+static mm_u64 g_ext_level;
+static mm_u64 g_ext_valid;
+
+#define RP2350_GPIO_COUNT 48u
+#define RP2350_FUNCSEL_SIO 5u
+#define RP2350_FUNCSEL_PIO0 6u
+#define RP2350_FUNCSEL_NULL 0x1fu
+#define RP2350_PAD_PDE (1u << 2)
+#define RP2350_PAD_PUE (1u << 3)
+#define RP2350_PAD_OD  (1u << 7)
+#define RP2350_PAD_ISO (1u << 8)
+
+/* Last reported state per GPIO; 0xff: never reported. */
+static mm_u8 g_pub_level[RP2350_GPIO_COUNT];
+static struct mm_gpio_pad_config g_pub_cfg[RP2350_GPIO_COUNT];
+static mm_bool g_pub_valid;
+
+void mm_rp2350_gpio_external(mm_u64 *level_out, mm_u64 *valid_out)
+{
+    if (level_out != 0) *level_out = g_ext_level;
+    if (valid_out != 0) *valid_out = g_ext_valid;
+}
+
+/* GPIOs whose output driver is on: SIO with OE, or a PIO that owns the pin
+ * and enables its output. Returns the driven mask and levels. */
+static mm_u64 rp2350_gpio_driven(mm_u64 *level_out)
+{
+    mm_u32 pio_lo = 0u, pio_hi = 0u, poe_lo = 0u, poe_hi = 0u;
+    mm_u64 driven = 0u;
+    mm_u64 level = 0u;
+    mm_u64 sio_out = (mm_u64)sio.out_lo | ((mm_u64)sio.out_hi << 32);
+    mm_u64 sio_oe = (mm_u64)sio.oe_lo | ((mm_u64)sio.oe_hi << 32);
+    mm_u64 pio_out;
+    mm_u64 pio_oe;
+    mm_u32 n;
+    mm_rp2350_pio_pad_state(&pio_lo, &pio_hi, &poe_lo, &poe_hi);
+    pio_out = (mm_u64)pio_lo | ((mm_u64)pio_hi << 32);
+    pio_oe = (mm_u64)poe_lo | ((mm_u64)poe_hi << 32);
+    for (n = 0; n < RP2350_GPIO_COUNT; ++n) {
+        mm_u64 bit = 1ull << n;
+        mm_u32 fs = mm_rp2350_gpio_funcsel(n);
+        mm_u32 pad = pads_bank0.regs[(4u + 4u * n) / 4u];
+        if ((pad & (RP2350_PAD_OD | RP2350_PAD_ISO)) != 0u) continue;
+        if (fs == RP2350_FUNCSEL_SIO && (sio_oe & bit) != 0u) {
+            driven |= bit;
+            level |= sio_out & bit;
+        } else if ((pio_oe & bit) != 0u) {
+            driven |= bit;
+            level |= pio_out & bit;
+        }
+    }
+    if (level_out != 0) *level_out = level;
+    return driven;
+}
+
+void mm_rp2350_gpio_publish(void)
+{
+    mm_u64 level = 0u;
+    mm_u64 driven;
+    mm_u32 n;
+    if (!mm_gpio_pad_listener_present() && !mm_gpio_pad_config_listener_present()) return;
+    driven = rp2350_gpio_driven(&level);
+    for (n = 0; n < RP2350_GPIO_COUNT; ++n) {
+        mm_u64 bit = 1ull << n;
+        mm_u32 fs = mm_rp2350_gpio_funcsel(n);
+        mm_u32 pad = pads_bank0.regs[(4u + 4u * n) / 4u];
+        struct mm_gpio_pad_config cfg;
+        mm_u8 lv = (driven & bit) != 0u ? (mm_u8)((level & bit) != 0u) : (mm_u8)MM_GPIO_LEVEL_Z;
+        memset(&cfg, 0, sizeof(cfg));
+        if ((driven & bit) != 0u) {
+            cfg.mode = MM_GPIO_MODE_OUTPUT;
+        } else if (fs == RP2350_FUNCSEL_SIO || fs == RP2350_FUNCSEL_NULL ||
+                   (fs >= RP2350_FUNCSEL_PIO0 && fs < RP2350_FUNCSEL_PIO0 + 3u)) {
+            cfg.mode = MM_GPIO_MODE_INPUT;
+        } else {
+            cfg.mode = MM_GPIO_MODE_AF;
+        }
+        /* Peripheral functions are 1..11; the web ABI packs af in 4 bits. */
+        cfg.af = cfg.mode == MM_GPIO_MODE_AF ? (mm_u8)(fs & 0xfu) : 0u;
+        cfg.pull = (pad & RP2350_PAD_PUE) != 0u ? MM_GPIO_PULL_UP :
+                   (pad & RP2350_PAD_PDE) != 0u ? MM_GPIO_PULL_DOWN : MM_GPIO_PULL_NONE;
+        if (!g_pub_valid || memcmp(&cfg, &g_pub_cfg[n], sizeof(cfg)) != 0) {
+            g_pub_cfg[n] = cfg;
+            mm_gpio_notify_pad_config((int)(n / 16u), (int)(n % 16u), &cfg);
+        }
+        if (!g_pub_valid || lv != g_pub_level[n]) {
+            g_pub_level[n] = lv;
+            mm_gpio_notify_pad((int)(n / 16u), (int)(n % 16u), lv);
+        }
+    }
+    g_pub_valid = MM_TRUE;
+}
+
+static mm_bool rp2350_gpio_set_external_input_cb(void *opaque, int bank, int pin,
+                                                 mm_bool level, mm_u64 late_cycles)
+{
+    mm_u32 n;
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank > 2 || pin < 0 || pin > 15) return MM_FALSE;
+    n = (mm_u32)bank * 16u + (mm_u32)pin;
+    g_ext_valid |= 1ull << n;
+    if (level) g_ext_level |= 1ull << n;
+    else g_ext_level &= ~(1ull << n);
+    return MM_TRUE;
+}
+
 /*
  * Pads are shared between SIO and the PIO blocks: a PIO wins on any pin it
- * drives and whose function select points at it.
+ * drives and whose function select points at it. An undriven pin reads what
+ * an external circuit drives on it; without one it reads back SIO OUT.
  */
 static void sio_sync_inputs(void)
 {
@@ -1218,10 +1328,17 @@ static void sio_sync_inputs(void)
     mm_u32 pio_hi = 0u;
     mm_u32 oe_lo = 0u;
     mm_u32 oe_hi = 0u;
+    mm_u64 driven;
+    mm_u64 ext;
 
     mm_rp2350_pio_pad_state(&pio_lo, &pio_hi, &oe_lo, &oe_hi);
     sio.in_lo = (sio.out_lo & ~oe_lo) | (pio_lo & oe_lo);
     sio.in_hi = (sio.out_hi & ~oe_hi) | (pio_hi & oe_hi);
+    if (g_ext_valid == 0u) return;
+    driven = rp2350_gpio_driven(0);
+    ext = g_ext_valid & ~driven;
+    sio.in_lo = (sio.in_lo & ~(mm_u32)ext) | ((mm_u32)g_ext_level & (mm_u32)ext);
+    sio.in_hi = (sio.in_hi & ~(mm_u32)(ext >> 32)) | ((mm_u32)(g_ext_level >> 32) & (mm_u32)(ext >> 32));
 }
 
 static mm_bool resets_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
@@ -1500,7 +1617,7 @@ static void sio_apply_write(mm_u32 *reg, mm_u32 value, mm_u32 kind)
     }
 }
 
-static mm_bool sio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+static mm_bool sio_write_regs(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
 {
     struct sio_state *s = (struct sio_state *)opaque;
     enum mm_sec_state sec = mmio_active_sec();
@@ -1789,6 +1906,22 @@ static mm_bool bank_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32
         break;
     }
     return MM_TRUE;
+}
+
+static mm_bool sio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    mm_bool ok = sio_write_regs(opaque, offset, size_bytes, value);
+    /* GPIO OUT/OE and their HI/SET/CLR/XOR forms: 0x010..0x04c. */
+    if (ok && offset >= SIO_GPIO_OUT && offset < SIO_GPIO_OE_XOR + 8u) mm_rp2350_gpio_publish();
+    return ok;
+}
+
+/* IO_BANK0 / PADS_BANK0: function select and pad changes move pad drive. */
+static mm_bool gpio_bank_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    mm_bool ok = bank_write(opaque, offset, size_bytes, value);
+    if (ok) mm_rp2350_gpio_publish();
+    return ok;
 }
 
 static mm_bool hstx_fifo_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
@@ -2402,7 +2535,7 @@ mm_bool mm_rp2350_register_mmio(struct mmio_bus *bus)
     reg.base = IO_BANK0_BASE;
     reg.opaque = &io_bank0;
     reg.read = bank_read;
-    reg.write = bank_write;
+    reg.write = gpio_bank_write;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     reg.size = MMIO_ALIAS_SIZE;
@@ -2416,7 +2549,7 @@ mm_bool mm_rp2350_register_mmio(struct mmio_bus *bus)
     reg.base = PADS_BANK0_BASE;
     reg.opaque = &pads_bank0;
     reg.read = bank_read;
-    reg.write = bank_write;
+    reg.write = gpio_bank_write;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     reg.size = MMIO_ALIAS_SIZE;
@@ -2554,6 +2687,7 @@ mm_bool mm_rp2350_register_mmio(struct mmio_bus *bus)
     mm_gpio_bank_set_moder_reader(rp2350_gpio_bank_read_moder, 0);
     mm_gpio_bank_set_clock_reader(rp2350_gpio_bank_clock, 0);
     mm_gpio_set_bank_info_reader(rp2350_gpio_bank_info, 0);
+    mm_gpio_set_external_input_writer(rp2350_gpio_set_external_input_cb, 0);
     mm_rcc_set_clock_list_reader(rp2350_clock_list_line, 0);
 
     return MM_TRUE;
@@ -2567,9 +2701,18 @@ void mm_rp2350_mmio_reset(void)
     memset(&psm, 0, sizeof(psm));
     memset(&rp2350_mc, 0, sizeof(rp2350_mc));
     memset(&io_bank0, 0, sizeof(io_bank0));
+    {
+        /* GPIOn_CTRL resets with FUNCSEL = 0x1f (NULL), RP2350 datasheet
+         * IO_BANK0 register list. */
+        mm_u32 n;
+        for (n = 0; n < RP2350_GPIO_COUNT; ++n) io_bank0.regs[(n * 8u + 4u) / 4u] = RP2350_FUNCSEL_NULL;
+    }
     memset(&io_qspi, 0, sizeof(io_qspi));
     memset(&pads_bank0, 0, sizeof(pads_bank0));
     memset(&pads_qspi, 0, sizeof(pads_qspi));
+    g_ext_level = 0u;
+    g_ext_valid = 0u;
+    g_pub_valid = MM_FALSE;
     memset(&xosc, 0, sizeof(xosc));
     memset(&pll_sys, 0, sizeof(pll_sys));
     memset(&pll_usb, 0, sizeof(pll_usb));

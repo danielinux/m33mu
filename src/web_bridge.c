@@ -243,6 +243,8 @@ static void web_queue_pad_state(struct mm_web_session *session,
     }
 }
 
+static void web_pad_name(int bank, int pin, char *out, size_t out_len);
+
 static mm_bool web_pad_in_range(const struct mm_web_session *session,
                                 int bank,
                                 int pin)
@@ -266,7 +268,7 @@ static void web_gpio_pad_changed(void *opaque,
     session->pads[bank][pin].level = level;
     web_queue_pad_state(session, bank, pin);
     if (session->pad_listener == 0) return;
-    (void)snprintf(pad_name, sizeof(pad_name), "P%c%d", 'A' + bank, pin);
+    web_pad_name(bank, pin, pad_name, sizeof(pad_name));
     session->pad_listener(session->pad_listener_opaque, pad_name, level);
 }
 
@@ -306,12 +308,58 @@ static void web_init_pad_states(struct mm_web_session *session)
     }
 }
 
+/* Bank info named "GPIO<first>-<last>" (RP2350): pads are numbered GPIOn. */
+static mm_bool web_bank_gpio_range(int bank, int *first_out)
+{
+    char name[32];
+    int first;
+    int last;
+    if (!mm_gpio_bank_info(bank, name, sizeof(name), 0)) return MM_FALSE;
+    if (sscanf(name, "GPIO%d-%d", &first, &last) != 2 || first < 0 || last < first) {
+        return MM_FALSE;
+    }
+    *first_out = first;
+    return MM_TRUE;
+}
+
+/* Pad name as the target calls it: PA5 for STM32 banks, GPIO17 for RP2350. */
+static void web_pad_name(int bank, int pin, char *out, size_t out_len)
+{
+    int first;
+    if (web_bank_gpio_range(bank, &first)) {
+        (void)snprintf(out, out_len, "GPIO%d", first + pin);
+    } else {
+        (void)snprintf(out, out_len, "P%c%d", 'A' + bank, pin);
+    }
+}
+
 static mm_bool web_parse_pad(const char *name, int *bank_out, int *pin_out)
 {
     int bank;
     int pin = 0;
     const char *p;
     int available;
+    if (name != 0 && bank_out != 0 && pin_out != 0 && strncmp(name, "GPIO", 4) == 0) {
+        int n = 0;
+        int first;
+        p = name + 4;
+        if (*p == '\0') return MM_FALSE;
+        while (*p != '\0') {
+            if (*p < '0' || *p > '9' || n > 100000) return MM_FALSE;
+            n = n * 10 + (*p - '0');
+            ++p;
+        }
+        for (bank = 0; bank < MM_WEB_PAD_BANKS; ++bank) {
+            if (web_bank_gpio_range(bank, &first) &&
+                mm_gpio_bank_info(bank, 0, 0u, &available) &&
+                n >= first && n < first + available) {
+                *bank_out = bank;
+                *pin_out = n - first;
+                return MM_TRUE;
+            }
+        }
+        return MM_FALSE;
+    }
     if (name == 0 || bank_out == 0 || pin_out == 0 ||
         (name[0] != 'P' && name[0] != 'p') ||
         name[1] < 'A' || name[1] > 'Z') {
@@ -1309,8 +1357,7 @@ enum mm_web_error mm_web_pop_gpio_output(
     session->gpio_output_head = (session->gpio_output_head + 1u) %
         MM_WEB_GPIO_OUTPUT_CAPACITY;
     session->gpio_output_count--;
-    (void)snprintf(event_out->soc_pad, sizeof(event_out->soc_pad),
-                   "P%c%d", 'A' + entry.bank, entry.pin);
+    web_pad_name(entry.bank, entry.pin, event_out->soc_pad, sizeof(event_out->soc_pad));
     event_out->level = entry.pad.level;
     event_out->mode = entry.pad.mode;
     event_out->open_drain = entry.pad.open_drain;

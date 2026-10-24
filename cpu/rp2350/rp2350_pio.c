@@ -304,6 +304,15 @@ static void pio_pads_refresh(void)
         driven |= own;
     }
     level |= g_sio_out & g_sio_oe & ~driven;
+    {
+        /* Undriven pins read what an external circuit drives. */
+        mm_u64 ext_level = 0u;
+        mm_u64 ext_valid = 0u;
+        mm_u64 undriven;
+        mm_rp2350_gpio_external(&ext_level, &ext_valid);
+        undriven = ext_valid & ~(driven | g_sio_oe);
+        level = (level & ~undriven) | (ext_level & undriven);
+    }
     g_pad_level = level;
     g_pads_dirty = MM_FALSE;
 }
@@ -1333,6 +1342,7 @@ void mm_rp2350_pio_tick(mm_u64 cycles)
     pio_pads_snapshot();
     pio_run_cycles(cycles, active);
     for (i = 0; i < PIO_COUNT; ++i) pio_update_irqs(&g_pio[i]);
+    mm_rp2350_gpio_publish();
 }
 
 mm_bool mm_rp2350_pio_dreq_wait(mm_u32 addr, mm_bool is_write)

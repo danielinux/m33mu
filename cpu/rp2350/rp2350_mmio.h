@@ -60,6 +60,11 @@ mm_u64 mm_rp2350_cpu_hz(void);
 mm_bool mm_rp2350_reset_asserted(mm_u32 mask);
 mm_u32 mm_rp2350_gpio_funcsel(mm_u32 pin);
 void mm_rp2350_sio_pad_state(mm_u32 *out_lo, mm_u32 *out_hi, mm_u32 *oe_lo, mm_u32 *oe_hi);
+/* Levels an external circuit drives on undriven GPIOs (mm_gpio external
+ * input writer), and which GPIOs it drives. */
+void mm_rp2350_gpio_external(mm_u64 *level_out, mm_u64 *valid_out);
+/* Report changed pad drive/configuration to the mm_gpio listeners. */
+void mm_rp2350_gpio_publish(void);
 mm_bool mm_rp2350_clock_peri_enabled(void);
 mm_bool mm_rp2350_active(void);
 void mm_rp2350_deactivate(void);
