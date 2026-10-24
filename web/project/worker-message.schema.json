@@ -148,6 +148,7 @@
                                 "nmos",
                                 "pmos",
                                 "opamp",
+                                "regulator",
                                 "pad"
                               ]
                             },
@@ -220,6 +221,7 @@
                                 "nmos",
                                 "pmos",
                                 "opamp",
+                                "regulator",
                                 "pad"
                               ]
                             },

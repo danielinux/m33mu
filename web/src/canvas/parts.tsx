@@ -101,6 +101,14 @@ export function PartGlyph({ part, brightness, pressed }: { part: Part; brightnes
         <Leads part={part} />
       </g>
     );
+  case 'regulator':
+    return (
+      <g>
+        <rect x={-10} y={-40} width={2 * P + 20} height={32} rx={3} className="to92" />
+        <text x={P} y={-19} className="part-label light">{part.params.vset} V LDO</text>
+        <Leads part={part} />
+      </g>
+    );
   case 'supply':
     return (
       <g>

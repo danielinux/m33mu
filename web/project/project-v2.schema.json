@@ -29,7 +29,7 @@
     "parts": {"type": "array", "maxItems": 2000, "items": {
       "type": "object", "additionalProperties": false,
       "required": ["id", "kind", "x", "y", "rotation", "params"],
-      "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"enum": ["breadboard", "resistor", "capacitor", "led", "diode", "switch", "npn", "nmos", "opamp", "supply", "ground"]},
+      "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"enum": ["breadboard", "resistor", "capacitor", "led", "diode", "switch", "npn", "nmos", "opamp", "regulator", "supply", "ground"]},
         "x": {"type": "number"}, "y": {"type": "number"}, "rotation": {"enum": [0, 90, 180, 270]},
         "params": {"type": "object", "additionalProperties": {"type": ["number", "string"]}}}
     }},

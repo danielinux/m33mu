@@ -15,6 +15,10 @@ export type MosModel = { vto: number; kp: number; lambda: number };
 /** Five-terminal, rail-limited op-amp macro model. */
 export type OpampModel = { gain: number; rOut: number; rIn: number; headroom: number };
 
+/** Behavioural low-dropout regulator: output follows min(vset, vin - dropout)
+ * through rOut, sources only, and draws iq from the input. */
+export type RegulatorModel = { vset: number; dropout: number; rOut: number; iq: number };
+
 export type PadDrive = 'high' | 'low' | 'z';
 export type PadPull = 'up' | 'down' | 'none';
 
@@ -36,6 +40,8 @@ export type DeviceSpec =
       model: MosModel }
   | { kind: 'opamp'; id: string; plus: string; minus: string; out: string;
       vcc: string; vee: string; model: OpampModel }
+  | { kind: 'regulator'; id: string; in: string; out: string; gnd: string;
+      model: RegulatorModel }
   | { kind: 'pad'; id: string; node: string; pad: PadElectrical };
 
 /** Finite electrical model of an MCU pad. Values are documented
@@ -74,6 +80,7 @@ export const MODELS = {
   pnp2n3906: { is: 1.41e-15, bf: 180.7, br: 4.977 } as BjtModel,
   nmosGeneric: { vto: 1.5, kp: 0.02, lambda: 0 } as MosModel,
   pmosGeneric: { vto: -1.5, kp: 0.02, lambda: 0 } as MosModel,
+  ldo3v3: { vset: 3.3, dropout: 0.3, rOut: 0.05, iq: 50e-6 } as RegulatorModel,
   opampGeneric: { gain: 1e5, rOut: 20, rIn: 1e9, headroom: 0.2 } as OpampModel
 };
 
@@ -95,6 +102,7 @@ function terminals(d: DeviceSpec): string[] {
   case 'npn': case 'pnp': return [d.c, d.b, d.e];
   case 'nmos': case 'pmos': return [d.d, d.g, d.s];
   case 'opamp': return [d.plus, d.minus, d.out, d.vcc, d.vee];
+  case 'regulator': return [d.in, d.out, d.gnd];
   case 'pad': return [d.node];
   }
 }
@@ -129,7 +137,7 @@ export function validateNetlist(netlist: unknown): string[] {
     if (ids.has(d.id)) errors.push(`Duplicate device id ${d.id}`);
     ids.add(d.id);
     const known = ['ground', 'resistor', 'capacitor', 'inductor', 'vsource', 'isource',
-      'diode', 'led', 'switch', 'npn', 'pnp', 'nmos', 'pmos', 'opamp', 'pad'];
+      'diode', 'led', 'switch', 'npn', 'pnp', 'nmos', 'pmos', 'opamp', 'regulator', 'pad'];
     if (!known.includes(d.kind)) {
       errors.push(`${d.id}: unsupported device kind ${String((d as { kind: unknown }).kind)}`);
       continue;
@@ -172,6 +180,12 @@ export function validateNetlist(netlist: unknown): string[] {
         errors.push(`${d.id}: op-amp model needs gain, rOut, rIn > 0 and headroom >= 0`);
       }
       if (d.vcc === d.vee) errors.push(`${d.id}: supply rails must differ`);
+      break;
+    case 'regulator':
+      if (!d.model || !positive(d.model.vset) || !(finite(d.model.dropout) && d.model.dropout >= 0) ||
+          !positive(d.model.rOut) || !(finite(d.model.iq) && d.model.iq >= 0)) {
+        errors.push(`${d.id}: regulator model needs vset, rOut > 0 and dropout, iq >= 0`);
+      }
       break;
     case 'pad': {
       const p = d.pad;

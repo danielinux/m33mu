@@ -139,7 +139,7 @@ try {
     await page.waitForSelector('g[data-part="r1"]');
     assert.equal(await page.locator('g[data-wire]').count(), 1);
     const bad = join(tmpdir(), `m33mu-bad-project-${process.pid}.json`);
-    writeFileSync(bad, JSON.stringify({ ...saved, parts: [{ ...saved.parts[0], kind: 'regulator' }] }));
+    writeFileSync(bad, JSON.stringify({ ...saved, parts: [{ ...saved.parts[0], kind: 'transformer' }] }));
     await page.getByTestId('open-input').setInputFiles(bad);
     await page.waitForFunction(() => /unsupported component/.test(document.querySelector('[data-testid=status-message]')?.textContent ?? ''));
     assert.equal(await page.locator('g[data-part="r1"]').count(), 1, 'rejected project leaves the bench untouched');

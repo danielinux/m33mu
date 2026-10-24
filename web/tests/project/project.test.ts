@@ -105,8 +105,8 @@ test('malformed and unsupported projects are rejected with actionable messages',
   assert.throws(() => parseProject('{'), /not valid JSON/);
   assert.throws(() => parseProject(JSON.stringify({ ...p, schemaVersion: 9 })), /Unsupported project schemaVersion 9/);
   const bad = JSON.parse(serializeProject(p));
-  bad.parts[0].kind = 'regulator';
-  assert.throws(() => parseProject(JSON.stringify(bad)), /unsupported component "regulator"/);
+  bad.parts[0].kind = 'transformer';
+  assert.throws(() => parseProject(JSON.stringify(bad)), /unsupported component "transformer"/);
   const neg = JSON.parse(serializeProject(p));
   neg.parts[0].params.ohms = -5;
   assert.throws(() => parseProject(JSON.stringify(neg)), /Resistance must be between/);

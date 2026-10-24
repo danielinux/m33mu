@@ -223,3 +223,22 @@ test('pad threshold crossing is localized and snapshot/restore is exact', () => 
   assert.deepEqual(again, crossings);
   assert.equal(c.nodeVoltage('n'), end);
 });
+
+test('LDO regulates, drops out and draws quiescent current', () => {
+  const ldo = (vin: number, load: number) => {
+    const c = new Circuit({ schemaVersion: 1, devices: [
+      { kind: 'vsource', id: 'v', p: 'in', n: '0', volts: vin },
+      { kind: 'regulator', id: 'u', in: 'in', out: 'out', gnd: '0', model: MODELS.ldo3v3 },
+      { kind: 'resistor', id: 'rl', a: 'out', b: '0', ohms: load }
+    ] });
+    c.operatingPoint();
+    return { vout: c.nodeVoltage('out'), iin: c.deviceCurrent('v'), iout: c.deviceCurrent('u') };
+  };
+  const reg = ldo(5, 33);
+  assert.ok(Math.abs(reg.vout - (3.3 - 0.05 * 0.1)) < 0.01, `regulated ${reg.vout}`);
+  assert.ok(Math.abs(reg.iout - reg.vout / 33) < 1e-6, 'output current');
+  assert.ok(Math.abs(reg.iin - reg.iout - 50e-6) < 1e-7, `quiescent ${reg.iin - reg.iout}`);
+  const drop = ldo(3.0, 1000);
+  assert.ok(Math.abs(drop.vout - 2.7) < 0.02, `dropout ${drop.vout}`);
+  assert.ok(ldo(0, 1000).vout < 0.02, 'off with no input');
+});

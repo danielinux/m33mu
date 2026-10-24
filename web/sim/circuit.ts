@@ -73,7 +73,7 @@ type Compiled = {
 //  pad:       [vCinPrev, iCinPrev, driveCode, pullCode, digital]
 const STATE_SLOTS: Record<DeviceSpec['kind'], number> = {
   ground: 0, resistor: 0, capacitor: 2, inductor: 1, vsource: 0, isource: 0,
-  diode: 1, led: 1, switch: 1, npn: 2, pnp: 2, nmos: 2, pmos: 2, opamp: 0, pad: 5
+  diode: 1, led: 1, switch: 1, npn: 2, pnp: 2, nmos: 2, pmos: 2, opamp: 0, regulator: 0, pad: 5
 };
 
 const DRIVE_CODE: Record<PadDrive, number> = { z: 0, low: 1, high: 2 };
@@ -183,6 +183,7 @@ export class Circuit {
       case 'npn': case 'pnp': terms = [spec.c, spec.b, spec.e]; break;
       case 'nmos': case 'pmos': terms = [spec.d, spec.g, spec.s]; break;
       case 'opamp': terms = [spec.plus, spec.minus, spec.out, spec.vcc, spec.vee]; break;
+      case 'regulator': terms = [spec.in, spec.out, spec.gnd]; break;
       case 'pad': terms = [spec.node]; break;
       }
       pending.push({ kind: spec.kind, spec, n: terms.map(net), state: stateSize });
@@ -268,6 +269,8 @@ export class Circuit {
       const vgs = vdsN < 0 ? vgsN - vdsN : vgsN;
       return sign * p * this.mos(s.model.vto * p, s.model.kp, s.model.lambda, vgs, Math.abs(vdsN)).id;
     }
+    case 'regulator': return this.regulatorCurrents(d.n, s.model,
+      d.n.map((i) => this.v(i)))[1] * -1;
     case 'opamp': {
       const target = this.opampTarget(d.n, s.model.gain, s.model.headroom, this.x).target;
       return (target - this.v(d.n[2])) / s.model.rOut;
@@ -421,6 +424,18 @@ export class Circuit {
     if (pull === 1) i += (p.vdd - vp) / p.rPull;
     else if (pull === 2) i += -vp / p.rPull;
     return i;
+  }
+
+  /** Currents into a regulator's [in, out, gnd] terminals at terminal voltages v. */
+  private regulatorCurrents(_n: number[], m: { vset: number; dropout: number; rOut: number; iq: number },
+    v: number[]): number[] {
+    const eps = 0.02;
+    const head = v[0] - v[2] - m.dropout;
+    const smin = (m.vset + head - Math.sqrt((m.vset - head) ** 2 + eps * eps)) / 2;
+    const level = (smin + Math.sqrt(smin * smin + eps * eps)) / 2;
+    const source = (v[2] + level - v[1]) / m.rOut;
+    const out = (source + Math.hypot(source, 1e-9)) / 2;
+    return [out + m.iq, -out, -m.iq];
   }
 
   /** Smoothly limit open-loop output to the supply rails. The derivative is
@@ -602,6 +617,21 @@ export class Circuit {
         const vd = vs + p * vds;
         this.stampNonlinear(nodes, [id, 0, -id], [jd, [0, 0, 0], jd.map((g) => -g)], [vd, vg, vs]);
         this.conductance(dI, sI, GMIN);
+        break;
+      }
+      case 'regulator': {
+        const vop = n.map((i) => this.v(i, x));
+        const base = this.regulatorCurrents(n, s.model, vop);
+        // Central-difference Jacobian; the model is smooth.
+        const jac: number[][] = [[], [], []];
+        for (let j = 0; j < 3; j++) {
+          const up = vop.slice(); up[j] += 1e-6;
+          const dn = vop.slice(); dn[j] -= 1e-6;
+          const a = this.regulatorCurrents(n, s.model, up);
+          const b = this.regulatorCurrents(n, s.model, dn);
+          for (let k = 0; k < 3; k++) jac[k][j] = (a[k] - b[k]) / 2e-6;
+        }
+        this.stampNonlinear(n, base, jac, vop);
         break;
       }
       case 'opamp': {

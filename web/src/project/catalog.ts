@@ -8,7 +8,7 @@ export const PITCH = 25.4;
 
 export type PartKind =
   | 'breadboard' | 'resistor' | 'capacitor' | 'led' | 'diode' | 'switch'
-  | 'npn' | 'nmos' | 'opamp' | 'supply' | 'ground';
+  | 'npn' | 'nmos' | 'opamp' | 'regulator' | 'supply' | 'ground';
 
 export type ParamSpec = {
   key: string;
@@ -138,6 +138,23 @@ export const CATALOG: Record<PartKind, PartDef> = {
       out: net('out'), vcc: net('vcc'), vee: net('vee'),
       model: { gain: Number(p.gain), rOut: Number(p.rOut), rIn: Number(p.rIn),
         headroom: Number(p.headroom) } }]
+  },
+  regulator: {
+    kind: 'regulator', title: 'LDO regulator (behavioural)',
+    params: [
+      { key: 'vset', label: 'Output voltage', unit: 'V', min: 0.5, max: 30 },
+      { key: 'dropout', label: 'Dropout', unit: 'V', min: 0, max: 5 },
+      { key: 'rOut', label: 'Output resistance', unit: 'Ω', min: 0.001, max: 100 },
+      { key: 'iq', label: 'Quiescent current', unit: 'A', min: 0, max: 0.1 }
+    ],
+    defaults: { ...MODELS.ldo3v3 },
+    terminals: () => [
+      { id: 'in', x: 0, y: 0, label: 'IN' },
+      { id: 'gnd', x: PITCH, y: 0, label: 'GND' },
+      { id: 'out', x: 2 * PITCH, y: 0, label: 'OUT' }
+    ],
+    devices: (id, p, net) => [{ kind: 'regulator', id, in: net('in'), out: net('out'), gnd: net('gnd'),
+      model: { vset: Number(p.vset), dropout: Number(p.dropout), rOut: Number(p.rOut), iq: Number(p.iq) } }]
   },
   supply: {
     kind: 'supply', title: 'DC supply',
