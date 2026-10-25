@@ -11,6 +11,7 @@
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
 #include "m33mu/nvic.h"
+#include "m33mu/gpio_pads.h"
 
 #define PIC32CK_FLASH_PAGE_SIZE     4096u
 #define PIC32CK_FLASH_ROW_SIZE      1024u
@@ -734,6 +735,92 @@ struct port_group_state {
 };
 static struct port_group_state port_groups[PORT_NGROUPS];
 
+/* Pads (m33mu/gpio_pads.h): PINCFG PMUXEN (bit 0) hands the pin to a
+ * peripheral, INEN (bit 1) enables the input, PULLEN (bit 2) with DIR = 0
+ * pulls toward OUT (PIC32CK SG/GC DS PORT chapter). */
+#define PINCFG_PMUXEN 0x01u
+#define PINCFG_PULLEN 0x04u
+static struct mm_gpio_pads port_pads[PORT_NGROUPS];
+static int port_pad_ids[PORT_NGROUPS] = { 0, 1, 2, 3 };
+static mm_bool port_pads_ready;
+
+static void port_pads_init(void)
+{
+    mm_u32 i;
+    if (port_pads_ready) return;
+    for (i = 0; i < PORT_NGROUPS; ++i) mm_gpio_pads_init(&port_pads[i], (int)i, 32);
+    port_pads_ready = MM_TRUE;
+}
+
+static mm_u32 port_pull_mask(const struct port_group_state *g, mm_bool up)
+{
+    mm_u32 mask = 0u;
+    int pin;
+    for (pin = 0; pin < 32; ++pin) {
+        mm_u32 bit = 1u << pin;
+        if ((g->pincfg[pin] & PINCFG_PULLEN) != 0u && (g->dir & bit) == 0u && (((g->out & bit) != 0u) == up)) {
+            mask |= bit;
+        }
+    }
+    return mask;
+}
+
+static mm_u32 port_driven(const struct port_group_state *g)
+{
+    mm_u32 gpio = 0u;
+    int pin;
+    for (pin = 0; pin < 32; ++pin) {
+        if ((g->pincfg[pin] & PINCFG_PMUXEN) == 0u) gpio |= 1u << pin;
+    }
+    return g->dir & gpio;
+}
+
+static void port_pad_config(void *opaque, int pin, struct mm_gpio_pad_config *cfg)
+{
+    const struct port_group_state *g = &port_groups[*(const int *)opaque];
+    mm_u8 c = g->pincfg[pin];
+    if ((c & PINCFG_PMUXEN) != 0u) {
+        cfg->mode = MM_GPIO_MODE_AF;
+        cfg->af = (mm_u8)((g->pmux[pin / 2] >> ((pin & 1) * 4)) & 0xFu);
+    }
+    if ((c & PINCFG_PULLEN) != 0u && (g->dir & (1u << pin)) == 0u) {
+        cfg->pull = (g->out & (1u << pin)) != 0u ? MM_GPIO_PULL_UP : MM_GPIO_PULL_DOWN;
+    }
+}
+
+static void port_publish(mm_u32 grp)
+{
+    struct port_group_state *g = &port_groups[grp];
+    port_pads_init();
+    g->in = mm_gpio_pads_input(&port_pads[grp], port_driven(g), g->out, port_pull_mask(g, MM_TRUE),
+                               port_pull_mask(g, MM_FALSE), g->out & g->dir);
+    mm_gpio_pads_publish(&port_pads[grp], port_driven(g), g->out, port_pad_config, &port_pad_ids[grp]);
+}
+
+static mm_bool port_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                          mm_u64 late_cycles)
+{
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= (int)PORT_NGROUPS) return MM_FALSE;
+    port_pads_init();
+    if (!mm_gpio_pads_set_external(&port_pads[bank], pin, level)) return MM_FALSE;
+    port_publish((mm_u32)bank);
+    return MM_TRUE;
+}
+
+static mm_bool port_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)PORT_NGROUPS) return MM_FALSE;
+    if (name_out != 0 && name_len > 1u) {
+        name_out[0] = (char)('A' + bank);
+        name_out[1] = '\0';
+    }
+    if (pins_out != 0) *pins_out = 32;
+    return MM_TRUE;
+}
+
 static mm_bool port_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                          mm_u32 *value_out)
 {
@@ -755,8 +842,12 @@ static mm_bool port_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     case PG_OUTCLR: val = g->out; break;
     case PG_OUTSET: val = g->out; break;
     case PG_OUTTGL: val = g->out; break;
-    case PG_IN:     val = g->in;  break;
-    default:        val = 0;      break;
+    case PG_IN:     port_publish(grp_idx); val = g->in; break;
+    default:
+        val = 0;
+        if (grp_off >= 0x40u && grp_off < 0x60u) memcpy(&val, &g->pincfg[(grp_off - 0x40u) & ~3u], 4);
+        else if (grp_off >= 0x60u && grp_off < 0x70u) memcpy(&val, &g->pmux[(grp_off - 0x60u) & ~3u], 4);
+        break;
     }
     /* Handle sub-word reads */
     memcpy(value_out, (mm_u8 *)&val + (grp_off & 3u), size_bytes);
@@ -790,9 +881,18 @@ static mm_bool port_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     case PG_OUTCLR: g->out &= ~value;          break;
     case PG_OUTSET: g->out |=  value;          break;
     case PG_OUTTGL: g->out ^=  value;          break;
-    case PG_IN:     g->in   = value;           break;
-    default:        break;
+    case PG_IN:     break;   /* read-only */
+    default:
+        if (grp_off >= 0x40u && grp_off < 0x60u) {
+            mm_u32 i;
+            for (i = 0; i < size_bytes; ++i) g->pincfg[grp_off - 0x40u + i] = (mm_u8)(value >> (8u * i));
+        } else if (grp_off >= 0x60u && grp_off < 0x70u) {
+            mm_u32 i;
+            for (i = 0; i < size_bytes; ++i) g->pmux[grp_off - 0x60u + i] = (mm_u8)(value >> (8u * i));
+        }
+        break;
     }
+    port_publish(grp_idx);
     return MM_TRUE;
 }
 
@@ -1052,6 +1152,7 @@ void mm_pic32ck_mmio_reset(void)
     memset(trng_regs,       0, sizeof(trng_regs));
     trng_counter = 0x12345678u;
     memset(port_groups,     0, sizeof(port_groups));
+    port_pads_ready = MM_FALSE;
     memset(osc32kctrl_regs, 0, sizeof(osc32kctrl_regs));
     memset(pm_regs,         0, sizeof(pm_regs));
     memset(wdt_regs,        0, sizeof(wdt_regs));
@@ -1149,6 +1250,8 @@ mm_bool mm_pic32ck_register_mmio(struct mmio_bus *bus)
     /* Secure alias at 0x44801000 -- share same handler */
     reg.base   = 0x44801000u;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    mm_gpio_set_external_input_writer(port_set_external_input_cb, 0);
+    mm_gpio_set_bank_info_reader(port_bank_info, 0);
 
     /* Generic stubs */
     if (!stub_reg_one(bus, &osc32kctrl_stub, 0x4400E000u)) return MM_FALSE;

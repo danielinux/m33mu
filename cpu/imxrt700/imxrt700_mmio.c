@@ -29,6 +29,7 @@
 #include "imxrt700/imxrt700_multicore.h"
 #include "imxrt700/imxrt700_secure.h"
 #include "imxrt700/imxrt700_romapi.h"
+#include "m33mu/gpio_pads.h"
 #include "imxrt700/imxrt700_xspi.h"
 #include "imxrt700/cpu_config.h"
 
@@ -404,11 +405,45 @@ mm_bool mm_imxrt700_reset_released(const char *rstctl, mm_u32 prstctl_off, mm_u3
 #define RGPIO_PDIR 0x50u
 #define RGPIO_PDDR 0x54u
 
+/* GPIO0..GPIO10 pads: PDDR/PDOR drive, PDIR reads external levels on
+ * inputs (m33mu/gpio_pads.h). IOPCTL pulls are not modelled. Banks are
+ * named PIO<n>, so pads are PIO0_18 as in the RT700 pin names. */
+#define RT700_GPIO_BANKS 11u
+static struct mm_gpio_pads rt700_gpio_pads[RT700_GPIO_BANKS];
+static mm_bool rt700_gpio_pads_ready;
+
+static int gpio_bank_of(const struct imxrt700_dev *dev)
+{
+    int n;
+    if (dev == 0 || dev->name == 0 || sscanf(dev->name, "GPIO%d", &n) != 1 ||
+        n < 0 || n >= (int)RT700_GPIO_BANKS) {
+        return -1;
+    }
+    if (!rt700_gpio_pads_ready) {
+        mm_u32 i;
+        for (i = 0; i < RT700_GPIO_BANKS; ++i) mm_gpio_pads_init(&rt700_gpio_pads[i], (int)i, 32);
+        rt700_gpio_pads_ready = MM_TRUE;
+    }
+    return n;
+}
+
+static void gpio_publish(struct imxrt700_dev *dev)
+{
+    int bank = gpio_bank_of(dev);
+    if (bank < 0) return;
+    mm_gpio_pads_publish(&rt700_gpio_pads[bank], mm_imxrt700_reg(dev, RGPIO_PDDR),
+                         mm_imxrt700_reg(dev, RGPIO_PDOR), 0, 0);
+}
+
 static mm_bool gpio_read(struct imxrt700_dev *dev, mm_u32 off, mm_u32 size, mm_u32 *value_out)
 {
     if (off == RGPIO_PDIR && size == 4u) {
-        /* No external stimulus: outputs read back what they drive. */
-        *value_out = mm_imxrt700_reg(dev, RGPIO_PDOR) & mm_imxrt700_reg(dev, RGPIO_PDDR);
+        int bank = gpio_bank_of(dev);
+        mm_u32 pddr = mm_imxrt700_reg(dev, RGPIO_PDDR);
+        mm_u32 pdor = mm_imxrt700_reg(dev, RGPIO_PDOR);
+        /* Outputs read back what they drive; inputs what a circuit drives. */
+        *value_out = bank < 0 ? (pdor & pddr)
+                              : mm_gpio_pads_input(&rt700_gpio_pads[bank], pddr, pdor, 0u, 0u, 0u);
         return MM_TRUE;
     }
     if ((off == RGPIO_PSOR || off == RGPIO_PCOR || off == RGPIO_PTOR) && size == 4u) {
@@ -434,12 +469,38 @@ static mm_bool gpio_write(struct imxrt700_dev *dev, mm_u32 off, mm_u32 size, mm_
     case RGPIO_PTOR:
         pdor ^= value;
         break;
+    case RGPIO_PDOR:
+        pdor = value;
+        break;
+    case RGPIO_PDDR:
+        mm_imxrt700_reg_put(dev, RGPIO_PDDR, value);
+        gpio_publish(dev);
+        return MM_TRUE;
     case RGPIO_PDIR:
         return MM_TRUE; /* read-only */
     default:
         return MM_FALSE;
     }
     mm_imxrt700_reg_put(dev, RGPIO_PDOR, pdor);
+    gpio_publish(dev);
+    return MM_TRUE;
+}
+
+static mm_bool rt700_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                                mm_u64 late_cycles)
+{
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= (int)RT700_GPIO_BANKS || !rt700_gpio_pads_ready) return MM_FALSE;
+    return mm_gpio_pads_set_external(&rt700_gpio_pads[bank], pin, level);
+}
+
+static mm_bool rt700_gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)RT700_GPIO_BANKS) return MM_FALSE;
+    if (name_out != 0 && name_len > 0u) snprintf(name_out, name_len, "PIO%d", bank);
+    if (pins_out != 0) *pins_out = 32;
     return MM_TRUE;
 }
 
@@ -693,6 +754,13 @@ mm_bool mm_imxrt700_register_mmio(struct mmio_bus *bus)
         snprintf(name, sizeof(name), "GPIO%lu", (unsigned long)i);
         (void)mm_imxrt700_dev_hook(name, gpio_read, gpio_write, 0);
     }
+    {
+        mm_u32 b;
+        for (b = 0; b < RT700_GPIO_BANKS; ++b) mm_gpio_pads_init(&rt700_gpio_pads[b], (int)b, 32);
+        rt700_gpio_pads_ready = MM_TRUE;
+    }
+    mm_gpio_set_external_input_writer(rt700_gpio_set_external_input_cb, 0);
+    mm_gpio_set_bank_info_reader(rt700_gpio_bank_info, 0);
     (void)mm_imxrt700_dev_hook("CRC", crc_read, crc_write, 0);
     mm_imxrt700_flexcomm_attach();
     mm_imxrt700_timers_attach();
