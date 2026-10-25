@@ -3,12 +3,14 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 #include "m2354/m2354_mmio.h"
 #include "m2354/cpu_config.h"
 #include "m33mu/code_cache.h"
 #include "m33mu/flash_persist.h"
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
+#include "m33mu/gpio_pads.h"
 
 /*
  * Nuvoton M2354 system peripherals: SYS, CLK, FMC and SCU, plus register-file
@@ -202,7 +204,6 @@ static mm_bool stub_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     static struct periph_stub N##_stub = { (S), N##_regs }
 
 DECL_STUB(intctl,  0x100u);   /* INT     0x40000300 */
-DECL_STUB(gpio,    0x1000u);  /* GPIO    0x40004000 */
 DECL_STUB(pdma0,   0x1000u);  /* PDMA0   0x40008000 */
 DECL_STUB(pdma1,   0x1000u);  /* PDMA1   0x40018000 */
 DECL_STUB(ebi,     0x100u);   /* EBI     0x40010000 */
@@ -251,6 +252,167 @@ static mm_bool stub_reg_one(struct mmio_bus *bus, struct periph_stub *ps,
 {
     return mm_m2354_register_aliased(bus, base, ps->size, ps,
                                      stub_read, stub_write);
+}
+
+/* ------------------------------------------------------------------ */
+/* GPIO PA-PH (TRM 6.7, GPIO_BA 0x4000_4000)                            */
+/* ------------------------------------------------------------------ */
+
+#define GPIO_PORTS      8u
+#define GPIO_PORT_SIZE  0x40u
+#define GPIO_MODE       0x00u
+#define GPIO_DOUT       0x08u
+#define GPIO_DATMSK     0x0Cu
+#define GPIO_PIN        0x10u
+#define GPIO_INTSRC     0x20u
+#define GPIO_PUSEL      0x30u
+#define GPIO_DBCTL      0x34u
+#define GPIO_PDIO_BASE  0x800u
+#define GPIO_REGION     0x1000u
+
+struct m2354_gpio {
+    mm_u32 regs[GPIO_PORTS][GPIO_PORT_SIZE / 4u];
+    struct mm_gpio_pads pads[GPIO_PORTS];
+};
+
+static struct m2354_gpio gpio;
+static int gpio_port_ids[GPIO_PORTS] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+
+static void gpio_reset_state(void)
+{
+    mm_u32 p;
+    memset(&gpio, 0, sizeof(gpio));
+    for (p = 0; p < GPIO_PORTS; ++p) {
+        /* Input (tri-state) mode: CIOINI = 1 in an erased CONFIG0. */
+        gpio.regs[p][GPIO_DOUT / 4u] = 0xFFFFu;
+        gpio.regs[p][GPIO_DBCTL / 4u] = 0x20u;
+        mm_gpio_pads_init(&gpio.pads[p], (int)p, 16);
+    }
+}
+
+static mm_u32 gpio_mode(mm_u32 port, int pin)
+{
+    return (gpio.regs[port][GPIO_MODE / 4u] >> (2 * pin)) & 3u;
+}
+
+/* Push-pull drives both levels; open-drain and quasi-bidirectional drive
+ * only low (quasi pulls up weakly when DOUT is 1). */
+static mm_u32 gpio_driven(mm_u32 port)
+{
+    mm_u32 dout = gpio.regs[port][GPIO_DOUT / 4u];
+    mm_u32 driven = 0u;
+    int pin;
+    for (pin = 0; pin < 16; ++pin) {
+        mm_u32 mode = gpio_mode(port, pin);
+        if (mode == 1u || ((mode == 2u || mode == 3u) && ((dout >> pin) & 1u) == 0u)) driven |= 1u << pin;
+    }
+    return driven;
+}
+
+static mm_u32 gpio_pull(mm_u32 port, mm_u32 sel)
+{
+    mm_u32 mask = 0u;
+    int pin;
+    for (pin = 0; pin < 16; ++pin) {
+        mm_u32 v = (gpio.regs[port][GPIO_PUSEL / 4u] >> (2 * pin)) & 3u;
+        if (v == sel || (sel == 1u && gpio_mode(port, pin) == 3u)) mask |= 1u << pin;
+    }
+    return mask;
+}
+
+static void gpio_pad_config(void *opaque, int pin, struct mm_gpio_pad_config *cfg)
+{
+    mm_u32 port = (mm_u32)*(const int *)opaque;
+    mm_u32 mode = gpio_mode(port, pin);
+    mm_u32 pusel = (gpio.regs[port][GPIO_PUSEL / 4u] >> (2 * pin)) & 3u;
+    cfg->mode = mode == 0u ? MM_GPIO_MODE_INPUT : MM_GPIO_MODE_OUTPUT;
+    cfg->open_drain = (mode == 2u || mode == 3u) ? 1u : 0u;
+    cfg->pull = (mode == 3u || pusel == 1u) ? MM_GPIO_PULL_UP : pusel == 2u ? MM_GPIO_PULL_DOWN : MM_GPIO_PULL_NONE;
+}
+
+static mm_u32 gpio_pin_value(mm_u32 port)
+{
+    mm_u32 dout = gpio.regs[port][GPIO_DOUT / 4u];
+    return mm_gpio_pads_input(&gpio.pads[port], gpio_driven(port), dout, gpio_pull(port, 1u),
+                              gpio_pull(port, 2u), dout) & 0xFFFFu;
+}
+
+static void gpio_publish(mm_u32 port)
+{
+    mm_gpio_pads_publish(&gpio.pads[port], gpio_driven(port), gpio.regs[port][GPIO_DOUT / 4u],
+                         gpio_pad_config, &gpio_port_ids[port]);
+}
+
+static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
+{
+    mm_u32 port;
+    mm_u32 reg;
+    (void)opaque;
+    if (value_out == 0 || size_bytes != 4u || (offset & 3u) != 0u || offset >= GPIO_REGION) return MM_FALSE;
+    if (offset >= GPIO_PDIO_BASE) {
+        mm_u32 idx = (offset - GPIO_PDIO_BASE) / 4u;
+        port = idx / 16u;
+        *value_out = port < GPIO_PORTS ? (gpio_pin_value(port) >> (idx % 16u)) & 1u : 0u;
+        return MM_TRUE;
+    }
+    port = offset / GPIO_PORT_SIZE;
+    reg = offset % GPIO_PORT_SIZE;
+    if (port >= GPIO_PORTS) { *value_out = 0u; return MM_TRUE; }
+    *value_out = reg == GPIO_PIN ? gpio_pin_value(port) : gpio.regs[port][reg / 4u];
+    return MM_TRUE;
+}
+
+static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    mm_u32 port;
+    mm_u32 reg;
+    (void)opaque;
+    if (size_bytes != 4u || (offset & 3u) != 0u || offset >= GPIO_REGION) return MM_FALSE;
+    if (offset >= GPIO_PDIO_BASE) {
+        mm_u32 idx = (offset - GPIO_PDIO_BASE) / 4u;
+        port = idx / 16u;
+        if (port < GPIO_PORTS) {
+            mm_u32 bit = 1u << (idx % 16u);
+            if (value & 1u) gpio.regs[port][GPIO_DOUT / 4u] |= bit;
+            else gpio.regs[port][GPIO_DOUT / 4u] &= ~bit;
+            gpio_publish(port);
+        }
+        return MM_TRUE;
+    }
+    port = offset / GPIO_PORT_SIZE;
+    reg = offset % GPIO_PORT_SIZE;
+    if (port >= GPIO_PORTS || reg == GPIO_PIN) return MM_TRUE;
+    if (reg == GPIO_DOUT) {
+        mm_u32 mask = gpio.regs[port][GPIO_DATMSK / 4u];
+        mm_u32 *dout = &gpio.regs[port][GPIO_DOUT / 4u];
+        *dout = (*dout & mask) | (value & ~mask & 0xFFFFu);
+    } else if (reg == GPIO_INTSRC) {
+        gpio.regs[port][reg / 4u] &= ~value;
+    } else {
+        gpio.regs[port][reg / 4u] = value;
+    }
+    gpio_publish(port);
+    return MM_TRUE;
+}
+
+static mm_bool gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level, mm_u64 late_cycles)
+{
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= (int)GPIO_PORTS) return MM_FALSE;
+    return mm_gpio_pads_set_external(&gpio.pads[bank], pin, level);
+}
+
+static mm_bool gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)GPIO_PORTS) return MM_FALSE;
+    if (name_out != 0 && name_len > 1u) {
+        name_out[0] = (char)('A' + bank);
+        name_out[1] = '\0';
+    }
+    if (pins_out != 0) *pins_out = 16;
+    return MM_TRUE;
 }
 
 /* ------------------------------------------------------------------ */
@@ -827,7 +989,9 @@ mm_bool mm_m2354_register_mmio(struct mmio_bus *bus)
                                    scu_read, scu_write)) return MM_FALSE;
 
     if (!stub_reg_one(bus, &intctl_stub, 0x40000300u)) return MM_FALSE;
-    if (!stub_reg_one(bus, &gpio_stub,   0x40004000u)) return MM_FALSE;
+    if (!mm_m2354_register_aliased(bus, 0x40004000u, GPIO_REGION, &gpio, gpio_read, gpio_write)) return MM_FALSE;
+    mm_gpio_set_external_input_writer(gpio_set_external_input_cb, 0);
+    mm_gpio_set_bank_info_reader(gpio_bank_info, 0);
     if (!stub_reg_one(bus, &pdma0_stub,  0x40008000u)) return MM_FALSE;
     if (!stub_reg_one(bus, &ebi_stub,    0x40010000u)) return MM_FALSE;
     if (!stub_reg_one(bus, &pdma1_stub,  0x40018000u)) return MM_FALSE;
@@ -880,7 +1044,7 @@ void mm_m2354_mmio_reset(void)
     memset(scu_regs, 0, sizeof(scu_regs));
 
     memset(intctl_regs, 0, sizeof(intctl_regs));
-    memset(gpio_regs,   0, sizeof(gpio_regs));
+    gpio_reset_state();
     memset(pdma0_regs,  0, sizeof(pdma0_regs));
     memset(pdma1_regs,  0, sizeof(pdma1_regs));
     memset(ebi_regs,    0, sizeof(ebi_regs));
