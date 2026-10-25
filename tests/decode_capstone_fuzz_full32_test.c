@@ -480,6 +480,11 @@ static int run_range(mm_u32 start, mm_u32 end)
                    op_str); */
 
             dec = mm_decode_t32(&fetch);
+            /* Capstone's generic Thumb mode labels M55 MVE encodings as
+             * coprocessor instructions, so it cannot validate this family. */
+            if (dec.kind >= MM_OP_MVE_DLS && dec.kind <= MM_OP_MVE_VCMPE_F32) {
+                continue;
+            }
             if (!capstone_cross_check(&fetch, &dec)) {
                 const char *reason = (dec.kind == MM_OP_UNDEFINED) ? "unknown decode" : "misdecode";
                 printf("MISS insn=0x%08lx raw=0x%08lx len=%u capstone=%s %s reason=%s mm_kind=%u rd=%u rn=%u rm=%u imm=0x%08lx\n",
@@ -533,6 +538,10 @@ static int run_range(mm_u32 start, mm_u32 end)
                    op_str); */
 
             dec = mm_decode_t32(&fetch);
+            /* Capstone's generic Thumb mode has no M55 MVE decoding. */
+            if (dec.kind >= MM_OP_MVE_DLS && dec.kind <= MM_OP_MVE_VCMPE_F32) {
+                continue;
+            }
             if (!capstone_cross_check(&fetch, &dec)) {
                 const char *reason = (dec.kind == MM_OP_UNDEFINED) ? "unknown decode" : "misdecode";
                 printf("MISS insn=0x%08lx raw=0x%08lx len=%u capstone=%s %s reason=%s mm_kind=%u rd=%u rn=%u rm=%u imm=0x%08lx\n",
