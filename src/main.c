@@ -53,6 +53,10 @@
 #include "stm32h563/stm32h563_mmio.h"
 #include "stm32h5f4/stm32h5f4_mmio.h"
 #include "stm32h5_mmio.h"
+#include "stm32n657/stm32n657_mmio.h"
+#ifdef M33MU_HAS_ONNXRUNTIME
+#include "npu_onnx.h"
+#endif
 #include "m33mu/mem_prot.h"
 #include "m33mu/exc_return.h"
 #include "m33mu/tz.h"
@@ -840,6 +844,11 @@ static void apply_reset_view(struct mm_tui *tui,
     vtor = cpu->vtor_s;
     (void)mm_memmap_read(map, MM_SECURE, vtor, 4u, &sp);
     (void)mm_vector_read(map, MM_SECURE, vtor, MM_VECT_RESET, &pc);
+    if (getenv("M33MU_RESET_TRACE")) {
+        printf("[RESET] vtor=0x%08lx sp=0x%08lx pc=0x%08lx cpu.r15=0x%08lx cpu.r13=0x%08lx\n",
+               (unsigned long)vtor, (unsigned long)sp, (unsigned long)pc,
+               (unsigned long)cpu->r[15], (unsigned long)cpu->r[13]);
+    }
     *steps_offset = cycle_total;
     if (steps_latched != 0) {
         *steps_latched = 0;
@@ -1571,6 +1580,7 @@ static void host_sync_if_needed(mm_u64 vcycles,
 static struct mm_cpu *g_cpu0 = 0;
 static struct mm_cpu *g_cpu1 = 0;
 static struct mm_memmap *g_timeout_map = 0;
+static const char *g_npu_out_dump = 0;
 static struct mm_nvic *g_nvic0 = 0;
 static struct mm_nvic *g_nvic1 = 0;
 
@@ -1703,12 +1713,32 @@ static void timeout_dump_cpu(const struct mm_cpu *cpu, const char *tag)
     }
     {
         mm_u32 cfsr = 0, hfsr = 0, bfar = 0, mmfar = 0, fault_pc = 0;
+        mm_u32 st_state = 0, st_blocks = 0, st_detail = 0;
         enum mm_sec_state sec = cpu->sec_state;
         (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED28u, 4u, &cfsr);
         (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED2Cu, 4u, &hfsr);
         (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED38u, 4u, &bfar);
         (void)mm_memmap_read(g_timeout_map, sec, 0xE000ED34u, 4u, &mmfar);
-        (void)mm_memmap_read(g_timeout_map, sec, cpu->r[13] + 20u, 4u, &fault_pc);
+        (void)mm_memmap_read(g_timeout_map, sec, cpu->r[13] + 24u, 4u, &fault_pc);
+        /* N657 self-test result symbols (bass-nam .axisram1). */
+        (void)mm_memmap_read(g_timeout_map, sec, 0x340652c0u, 4u, &st_state);
+        (void)mm_memmap_read(g_timeout_map, sec, 0x340652a0u, 4u, &st_blocks);
+        (void)mm_memmap_read(g_timeout_map, sec, 0x34065280u, 4u, &st_detail);
+        if (g_npu_out_dump != 0) {
+            mm_u8 out_buf[64];
+            mm_u32 off;
+            for (off = 0; off < 64u; off++) {
+                (void)mm_memmap_read8(g_timeout_map, MM_SECURE,
+                                      0x3427cf80u + off, &out_buf[off]);
+            }
+            {
+                FILE *fp = fopen(g_npu_out_dump, "wb");
+                if (fp != 0) {
+                    fwrite(out_buf, 1, 64, fp);
+                    fclose(fp);
+                }
+            }
+        }
         p = line;
         *p = '['; p++;
         p = timeout_str(p, tag);
@@ -1722,6 +1752,18 @@ static void timeout_dump_cpu(const struct mm_cpu *cpu, const char *tag)
         p = timeout_hex32(p, mmfar);
         p = timeout_str(p, " faultPC=0x");
         p = timeout_hex32(p, fault_pc);
+        *p = '\n'; p++;
+        *p = '\0';
+        timeout_write(line);
+        p = line;
+        *p = '['; p++;
+        p = timeout_str(p, tag);
+        p = timeout_str(p, "] selftest state=0x");
+        p = timeout_hex32(p, st_state);
+        p = timeout_str(p, " blocks=0x");
+        p = timeout_hex32(p, st_blocks);
+        p = timeout_str(p, " detail=0x");
+        p = timeout_hex32(p, st_detail);
         *p = '\n'; p++;
         *p = '\0';
         timeout_write(line);
@@ -5104,6 +5146,10 @@ int main(int argc, char **argv)
     mm_bool opt_tui = MM_FALSE;
     mm_bool opt_persist = MM_FALSE;
     const char *opt_flash_trace = 0;
+#ifdef M33MU_HAS_ONNXRUNTIME
+    const char *opt_npu_model = 0;
+    const char *opt_npu_out_dump = 0;
+#endif
     mm_u64 opt_flash_cut = MM_FLASH_OPS_NEVER;
     mm_bool opt_flash_cut_erase = MM_FALSE;
     enum mm_flash_timing_level opt_flash_timing = MM_FLASH_TIMING_NONE;
@@ -5332,6 +5378,14 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[i], "--flash-trace") == 0 && i + 1 < argc) {
             opt_flash_trace = argv[i + 1];
             i++;
+#ifdef M33MU_HAS_ONNXRUNTIME
+        } else if (strcmp(argv[i], "--npu-model") == 0 && i + 1 < argc) {
+            opt_npu_model = argv[i + 1];
+            i++;
+        } else if (strcmp(argv[i], "--npu-out-dump") == 0 && i + 1 < argc) {
+            opt_npu_out_dump = argv[i + 1];
+            i++;
+#endif
         } else if (strcmp(argv[i], "--flash-cut") == 0 && i + 1 < argc) {
             char *end;
             unsigned long long n = strtoull(argv[i + 1], &end, 0);
@@ -6460,6 +6514,7 @@ int main(int argc, char **argv)
             }
             mm_memmap_init(&map, regions, sizeof(regions) / sizeof(regions[0]));
             g_timeout_map = &map;
+            g_npu_out_dump = opt_npu_out_dump;
             mm_target_soc_reset(&cfg);
             mm_timer_reset(&cfg);
             mm_signal_prepare_for_run();
@@ -6479,6 +6534,14 @@ int main(int argc, char **argv)
             mm_memmap_configure_flash(&map, &cfg, flash, MM_FALSE);
             mm_memmap_configure_ram(&map, &cfg, ram, MM_TRUE);
             mm_memmap_configure_ram(&map, &cfg, ram, MM_FALSE);
+#ifdef M33MU_HAS_ONNXRUNTIME
+            if (opt_npu_model != 0) {
+                struct npu_onnx_model *npu_model = 0;
+                if (npu_onnx_load(&npu_model, opt_npu_model) == 0) {
+                    mm_stm32n657_npu_set_model(&map, npu_onnx_process, npu_model);
+                }
+            }
+#endif
             memset(&core_sys, 0, sizeof(core_sys));
             core_sys.dwt.vcycles = &vcycles;
             core_sys.dwt.ctrl = 0u;

@@ -122,8 +122,10 @@ enum mm_op_kind {
     MM_OP_LDRSB_REG,
     MM_OP_LDRSB_IMM,
     MM_OP_LDRSB_POST_IMM,
+    MM_OP_LDRSB_PRE_IMM,
     MM_OP_LDRSH_REG,
     MM_OP_LDRSH_IMM,
+    MM_OP_LDRSH_PRE_IMM,
     MM_OP_LDRSHT,
     MM_OP_STRHT,
     MM_OP_LDRHT,
@@ -391,6 +393,21 @@ enum mm_op_kind {
     /* ARMv8-M Security Extension FP context: VLSTM / VLLDM <Rn>. */
     MM_OP_VLSTM,
     MM_OP_VLLDM,
+
+    /* ARMv8-M MVE (Helium) instructions used by the N657 firmware. */
+    MM_OP_MVE_DLS,        /* dls - vector register bank save/restore (no-op) */
+    MM_OP_MVE_LEA,        /* le (VLEA) - PC-relative EA into lr */
+    MM_OP_MVE_VLDRBQ,     /* vldrb.u8 - 128-bit byte load, [Rn], #off (post-inc) */
+    MM_OP_MVE_VSTRBQ,     /* vstrb.8  - 128-bit byte store, [Rn], #off (post-inc) */
+    MM_OP_MVE_VLDRW,      /* vldrw.u32 - 128-bit word load, [Rn, #off] */
+    MM_OP_MVE_VSTRW,      /* vstrw.32 - 128-bit word store, [Rn, #off] */
+    MM_OP_MVE_VADD_F32,   /* vadd.f32 (lane 0), + GE conditional */
+    MM_OP_MVE_VSUB_F32,   /* vsub.f32 (lane 0), + LT conditional */
+    MM_OP_MVE_VMUL_F32,   /* vmul.f32 (lane 0) */
+    MM_OP_MVE_VCVT_F32_S32,  /* vcvt.f32.s32 (lane 0), + fraction variant */
+    MM_OP_MVE_VCVT_S32_F32,  /* vcvt.s32.f32 (lane 0) */
+    MM_OP_MVE_VCVT_U32_F32,  /* vcvt.u32.f32 (lane 0) */
+    MM_OP_MVE_VCMPE_F32,  /* vcmpe.f32 (lane 0) vs #0.0, sets flags */
 
     MM_OP_MAX
 };

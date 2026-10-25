@@ -123,6 +123,34 @@ else()
 endif()
 
 # -----------------------------------------------------------------------------
+# Optional onnxruntime detection (NPU model backend, --npu-model)
+# -----------------------------------------------------------------------------
+set(M33MU_HAS_ONNXRUNTIME FALSE)
+set(NPU_ONNX_SRC "${CMAKE_SOURCE_DIR}/src/npu_onnx.c")
+find_library(ONNXRUNTIME_LIBRARY
+  NAMES onnxruntime
+)
+if(NOT ONNXRUNTIME_LIBRARY)
+  # Some distros ship only the versioned runtime lib (no unversioned .so).
+  file(GLOB _m33mu_ort_libs
+    "/usr/lib/x86_64-linux-gnu/libonnxruntime.so.*"
+    "/usr/lib/aarch64-linux-gnu/libonnxruntime.so.*"
+    "/usr/lib/libonnxruntime.so.*"
+    "/usr/local/lib/libonnxruntime.so.*")
+  list(SORT _m33mu_ort_libs ORDER DESCENDING)
+  if(_m33mu_ort_libs)
+    list(GET _m33mu_ort_libs 0 ONNXRUNTIME_LIBRARY)
+  endif()
+endif()
+if(ONNXRUNTIME_LIBRARY AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/onnxruntime/onnxruntime_c_api.h")
+  set(M33MU_HAS_ONNXRUNTIME TRUE)
+else()
+  list(REMOVE_ITEM M33MU_SOURCES "${NPU_ONNX_SRC}")
+  list(APPEND M33MU_CONFIG_WARNINGS
+    "onnxruntime not found: --npu-model (NPU tensor backend) will be unavailable.")
+endif()
+
+# -----------------------------------------------------------------------------
 # 3) Optional libtpms detection + warning
 # -----------------------------------------------------------------------------
 set(M33MU_HAS_LIBTPMS FALSE)
@@ -413,6 +441,12 @@ endif()
 if(M33MU_HAS_VDE)
   target_compile_definitions(m33mu_lib PUBLIC M33MU_HAS_VDE=1)
   target_link_libraries(m33mu_lib PUBLIC vdeplug::vdeplug)
+endif()
+
+if(M33MU_HAS_ONNXRUNTIME)
+  target_compile_definitions(m33mu_lib PUBLIC M33MU_HAS_ONNXRUNTIME=1)
+  target_include_directories(m33mu_lib PUBLIC "${CMAKE_SOURCE_DIR}/third_party")
+  target_link_libraries(m33mu_lib PUBLIC ${ONNXRUNTIME_LIBRARY})
 endif()
 
 if(M33MU_HAS_NCURSES)

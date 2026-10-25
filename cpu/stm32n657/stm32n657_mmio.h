@@ -28,6 +28,17 @@
 
 struct mm_memmap;
 
+/* Pluggable NPU model backend: the host registers a function that maps the
+ * network input tensor to the output tensor. m33mu stays decoupled from the
+ * model format (onnxruntime, a raw C kernel, ...); it only captures the
+ * in/out buffers at the kick and hands them over. If no model is registered
+ * the output buffer is left as-is (zeros on a fresh run). */
+typedef void (*mm_npu_process_fn)(uint8_t *in, mm_u32 in_len, uint8_t *out,
+                                  mm_u32 out_len, void *opaque);
+
+void mm_stm32n657_npu_set_model(struct mm_memmap *map, mm_npu_process_fn fn,
+                                void *opaque);
+
 mm_bool mm_stm32n657_register_mmio(struct mmio_bus *bus);
 void mm_stm32n657_mmio_reset(void);
 mm_u64 mm_stm32n657_cpu_hz(void);

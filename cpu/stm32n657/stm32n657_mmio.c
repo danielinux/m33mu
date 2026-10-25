@@ -30,6 +30,9 @@
 #include "stm32n657/stm32n657_mmio.h"
 #include "stm32n657/stm32n657_usart.h"
 
+#include "m33mu/cpu.h"
+#include "m33mu/memmap.h"
+
 #include <string.h>
 
 #define N657_S_OFF 0x10000000u
@@ -44,13 +47,43 @@
 #define N657_WWDG_BASE   0x40002C00u
 #define N657_DBGMCU_BASE 0x44001000u
 #define N657_RAMCFG_BASE 0x42023100u
+#define N657_RIFSC_BASE  0x44024000u
+#define N657_RISAF_BASE  0x44026000u
+#define N657_NPU_BASE    0x480e0000u
 
-#define N657_RCC_WORDS   1024u  /* 4 KB: RCC register space runs to 0xFFC */
+#define N657_RCC_WORDS   1856u  /* 0x1D00: RCC register space per SVD */
 #define N657_BLK_WORDS   64u    /* 256 B, enough for the simple peripherals */
 #define N657_RAMCFG_WORDS 128u  /* 512 B: 4 instances span 0x000-0x180 */
+#define N657_RIFSC_WORDS  1024u /* 0x1000: RIFSC register space per SVD */
 #define N657_GPIO_WORDS  16u    /* 64 B per GPIO bank */
 #define N657_GPIO_COUNT  17u    /* GPIOA..Q */
-#define N657_MAX_WORDS   N657_RCC_WORDS
+#define N657_RISAF_WORDS  17664u /* 0x11400: RISAF1-23 span (AHB3+0x6000..0x17400) */
+#define N657_NPU_WORDS    32768u /* 0x20000: ATON blocks 0x0..0x1f000 (EPOCHCTRL u1) */
+#define N657_MAX_WORDS    N657_NPU_WORDS
+
+/* ATON block VERSION registers (offset 0x4 in each block) report a static
+ * identity; firmware polls them non-zero and checks the low 16 bits. Pre-seed
+ * both units so the plain register file read returns the expected value. */
+static const struct n657_npu_ver {
+    mm_u32 block_off;
+    mm_u32 version;
+} n657_npu_versions[] = {
+    {0x00000u, 0x1b4121fu},  /* CLKCTRL */
+    {0x01000u, 0x420111eu},  /* INTCTRL */
+    {0x02000u, 0x6501du},    /* BUSIF */
+    {0x04000u, 0x291b1600u}, /* STRSWITCH */
+    {0x05000u, 0x003e5001u}, /* STRENG */
+    {0x0f000u, 0x00065117u}, /* CONVACC */
+    {0x13000u, 0x00001a19u}, /* DECUN */
+    {0x15000u, 0x0000111bu}, /* ACTIV */
+    {0x17000u, 0x0000101au}, /* ARITH */
+    {0x1b000u, 0x0000111cu}, /* POOL */
+    {0x1d000u, 0x00003220u}, /* RECBUF */
+    {0x1e000u, 0xf001121u},  /* EPOCHCTRL */
+    {0x1f000u, 0x21ff1122u}, /* DEBUG_TRACE */
+};
+#define N657_NPU_VER_COUNT (sizeof(n657_npu_versions) / sizeof(n657_npu_versions \
+                                                               [0]))
 
 struct n657_soc {
     mm_u32 rcc[N657_RCC_WORDS];
@@ -61,6 +94,9 @@ struct n657_soc {
     mm_u32 wwdg[N657_BLK_WORDS];
     mm_u32 dbgmcu[N657_BLK_WORDS];
     mm_u32 ramcfg[N657_RAMCFG_WORDS];
+    mm_u32 rifsc[N657_RIFSC_WORDS];
+    mm_u32 risaf[N657_RISAF_WORDS];
+    mm_u32 npu[N657_NPU_WORDS];
     mm_u32 gpio[N657_GPIO_COUNT][N657_GPIO_WORDS];
 };
 
@@ -97,6 +133,12 @@ static const char *n657_reg_name(void *opaque)
         return "WWDG";
     if (opaque == g_soc.dbgmcu)
         return "DBGMCU";
+    if (opaque == g_soc.rifsc)
+        return "RIFSC";
+    if (opaque == g_soc.risaf)
+        return "RISAF";
+    if (opaque == g_soc.npu)
+        return "NPU";
     if (opaque >= (void *)g_soc.gpio[0] &&
         opaque <= (void *)g_soc.gpio[N657_GPIO_COUNT - 1]) {
         return "GPIO";
@@ -107,7 +149,7 @@ static const char *n657_reg_name(void *opaque)
 static void n657_dbg_log(const char *rw, void *opaque, mm_u32 off, mm_u32 val)
 {
     static long n = 0;
-    if (n < 600) {
+    if (n < 400000) {
         fprintf(stderr, "[N657MMIO] %s %-6s off=0x%03x val=0x%08x\n",
                 rw, n657_reg_name(opaque), off, val);
     }
@@ -145,6 +187,75 @@ static mm_bool n657_blk_write(void *opaque, mm_u32 off, mm_u32 size,
                  ((value & mask) << shift);
     n657_dbg_log("W", opaque, off, value);
     return MM_TRUE;
+}
+
+/* INTCTRL_CTRL (0x1000), STRSWITCH_CTRL (0x4000) and the STRENG_CTRL units
+ * (0x5000..0xe000, 10 units): the CLR (bit 1) and CONFCLR (bit 30) bits are
+ * write-1-to-start; the hardware clears each when its op completes. Clear both
+ * on write so the firmware's polls finish. */
+static mm_bool n657_npu_is_ctrl(mm_u32 off)
+{
+    /* Every block unit base (0x1000-aligned, 0x0..0x1f000) has a CTRL register
+     * at offset 0 with a write-1-to-start CLR (bit 1) and CONFCLR (bit 30). */
+    return (off <= 0x1f000u) && ((off & 0xfffu) == 0u);
+}
+
+/* Pluggable NPU model backend: the host registers a function that maps the
+ * input tensor to the output tensor. m33mu captures the in/out buffers at the
+ * kick and hands them over; it stays decoupled from the model format. */
+static struct mm_memmap *g_npu_memmap;
+static mm_npu_process_fn g_npu_model_fn;
+static void *g_npu_model_opaque;
+
+void mm_stm32n657_npu_set_model(struct mm_memmap *map, mm_npu_process_fn fn,
+                                void *opaque)
+{
+    g_npu_memmap = map;
+    g_npu_model_fn = fn;
+    g_npu_model_opaque = opaque;
+}
+
+/* The bass-nam network: 1086 int8 in (1022 history + 64 dry), 64 int8 out.
+ * Both buffers live in the NPU pool (guest RAM), addresses fixed by the
+ * firmware's LL_Buffer_addr_start at init. */
+#define N657_NPU_IN_ADDR  0x34274800u
+#define N657_NPU_IN_LEN   1086u
+#define N657_NPU_OUT_ADDR 0x3427cf80u
+#define N657_NPU_OUT_LEN  64u
+
+static void n657_npu_run_model(void)
+{
+    static uint8_t in_buf[N657_NPU_IN_LEN];
+    static uint8_t out_buf[N657_NPU_OUT_LEN];
+    mm_u32 i;
+    if (g_npu_memmap == NULL || g_npu_model_fn == NULL) {
+        return;
+    }
+    for (i = 0u; i < N657_NPU_IN_LEN; ++i) {
+        mm_memmap_read8(g_npu_memmap, MM_SECURE, N657_NPU_IN_ADDR + i,
+                        &in_buf[i]);
+    }
+    g_npu_model_fn(in_buf, N657_NPU_IN_LEN, out_buf, N657_NPU_OUT_LEN,
+                   g_npu_model_opaque);
+    for (i = 0u; i < N657_NPU_OUT_LEN; ++i) {
+        mm_memmap_write8(g_npu_memmap, MM_SECURE, N657_NPU_OUT_ADDR + i,
+                         out_buf[i]);
+    }
+}
+
+static mm_bool n657_npu_write(void *opaque, mm_u32 off, mm_u32 size,
+                              mm_u32 value)
+{
+    if (n657_npu_is_ctrl(off)) {
+        value &= ~(0x2u | 0x40000000u);
+    }
+    /* Kick: STRENG0 off 0x10 is written exactly once per inference, after the
+    * input is staged in guest RAM and before the output is read back. Run the
+    * pluggable model here so the output buffer is ready for the read-back. */
+    if (off == 0x5010u) {
+        n657_npu_run_model();
+    }
+    return n657_blk_write(opaque, off, size, value);
 }
 
 /* DBGMCU IDCODE/DEVID/DEVCAP report a plausible N657 identity so firmware
@@ -241,9 +352,20 @@ static mm_bool n657_register_both(struct mmio_bus *bus, mm_u32 ns_base,
 
 void mm_stm32n657_mmio_reset(void)
 {
+    mm_u32 i;
+    mm_u32 unit;
+
     memset(&g_soc, 0, sizeof(g_soc));
     /* DBGMCU DEVCAP: report an N657 device. */
     g_soc.dbgmcu[0x0c / 4u] = 0x00000000u;
+    /* ATON VERSION registers: seed both units. */
+    for (i = 0u; i < N657_NPU_VER_COUNT; ++i) {
+        for (unit = 0u; unit < 2u; ++unit) {
+            mm_u32 off = n657_npu_versions[i].block_off + (unit * 0x1000u) +
+                         0x4u;
+            g_soc.npu[off >> 2u] = n657_npu_versions[i].version;
+        }
+    }
 }
 
 mm_bool mm_stm32n657_mpcbb_block_secure(int bank, mm_u32 block_index)
@@ -302,6 +424,21 @@ mm_bool mm_stm32n657_register_mmio(struct mmio_bus *bus)
     if (!n657_register_both(bus, N657_RAMCFG_BASE, N657_RAMCFG_WORDS * 4u,
                             g_soc.ramcfg, n657_blk_read, n657_blk_write,
                             "RAMCFG")) {
+        return MM_FALSE;
+    }
+    if (!n657_register_both(bus, N657_RIFSC_BASE, N657_RIFSC_WORDS * 4u,
+                            g_soc.rifsc, n657_blk_read, n657_blk_write,
+                            "RIFSC")) {
+        return MM_FALSE;
+    }
+    if (!n657_register_both(bus, N657_RISAF_BASE, N657_RISAF_WORDS * 4u,
+                            g_soc.risaf, n657_blk_read, n657_blk_write,
+                            "RISAF")) {
+        return MM_FALSE;
+    }
+    if (!n657_register_both(bus, N657_NPU_BASE, N657_NPU_WORDS * 4u,
+                            g_soc.npu, n657_blk_read, n657_npu_write,
+                            "NPU")) {
         return MM_FALSE;
     }
     if (!n657_register_both(bus, N657_IWDG_BASE, N657_BLK_WORDS * 4u,

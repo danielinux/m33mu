@@ -892,6 +892,47 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
 } while (0)
 
                     pc_before_exec = cpu.r[15];
+                    {
+                        static FILE *g_pc_trace = 0;
+                        static int g_pc_trace_init = 0;
+                        static mm_u32 g_last_pc = 0;
+                        static mm_u32 g_last_kind = 0;
+                        static mm_u32 g_last_raw = 0;
+                        static int g_odd_pc_seen = 0;
+                        if (!g_pc_trace_init) {
+                            g_pc_trace_init = 1;
+                            if (getenv("M33MU_PC_TRACE")) {
+                                g_pc_trace = fopen(getenv("M33MU_PC_TRACE"), "w");
+                            }
+                        }
+                        if (g_pc_trace != 0) {
+                            fprintf(g_pc_trace, "0x%08lx kind=%u\n", (unsigned long)pc_before_exec, (unsigned int)d.kind);
+                        }
+                        if (getenv("M33MU_ODDPC_TRACE") && (pc_before_exec & 1u) && g_odd_pc_seen < 8) {
+                            g_odd_pc_seen++;
+                            printf("[ODDPC] odd pc=0x%08lx (cur kind=%u raw=0x%08lx) prev pc=0x%08lx kind=%u raw=0x%08lx xpsr=0x%08lx\n",
+                                   (unsigned long)pc_before_exec, (unsigned int)d.kind, (unsigned long)d.raw,
+                                   (unsigned long)g_last_pc, (unsigned int)g_last_kind, (unsigned long)g_last_raw,
+                                   (unsigned long)cpu.xpsr);
+                        }
+                        g_last_pc = pc_before_exec;
+                        g_last_kind = d.kind;
+                        g_last_raw = d.raw;
+                        if (getenv("M33MU_MEMDUMP") && (pc_before_exec & ~1u) == 0x340026f2u) {
+                            static FILE *g_memdump = 0;
+                            mm_u32 w0 = 0, w1 = 0;
+                            if (g_memdump == 0) {
+                                g_memdump = fopen(getenv("M33MU_MEMDUMP"), "w");
+                            }
+                            if (g_memdump != 0) {
+                                (void)mm_memmap_read(&map, MM_SECURE, 0x340026f2u, 4u, &w0);
+                                (void)mm_memmap_read(&map, MM_SECURE, 0x340026f6u, 4u, &w1);
+                                fprintf(g_memdump, "[MEMDUMP] 0x340026f2: w0=0x%08x w1=0x%08x (expect w0=0x4502e9cd w1=0xfaf9f001)\n",
+                                        (unsigned)w0, (unsigned)w1);
+                                fflush(g_memdump);
+                            }
+                        }
+                    }
                     /* Snapshot last executed instruction for fetch diagnostics. */
                     switch (d.kind) {
                         case MM_OP_IT:
@@ -1361,6 +1402,180 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                               fpu_mark_active(&cpu);
                                               break;
                                           }
+                        /* ---- ARMv8-M MVE (Helium) - N657 firmware subset ---- */
+                        case MM_OP_MVE_DLS:
+                            /* dls: vector register bank save/restore, no-op here. */
+                            break;
+                        case MM_OP_MVE_LEA: {
+                            /* le (VLEA): lr = (PC+4) + sign_ext(imm6) * 4. */
+                            mm_u32 ea = (f.pc_fetch + 4u) + ((mm_i32)d.imm * 4);
+                            cpu.r[14] = ea;
+                            break;
+                        }
+                        case MM_OP_MVE_VLDRBQ: {
+                            /* vldrb.u8: Qd = [Rn], #off (post-increment, 16 bytes). */
+                            mm_u32 base = cpu.r[d.rn];
+                            mm_u32 off = d.imm;
+                            mm_u32 addr = base;
+                            mm_u32 i;
+                            mm_u32 j;
+                            mm_u8 b;
+                            mm_u32 word;
+                            for (i = 0u; i < 4u; i++) {
+                                word = 0u;
+                                for (j = 0u; j < 4u; j++) {
+                                    if (!mm_memmap_read8(&map, cpu.sec_state, addr + (i * 4u) + j, &b)) {
+                                        if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;
+                                        return MM_EXEC_CONTINUE;
+                                    }
+                                    word |= (mm_u32)b << (j * 8u);
+                                }
+                                cpu.q[d.rd][i] = word;
+                            }
+                            cpu.r[d.rn] = base + off;
+                            break;
+                        }
+                        case MM_OP_MVE_VSTRBQ: {
+                            /* vstrb.8: [Rn], #off = Qd (post-increment, 16 bytes). */
+                            mm_u32 base = cpu.r[d.rn];
+                            mm_u32 off = d.imm;
+                            mm_u32 addr = base;
+                            mm_u32 i;
+                            mm_u32 j;
+                            for (i = 0u; i < 4u; i++) {
+                                for (j = 0u; j < 4u; j++) {
+                                    if (!mm_memmap_write8(&map, cpu.sec_state, addr + (i * 4u) + j, (mm_u8)(cpu.q[d.rd][i] >> (j * 8u)))) {
+                                        if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;
+                                        return MM_EXEC_CONTINUE;
+                                    }
+                                }
+                            }
+                            cpu.r[d.rn] = base + off;
+                            break;
+                        }
+                        case MM_OP_MVE_VLDRW: {
+                            /* vldrw.u32: Qd = [Rn, #off] (pre-indexed, 16 bytes). */
+                            mm_u32 addr = cpu.r[d.rn] + d.imm;
+                            mm_u32 i;
+                            for (i = 0u; i < 4u; i++) {
+                                if (!mm_memmap_read(&map, cpu.sec_state, addr + (i * 4u), 4u, &cpu.q[d.rd][i])) {
+                                    if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;
+                                    return MM_EXEC_CONTINUE;
+                                }
+                            }
+                            break;
+                        }
+                        case MM_OP_MVE_VSTRW: {
+                            /* vstrw.32: [Rn, #off] = Qd (pre-indexed, 16 bytes). */
+                            mm_u32 addr = cpu.r[d.rn] + d.imm;
+                            mm_u32 i;
+                            for (i = 0u; i < 4u; i++) {
+                                if (!mm_memmap_write(&map, cpu.sec_state, addr + (i * 4u), 4u, cpu.q[d.rd][i])) {
+                                    if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;
+                                    return MM_EXEC_CONTINUE;
+                                }
+                            }
+                            break;
+                        }
+                        case MM_OP_MVE_VADD_F32:
+                        case MM_OP_MVE_VSUB_F32:
+                        case MM_OP_MVE_VMUL_F32: {
+                            /* Scalar float 3-reg ops (lane 0), + GE/LT conditional. */
+                            float a;
+                            float b;
+                            float r;
+                            mm_bool do_op = MM_TRUE;
+                            if (!fpu_check_or_fault(ctx)) {
+                                return MM_EXEC_CONTINUE;
+                            }
+                            if (d.rd >= 32u || d.rn >= 32u || d.rm >= 32u) {
+                                EXEC_RAISE_UNDEF();
+                            }
+                            if (d.imm != 0u) {
+                                mm_u32 n = (cpu.xpsr >> 31) & 1u;
+                                mm_u32 z = (cpu.xpsr >> 30) & 1u;
+                                mm_u32 c = (cpu.xpsr >> 29) & 1u;
+                                if (d.kind == MM_OP_MVE_VADD_F32) {
+                                    do_op = (n == c);  /* GE */
+                                } else {
+                                    do_op = (n != z);  /* LT */
+                                }
+                            }
+                            if (!do_op) {
+                                break;
+                            }
+                            a = fpu_u32_to_f32(cpu.q[d.rn][0]);
+                            b = fpu_u32_to_f32(cpu.q[d.rm][0]);
+                            if (d.kind == MM_OP_MVE_VADD_F32) {
+                                r = a + b;
+                            } else if (d.kind == MM_OP_MVE_VSUB_F32) {
+                                r = a - b;
+                            } else {
+                                r = a * b;
+                            }
+                            cpu.q[d.rd][0] = fpu_f32_to_u32(r);
+                            fpu_mark_active(&cpu);
+                            break;
+                        }
+                        case MM_OP_MVE_VCVT_F32_S32: {
+                            /* vcvt.f32.s32 (lane 0): q[Vd][0] = (float)(int32)q[Vm][0] / 2^frac. */
+                            float v;
+                            if (!fpu_check_or_fault(ctx)) {
+                                return MM_EXEC_CONTINUE;
+                            }
+                            if (d.rd >= 32u || d.rm >= 32u) {
+                                EXEC_RAISE_UNDEF();
+                            }
+                            v = (float)(mm_i32)cpu.q[d.rm][0];
+                            if (d.imm != 0u) {
+                                v = v / (float)(1u << d.imm);
+                            }
+                            cpu.q[d.rd][0] = fpu_f32_to_u32(v);
+                            fpu_mark_active(&cpu);
+                            break;
+                        }
+                        case MM_OP_MVE_VCVT_S32_F32: {
+                            /* vcvt.s32.f32 (lane 0): q[Vd][0] = (int32)(float)q[Vm][0]. */
+                            float a;
+                            if (!fpu_check_or_fault(ctx)) {
+                                return MM_EXEC_CONTINUE;
+                            }
+                            if (d.rd >= 32u || d.rm >= 32u) {
+                                EXEC_RAISE_UNDEF();
+                            }
+                            a = fpu_u32_to_f32(cpu.q[d.rm][0]);
+                            cpu.q[d.rd][0] = fpu_vcvt_s32_from_f32(&cpu, a, MM_FALSE);
+                            fpu_mark_active(&cpu);
+                            break;
+                        }
+                        case MM_OP_MVE_VCVT_U32_F32: {
+                            /* vcvt.u32.f32 (lane 0): q[Vd][0] = (uint32)(float)q[Vm][0]. */
+                            float a;
+                            if (!fpu_check_or_fault(ctx)) {
+                                return MM_EXEC_CONTINUE;
+                            }
+                            if (d.rd >= 32u || d.rm >= 32u) {
+                                EXEC_RAISE_UNDEF();
+                            }
+                            a = fpu_u32_to_f32(cpu.q[d.rm][0]);
+                            cpu.q[d.rd][0] = fpu_vcvt_u32_from_f32(&cpu, a, MM_FALSE);
+                            fpu_mark_active(&cpu);
+                            break;
+                        }
+                        case MM_OP_MVE_VCMPE_F32: {
+                            /* vcmpe.f32 (lane 0): compare q[Vd][0] with #0.0, set flags. */
+                            float a;
+                            if (!fpu_check_or_fault(ctx)) {
+                                return MM_EXEC_CONTINUE;
+                            }
+                            if (d.rd >= 32u) {
+                                EXEC_RAISE_UNDEF();
+                            }
+                            a = fpu_u32_to_f32(cpu.q[d.rd][0]);
+                            fpu_cmp_update_flags(&cpu, a, 0.0f);
+                            fpu_mark_active(&cpu);
+                            break;
+                        }
                         case MM_OP_VFMA_F32:
                         case MM_OP_VFMS_F32:
                         case MM_OP_VFNMA_F32:
@@ -4492,6 +4707,20 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                           cpu.r[d.rn] = base + d.imm;
                                                       }
                                                   } break;
+                        case MM_OP_LDRSB_PRE_IMM: {
+                                                      mm_u32 addr = cpu.r[d.rn] + d.imm;
+                                                      mm_u32 val = 0;
+                                                      if (!mm_memmap_read(&map, cpu.sec_state, addr, 1u, &val)) {
+                                                          if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;
+                                                          return MM_EXEC_CONTINUE;
+                                                      }
+                                                      cpu.r[d.rd] = (val & 0x80u) ? (val | 0xffffff80u) : (val & 0xffu);
+                                                      if (d.rn == 13u) {
+                                                          EXEC_SET_SP(addr);
+                                                      } else {
+                                                          cpu.r[d.rn] = addr;
+                                                      }
+                                                  } break;
                         case MM_OP_LDRSH_IMM:
                         case MM_OP_LDRSHT: {
                                                   mm_u32 addr = cpu.r[d.rn] + d.imm;
@@ -4559,6 +4788,24 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                                         return MM_EXEC_CONTINUE;
                                                     }
                                                     cpu.r[d.rd] = val & 0xffffu;
+                                                    if (d.rn == 13u) {
+                                                        EXEC_SET_SP(addr);
+                                                    } else {
+                                                        cpu.r[d.rn] = addr;
+                                                    }
+                                                } break;
+                        case MM_OP_LDRSH_PRE_IMM: {
+                                                    mm_u32 addr = cpu.r[d.rn] + d.imm;
+                                                    mm_u32 val = 0;
+                                                    EXEC_CHECK_UNALIGN(addr, 2u);
+                                                    if (!mm_memmap_read(&map, cpu.sec_state, addr, 2u, &val)) {
+                                                        if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;
+                                                        return MM_EXEC_CONTINUE;
+                                                    }
+                                                    if ((val & 0x8000u) != 0u) {
+                                                        val |= 0xffff0000u;
+                                                    }
+                                                    cpu.r[d.rd] = val;
                                                     if (d.rn == 13u) {
                                                         EXEC_SET_SP(addr);
                                                     } else {

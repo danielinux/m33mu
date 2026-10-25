@@ -38,6 +38,9 @@ struct mm_scs_mmio {
 
 #define SCS_PAGE_SIZE 0x1000u
 #define SCS_SCB_OFFSET 0x0D00u /* SCB window starts at 0xE000ED00 inside SCS page */
+#define PMU_PAGE_SIZE 0x1000u
+#define PMU_PMCCNTR_OFFSET 0xE00u
+#define PMU_OFFSET_FROM_SCS_PAGE 0xB000u /* PMU 0xE000_3000 vs SCS page 0xE000_E000 */
 #define MVFR0_FPV5_SP_D16 0x10110021u
 #define MVFR1_FPV5_SP_D16 0x11000011u
 #define CCR_STKALIGN (1u << 9)
@@ -752,6 +755,70 @@ void mm_scs_set_fpu_present(struct mm_scs *scs, mm_bool present)
     }
 }
 
+/* Cortex-M55 PMU (0xE000_3000): plain register file; PMCCNTR increments so
+ * ARM_PMU_Get_CCNTR-based timing yields a monotonic cycle count. */
+static mm_u32 g_pmu_regs[PMU_PAGE_SIZE / 4u];
+static mm_u32 g_pmu_ccntr = 0u;
+
+static mm_bool pmu_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
+{
+    mm_u32 word_off;
+    mm_u32 val;
+    (void)opaque;
+    if (value_out == 0 || offset >= PMU_PAGE_SIZE) {
+        return MM_FALSE;
+    }
+    word_off = offset & ~0x3u;
+    if (word_off == PMU_PMCCNTR_OFFSET) {
+        val = ++g_pmu_ccntr;
+    } else {
+        val = g_pmu_regs[word_off >> 2u];
+    }
+    return scs_finish_read_subword(offset, size_bytes, val, value_out);
+}
+
+static mm_bool pmu_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    mm_u32 word_off;
+    mm_u32 shift;
+    mm_u32 mask;
+    (void)opaque;
+    if (offset >= PMU_PAGE_SIZE) {
+        return MM_FALSE;
+    }
+    word_off = offset & ~0x3u;
+    if (word_off == PMU_PMCCNTR_OFFSET) {
+        return MM_TRUE; /* W1C / reset: write-ignored */
+    }
+    shift = (offset & 0x3u) * 8u;
+    if (size_bytes == 1u) {
+        mask = 0xFFu;
+    } else if (size_bytes == 2u) {
+        mask = 0xFFFFu;
+    } else {
+        mask = 0xFFFFFFFFu;
+    }
+    g_pmu_regs[word_off >> 2u] =
+        (g_pmu_regs[word_off >> 2u] & ~(mask << shift)) | ((value & mask) << shift);
+    return MM_TRUE;
+}
+
+static mm_bool pmu_register_region(struct mmio_bus *bus, mm_u32 base)
+{
+    struct mmio_region reg;
+    memset(&reg, 0, sizeof(reg));
+    reg.base = base;
+    reg.size = PMU_PAGE_SIZE;
+    reg.opaque = 0;
+    reg.read = pmu_read;
+    reg.write = pmu_write;
+    reg.magic = MMIO_REGION_MAGIC;
+    reg.flags = MMIO_REGION_F_EXT;
+    reg.name = "PMU";
+    reg.version = 1u;
+    return mmio_bus_register_region(bus, &reg);
+}
+
 static mm_bool scs_read_internal(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out,
                                  mm_bool clear_countflag, mm_bool noisy)
 {
@@ -1304,6 +1371,10 @@ mm_bool mm_scs_register_regions(struct mm_scs *scs, struct mmio_bus *bus, mm_u32
 
     if (!mmio_bus_register_region(bus, &reg_s)) return MM_FALSE;
 
+    if (!pmu_register_region(bus, page_base_secure - PMU_OFFSET_FROM_SCS_PAGE)) {
+        return MM_FALSE;
+    }
+
     if (base_nonsecure != base_secure) {
         ctx_nonsecure.scs = scs;
         ctx_nonsecure.nvic = nvic;
@@ -1358,6 +1429,10 @@ mm_bool mm_scs_register_regions_multi(const struct mm_scs_mux *mux, struct mmio_
     reg_s.save = scs_save;
     reg_s.load = scs_load;
     if (!mmio_bus_register_region(bus, &reg_s)) return MM_FALSE;
+
+    if (!pmu_register_region(bus, page_base_secure - PMU_OFFSET_FROM_SCS_PAGE)) {
+        return MM_FALSE;
+    }
 
     if (base_nonsecure != base_secure) {
         ctx_nonsecure.scs = 0;

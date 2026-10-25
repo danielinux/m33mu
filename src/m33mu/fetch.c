@@ -24,6 +24,9 @@
 #include "m33mu/cpu.h"
 #include "m33mu/memmap.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
 mm_bool t32_is_32bit_prefix(mm_u16 prefix)
 {
     return (prefix & 0xF800u) >= 0xE800u;
@@ -88,9 +91,32 @@ struct mm_fetch_result mm_fetch_t32_memmap(struct mm_cpu *cpu, const struct mm_m
 
     res.pc_fetch = cpu->r[15] & ~1u;
 
+    if (getenv("M33MU_FETCH_TRACE") && res.pc_fetch == 0x340026f2u) {
+        static FILE *g_ft = 0;
+        if (g_ft == 0) {
+            g_ft = fopen(getenv("M33MU_FETCH_TRACE"), "w");
+        }
+        if (g_ft != 0) {
+            fprintf(g_ft, "[FETCH] pc=0x%08lx sec=%d\n", (unsigned long)res.pc_fetch, (int)sec);
+            fflush(g_ft);
+        }
+    }
+
     if (!mm_memmap_fetch_read16(map, sec, res.pc_fetch, &hw1)) {
         res.fault_addr = res.pc_fetch;
         return res;
+    }
+
+    if (getenv("M33MU_FETCH_TRACE") && res.pc_fetch == 0x340026f2u) {
+        static FILE *g_ft2 = 0;
+        if (g_ft2 == 0) {
+            g_ft2 = fopen(getenv("M33MU_FETCH_TRACE"), "a");
+        }
+        if (g_ft2 != 0) {
+            fprintf(g_ft2, "[FETCH] hw1=0x%04x is32=%d\n", (unsigned)(hw1 & 0xffffu),
+                    (int)t32_is_32bit_prefix((mm_u16)hw1));
+            fflush(g_ft2);
+        }
     }
 
     if (t32_is_32bit_prefix((mm_u16)hw1)) {
@@ -131,6 +157,19 @@ struct mm_fetch_result mm_fetch_t32_memmap_at(const struct mm_memmap *map, enum 
     if (!mm_memmap_fetch_read16(map, sec, res.pc_fetch, &hw1)) {
         res.fault_addr = res.pc_fetch;
         return res;
+    }
+
+    if (getenv("M33MU_FETCH_TRACE") && res.pc_fetch == 0x340026f2u) {
+        static FILE *g_fta = 0;
+        if (g_fta == 0) {
+            g_fta = fopen(getenv("M33MU_FETCH_TRACE"), "w");
+        }
+        if (g_fta != 0) {
+            fprintf(g_fta, "[FETCH_AT] pc=0x%08lx sec=%d hw1=0x%04x is32=%d\n",
+                    (unsigned long)res.pc_fetch, (int)sec, (unsigned)(hw1 & 0xffffu),
+                    (int)t32_is_32bit_prefix((mm_u16)hw1));
+            fflush(g_fta);
+        }
     }
 
     if (t32_is_32bit_prefix((mm_u16)hw1)) {

@@ -51,6 +51,7 @@ struct mm_cpu {
     mm_bool q_flag;   /* Q - APSR bit 27 - sticky saturation overflow */
 
     mm_u32 s[32];  /* s0-s31 */
+    mm_u32 q[32][4];  /* MVE vector registers q0-q31, 4 x 32-bit lanes; q[n][0] aliases s[n] */
     mm_u32 fpscr;
     mm_bool fp_active;
 

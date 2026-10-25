@@ -757,12 +757,148 @@ static struct mm_decoded decode_16(mm_u16 hw1)
     return d;
 }
 
+/* ARMv8-M MVE (Helium) decode for the subset used by the N657 firmware.
+ * Field positions confirmed empirically against the firmware disassembly:
+ *   3-reg float Vd = ((insn>>12)&0xf)<<1 | ((insn>>22)&1)
+ *                   Vn = ((insn>>16)&0xf)<<1 | ((insn>>7)&1)
+ *                   Vm = ((insn>>0)&0xf)<<1  | ((insn>>5)&1)
+ *   load/store   Vd = (((insn>>12)&0xf) | (((insn>>22)&1)<<4)) >> 1, Rn = (insn>>16)&0xf
+ * Returns MM_OP_UNDEFINED when the word is not an MVE instruction. */
+static struct mm_decoded decode_mve(mm_u32 insn)
+{
+    struct mm_decoded d;
+    d = mm_decoded_default(0);
+    d.len = 4;
+    d.raw = insn;
+
+    /* dls: vector register bank save/restore, no-op in this firmware. */
+    if ((insn & 0xfff7ffffu) == 0xf046e001u) {
+        d.kind = MM_OP_MVE_DLS;
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
+    /* le (VLEA): EA = (PC+4) + sign_ext(imm6, bit23) * 4, dest = lr. */
+    if ((insn & 0xfffff001u) == 0xf00fc001u) {
+        mm_u32 imm6 = (insn >> 1) & 0x3fu;
+        mm_bool neg = ((insn >> 23) & 1u) != 0u;
+        d.kind = MM_OP_MVE_LEA;
+        d.imm = neg ? (mm_u32)(-(mm_i32)imm6) : imm6;
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
+    /* vldrb.u8 (VLRBQ): Qd = [Rn], #off (post-increment, 16 bytes). */
+    if ((insn & 0xfffeffffu) == 0xecb27e10u) {
+        d.kind = MM_OP_MVE_VLDRBQ;
+        d.rd = (mm_u8)((((insn >> 12) & 0xfu) | (((insn >> 22) & 1u) << 4)) >> 1);
+        d.rn = (mm_u8)((insn >> 16) & 0xfu);
+        d.imm = insn & 0xffu;
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
+    /* vstrb.8 (VSTRBQ): [Rn], #off = Qd (post-increment, 16 bytes).
+     * Encoding: 111011 00101 Rn[4:0] 0 Vt[3:0] 111 imm8[7:0]. */
+    if ((insn & 0xffe08700u) == 0xeca00700u) {
+        d.kind = MM_OP_MVE_VSTRBQ;
+        d.rd = (mm_u8)((insn >> 11) & 0xfu);
+        d.rn = (mm_u8)((insn >> 16) & 0x1fu);
+        d.imm = insn & 0xffu;
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
+    /* vldrw.u32 (VLDRW): Qd = [Rn, #off*4] (pre-indexed, 16 bytes). */
+    if ((insn & 0xffff1fe1u) == 0xed9d1f00u) {
+        d.kind = MM_OP_MVE_VLDRW;
+        d.rd = (mm_u8)((((insn >> 12) & 0xfu) | (((insn >> 22) & 1u) << 4)) >> 1);
+        d.rn = (mm_u8)((insn >> 16) & 0xfu);
+        d.imm = (insn & 0xffu) * 4u;
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
+    /* vstrw.32 (VSTRW): [Rn, #off*4] = Qd (pre-indexed, 16 bytes). */
+    if ((insn & 0xfff21fc0u) == 0xed801f00u) {
+        d.kind = MM_OP_MVE_VSTRW;
+        d.rd = (mm_u8)((((insn >> 12) & 0xfu) | (((insn >> 22) & 1u) << 4)) >> 1);
+        d.rn = (mm_u8)((insn >> 16) & 0xfu);
+        d.imm = (insn & 0xffu) * 4u;
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
+    /* Scalar float 3-reg ops: vadd/vsub/vmul.f32 (+ GE/LT conditional). */
+    if ((insn & 0xffafff10u) == 0xee277a00u) {
+        mm_u32 b20 = (insn >> 20) & 1u;
+        mm_u32 b6 = (insn >> 6) & 1u;
+        mm_u32 b0 = insn & 1u;
+        d.rd = (mm_u8)((((insn >> 12) & 0xfu) << 1) | ((insn >> 22) & 1u));
+        d.rn = (mm_u8)((((insn >> 16) & 0xfu) << 1) | ((insn >> 7) & 1u));
+        d.rm = (mm_u8)((((insn >> 0) & 0xfu) << 1) | ((insn >> 5) & 1u));
+        if (b20 == 0u && b6 == 0u) {
+            d.kind = MM_OP_MVE_VMUL_F32;
+            d.imm = 0u;
+        } else if (b6 == 0u) {
+            d.kind = MM_OP_MVE_VADD_F32;
+            d.imm = b0;  /* 0=AL, 1=GE */
+        } else {
+            d.kind = MM_OP_MVE_VSUB_F32;
+            d.imm = b0;  /* 0=AL, 1=LT */
+        }
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
+    /* vcvt family (2-reg, variant in bits16-19). */
+    if ((insn & 0xffb8cfdcu) == 0xeeb84ac4u) {
+        mm_u32 variant = (insn >> 16) & 0xfu;
+        d.rd = (mm_u8)((((insn >> 12) & 0xfu) << 1) | ((insn >> 22) & 1u));
+        d.rm = (mm_u8)((((insn >> 0) & 0xfu) << 1) | ((insn >> 5) & 1u));
+        if (variant == 0x8u) {
+            d.kind = MM_OP_MVE_VCVT_F32_S32;
+            d.imm = 0u;
+        } else if (variant == 0xa) {
+            d.kind = MM_OP_MVE_VCVT_F32_S32;
+            d.imm = (insn & 0xfu) * 6u;  /* fraction bits = field * 6 */
+        } else if (variant == 0xc) {
+            d.kind = MM_OP_MVE_VCVT_U32_F32;
+            d.imm = 0u;
+        } else if (variant == 0xd) {
+            d.kind = MM_OP_MVE_VCVT_S32_F32;
+            d.imm = 0u;
+        } else {
+            return d;  /* unknown vcvt variant */
+        }
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
+    /* vcmpe.f32: compare q[Vd][0] with #0.0, set flags. */
+    if (insn == 0xeef57ac0u) {
+        d.kind = MM_OP_MVE_VCMPE_F32;
+        d.rd = (mm_u8)((((insn >> 12) & 0xfu) << 1) | ((insn >> 22) & 1u));
+        d.undefined = MM_FALSE;
+        return d;
+    }
+
+    return d;  /* not an MVE instruction */
+}
+
 static struct mm_decoded decode_32(mm_u32 insn)
 {
     struct mm_decoded d;
     d = mm_decoded_default(0);
     d.len = 4;
     d.raw = insn;
+
+    /* MVE (Helium) instructions - checked first, they live in the 1111 space. */
+    d = decode_mve(insn);
+    if (d.kind != MM_OP_UNDEFINED) {
+        return d;
+    }
+
 
     /* LDR (literal), Thumb-2 T3:
      * 1111 1000 U101 1111 Rt imm12
@@ -1564,6 +1700,21 @@ static struct mm_decoded decode_32(mm_u32 insn)
             d.undefined = MM_FALSE;
             return d;
         }
+        if (p == 1u && w == 1u) {
+            mm_u8 rn = (mm_u8)((insn >> 16) & 0x0fu);
+            mm_u8 rt = (mm_u8)((insn >> 12) & 0x0fu);
+            mm_u32 imm8 = insn & 0xffu;
+            mm_u32 off = u ? imm8 : (0u - imm8);
+            if (rt == 15u) {
+                return d;
+            }
+            d.kind = MM_OP_LDRSH_PRE_IMM;
+            d.rn = rn;
+            d.rd = rt;
+            d.imm = off;
+            d.undefined = MM_FALSE;
+            return d;
+        }
     }
 
     /* LDAEX (word) */
@@ -2221,6 +2372,19 @@ static struct mm_decoded decode_32(mm_u32 insn)
                 mm_u32 off = u ? imm8 : (0u - imm8);
                 if (rt == 15u) return d;
                 d.kind = MM_OP_LDRSB_POST_IMM;
+                d.rn = rn;
+                d.rd = rt;
+                d.imm = off;
+                d.undefined = MM_FALSE;
+                return d;
+            }
+            if (p == 1u && w == 1u) { /* pre-indexed writeback */
+                mm_u8 rn = (mm_u8)(hw1 & 0x0fu);
+                mm_u8 rt = (mm_u8)((hw2 >> 12) & 0x0fu);
+                mm_u32 imm8 = hw2 & 0x00ffu;
+                mm_u32 off = u ? imm8 : (0u - imm8);
+                if (rt == 15u) return d;
+                d.kind = MM_OP_LDRSB_PRE_IMM;
                 d.rn = rn;
                 d.rd = rt;
                 d.imm = off;
