@@ -8,6 +8,7 @@
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
 #include "m33mu/gpio.h"
+#include "nrf_gpio.h"
 
 #define FICR_BASE_NS 0x00FFC000u
 #define FICR_SIZE    0x1000u
@@ -142,11 +143,6 @@
 #define CLOCK_EVENT_XOTUNEFAILED_BIT (1u << 6)
 #define CLOCK_EVENT_XO24MSTARTED_BIT (1u << 7)
 
-struct gpio_bank {
-    mm_u32 regs[GPIO_SIZE / 4];
-    mm_u32 pin_cnf[32];
-};
-
 struct ficr_state {
     mm_u32 regs[FICR_SIZE / 4];
 };
@@ -190,7 +186,7 @@ struct grtc_state {
     mm_bool running;
 };
 
-static struct gpio_bank gpio_banks[4];
+static struct nrf_gpio_bank gpio_banks[4];
 static struct ficr_state ficr_state;
 static struct rramc_state rramc_state;
 static struct clock_state clock_state;
@@ -305,76 +301,13 @@ static mm_bool nrf54lm20_gpio_bank_info(void *opaque, int bank, char *name_out, 
     return MM_TRUE;
 }
 
-static void gpio_sync_inputs(struct gpio_bank *g)
+static mm_bool nrf_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                              mm_u64 late_cycles)
 {
-    if (g == 0) return;
-    g->regs[GPIO_IN / 4] = g->regs[GPIO_OUT / 4];
-}
-
-static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
-{
-    struct gpio_bank *g = (struct gpio_bank *)opaque;
-    if (g == 0 || value_out == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
-    if ((offset + size_bytes) > GPIO_SIZE) return MM_FALSE;
-
-    if (offset >= GPIO_PIN_CNF0 && size_bytes == 4) {
-        mm_u32 pin = (offset - GPIO_PIN_CNF0) / 4u;
-        if (pin < 32u) {
-            *value_out = g->pin_cnf[pin];
-            return MM_TRUE;
-        }
-    }
-    if (offset == GPIO_IN && size_bytes == 4) {
-        gpio_sync_inputs(g);
-    }
-    *value_out = read_slice(g->regs[offset / 4], offset & 3u, size_bytes);
-    return MM_TRUE;
-}
-
-static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
-{
-    struct gpio_bank *g = (struct gpio_bank *)opaque;
-    if (g == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
-    if ((offset + size_bytes) > GPIO_SIZE) return MM_FALSE;
-
-    if (offset >= GPIO_PIN_CNF0 && size_bytes == 4) {
-        mm_u32 pin = (offset - GPIO_PIN_CNF0) / 4u;
-        if (pin < 32u) {
-            g->pin_cnf[pin] = value;
-            return MM_TRUE;
-        }
-    }
-
-    if (offset == GPIO_OUT && size_bytes == 4) {
-        g->regs[GPIO_OUT / 4] = value;
-        gpio_sync_inputs(g);
-        return MM_TRUE;
-    }
-    if (offset == GPIO_OUTSET && size_bytes == 4) {
-        g->regs[GPIO_OUT / 4] |= value;
-        gpio_sync_inputs(g);
-        return MM_TRUE;
-    }
-    if (offset == GPIO_OUTCLR && size_bytes == 4) {
-        g->regs[GPIO_OUT / 4] &= ~value;
-        gpio_sync_inputs(g);
-        return MM_TRUE;
-    }
-    if (offset == GPIO_DIR && size_bytes == 4) {
-        g->regs[GPIO_DIR / 4] = value;
-        return MM_TRUE;
-    }
-    if (offset == GPIO_DIRSET && size_bytes == 4) {
-        g->regs[GPIO_DIR / 4] |= value;
-        return MM_TRUE;
-    }
-    if (offset == GPIO_DIRCLR && size_bytes == 4) {
-        g->regs[GPIO_DIR / 4] &= ~value;
-        return MM_TRUE;
-    }
-
-    g->regs[offset / 4] = apply_write(g->regs[offset / 4], offset & 3u, size_bytes, value);
-    return MM_TRUE;
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= (int)(sizeof(gpio_banks) / sizeof(gpio_banks[0]))) return MM_FALSE;
+    return nrf_gpio_set_external(&gpio_banks[bank], pin, level);
 }
 
 static mm_u32 nrf_gpio_bank_read(void *opaque, int bank)
@@ -969,7 +902,12 @@ mm_bool mm_nrf54lm20_register_mmio(struct mmio_bus *bus)
     struct mmio_region reg;
     if (bus == 0) return MM_FALSE;
 
-    memset(&gpio_banks, 0, sizeof(gpio_banks));
+    {
+        int i;
+        for (i = 0; i < (int)(sizeof(gpio_banks) / sizeof(gpio_banks[0])); ++i) {
+            nrf_gpio_bank_init(&gpio_banks[i], i, 32);
+        }
+    }
     memset(&ficr_state, 0xFF, sizeof(ficr_state));
     memset(&rramc_state, 0, sizeof(rramc_state));
     memset(&clock_state, 0, sizeof(clock_state));
@@ -994,8 +932,8 @@ mm_bool mm_nrf54lm20_register_mmio(struct mmio_bus *bus)
     reg.base = GPIO_P0_BASE_NS;
     reg.size = GPIO_SIZE;
     reg.opaque = &gpio_banks[0];
-    reg.read = gpio_read;
-    reg.write = gpio_write;
+    reg.read = nrf_gpio_read;
+    reg.write = nrf_gpio_write;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
     reg.base = GPIO_P0_BASE_S;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
@@ -1087,7 +1025,12 @@ mm_u64 mm_nrf54lm20_cpu_hz(void)
 
 void mm_nrf54lm20_mmio_reset(void)
 {
-    memset(&gpio_banks, 0, sizeof(gpio_banks));
+    {
+        int i;
+        for (i = 0; i < (int)(sizeof(gpio_banks) / sizeof(gpio_banks[0])); ++i) {
+            nrf_gpio_bank_init(&gpio_banks[i], i, 32);
+        }
+    }
     memset(&rramc_state.regs, 0, sizeof(rramc_state.regs));
     rramc_state.regs[RRAMC_READY / 4] = 1u;
     rramc_state.regs[RRAMC_READYNEXT / 4] = 1u;
@@ -1107,6 +1050,7 @@ void mm_nrf54lm20_mmio_reset(void)
     grtc_state.regs[GRTC_STATUS_PWM / 4] = 1u;
     grtc_state.regs[GRTC_STATUS_CLKOUT / 4] = 1u;
 
+    mm_gpio_set_external_input_writer(nrf_gpio_set_external_input_cb, 0);
     mm_gpio_set_bank_info_reader(nrf54lm20_gpio_bank_info, 0);
 }
 

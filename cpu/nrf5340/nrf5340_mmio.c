@@ -14,6 +14,7 @@
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
 #include "m33mu/gpio.h"
+#include "nrf_gpio.h"
 #include "m33mu/spi_bus.h"
 #include "m33mu/host_rng.h"
 
@@ -164,11 +165,6 @@ struct qspi_state {
     mm_bool active;
 };
 
-struct gpio_bank {
-    mm_u32 regs[GPIO_SIZE / 4];
-    mm_u32 pin_cnf[32];
-};
-
 struct nvmc_state {
     mm_u32 regs[NVMC_SIZE / 4];
     mm_u8 *flash;
@@ -194,7 +190,7 @@ static struct rtc_state rtc0_state;
 static struct ctrlap_state ctrlap_state;
 static struct ipc_state ipc_state;
 static struct qspi_state qspi_state;
-static struct gpio_bank gpio_banks[2];
+static struct nrf_gpio_bank gpio_banks[2];
 static struct nvmc_state nvmc_state;
 static struct rng_state rng_state;
 static struct spu_state spu_state;
@@ -618,6 +614,7 @@ static void qspi_drive_csn(mm_u8 level)
             gpio_banks[bank].regs[GPIO_OUT / 4] |= mask;
         }
         gpio_banks[bank].regs[GPIO_DIR / 4] |= mask;
+        nrf_gpio_publish(&gpio_banks[bank]);
     }
     mm_spi_bus_poll_cs(0);
 }
@@ -731,76 +728,13 @@ static mm_bool qspi_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32
     return MM_TRUE;
 }
 
-static void gpio_sync_inputs(struct gpio_bank *g)
+static mm_bool nrf_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                              mm_u64 late_cycles)
 {
-    if (g == 0) return;
-    g->regs[GPIO_IN / 4] = g->regs[GPIO_OUT / 4];
-}
-
-static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
-{
-    struct gpio_bank *g = (struct gpio_bank *)opaque;
-    if (g == 0 || value_out == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
-    if ((offset + size_bytes) > GPIO_SIZE) return MM_FALSE;
-
-    if (offset >= GPIO_PIN_CNF0 && size_bytes == 4) {
-        mm_u32 pin = (offset - GPIO_PIN_CNF0) / 4u;
-        if (pin < 32u) {
-            *value_out = g->pin_cnf[pin];
-            return MM_TRUE;
-        }
-    }
-    if (offset == GPIO_IN && size_bytes == 4) {
-        gpio_sync_inputs(g);
-    }
-    *value_out = read_slice(g->regs[offset / 4], offset & 3u, size_bytes);
-    return MM_TRUE;
-}
-
-static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
-{
-    struct gpio_bank *g = (struct gpio_bank *)opaque;
-    if (g == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
-    if ((offset + size_bytes) > GPIO_SIZE) return MM_FALSE;
-
-    if (offset >= GPIO_PIN_CNF0 && size_bytes == 4) {
-        mm_u32 pin = (offset - GPIO_PIN_CNF0) / 4u;
-        if (pin < 32u) {
-            g->pin_cnf[pin] = value;
-            return MM_TRUE;
-        }
-    }
-
-    if (offset == GPIO_OUT && size_bytes == 4) {
-        g->regs[GPIO_OUT / 4] = value;
-        gpio_sync_inputs(g);
-        return MM_TRUE;
-    }
-    if (offset == GPIO_OUTSET && size_bytes == 4) {
-        g->regs[GPIO_OUT / 4] |= value;
-        gpio_sync_inputs(g);
-        return MM_TRUE;
-    }
-    if (offset == GPIO_OUTCLR && size_bytes == 4) {
-        g->regs[GPIO_OUT / 4] &= ~value;
-        gpio_sync_inputs(g);
-        return MM_TRUE;
-    }
-    if (offset == GPIO_DIR && size_bytes == 4) {
-        g->regs[GPIO_DIR / 4] = value;
-        return MM_TRUE;
-    }
-    if (offset == GPIO_DIRSET && size_bytes == 4) {
-        g->regs[GPIO_DIR / 4] |= value;
-        return MM_TRUE;
-    }
-    if (offset == GPIO_DIRCLR && size_bytes == 4) {
-        g->regs[GPIO_DIR / 4] &= ~value;
-        return MM_TRUE;
-    }
-
-    g->regs[offset / 4] = apply_write(g->regs[offset / 4], offset & 3u, size_bytes, value);
-    return MM_TRUE;
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= (int)(sizeof(gpio_banks) / sizeof(gpio_banks[0]))) return MM_FALSE;
+    return nrf_gpio_set_external(&gpio_banks[bank], pin, level);
 }
 
 static mm_u32 nrf_gpio_bank_read(void *opaque, int bank)
@@ -1066,7 +1000,12 @@ mm_bool mm_nrf5340_register_mmio(struct mmio_bus *bus)
     memset(&ctrlap_state, 0, sizeof(ctrlap_state));
     memset(&ipc_state, 0, sizeof(ipc_state));
     memset(&qspi_state, 0, sizeof(qspi_state));
-    memset(&gpio_banks, 0, sizeof(gpio_banks));
+    {
+        int i;
+        for (i = 0; i < (int)(sizeof(gpio_banks) / sizeof(gpio_banks[0])); ++i) {
+            nrf_gpio_bank_init(&gpio_banks[i], i, (i == 0) ? 32 : 16);
+        }
+    }
     memset(&nvmc_state, 0, sizeof(nvmc_state));
     memset(&rng_state, 0, sizeof(rng_state));
     memset(&spu_state, 0, sizeof(spu_state));
@@ -1119,8 +1058,8 @@ mm_bool mm_nrf5340_register_mmio(struct mmio_bus *bus)
     reg.base = GPIO_P0_BASE_NS;
     reg.size = GPIO_SIZE;
     reg.opaque = &gpio_banks[0];
-    reg.read = gpio_read;
-    reg.write = gpio_write;
+    reg.read = nrf_gpio_read;
+    reg.write = nrf_gpio_write;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
     reg.base = GPIO_P0_BASE_S;
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
@@ -1237,7 +1176,12 @@ void mm_nrf5340_mmio_reset(void)
     memset(&ctrlap_state, 0, sizeof(ctrlap_state));
     memset(&ipc_state, 0, sizeof(ipc_state));
     memset(&qspi_state, 0, sizeof(qspi_state));
-    memset(&gpio_banks, 0, sizeof(gpio_banks));
+    {
+        int i;
+        for (i = 0; i < (int)(sizeof(gpio_banks) / sizeof(gpio_banks[0])); ++i) {
+            nrf_gpio_bank_init(&gpio_banks[i], i, (i == 0) ? 32 : 16);
+        }
+    }
     memset(&rng_state, 0, sizeof(rng_state));
     memset(&spu_state, 0, sizeof(spu_state));
 
@@ -1246,6 +1190,7 @@ void mm_nrf5340_mmio_reset(void)
     nvmc_state.regs[NVMC_READYNEXT / 4] = 1u;
     nvmc_state.regs[NVMC_CONFIG / 4] = 0u;
 
+    mm_gpio_set_external_input_writer(nrf_gpio_set_external_input_cb, 0);
     mm_gpio_set_bank_info_reader(nrf5340_gpio_bank_info, 0);
     mm_rcc_set_clock_list_reader(nrf5340_rcc_clock_list_line, 0);
     mm_nrf5340_wdt_reset();

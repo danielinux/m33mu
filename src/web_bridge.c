@@ -322,12 +322,28 @@ static mm_bool web_bank_gpio_range(int bank, int *first_out)
     return MM_TRUE;
 }
 
-/* Pad name as the target calls it: PA5 for STM32 banks, GPIO17 for RP2350. */
+/* Bank info named "P<port>" (Nordic): pads are P<port>.<pin>, two digits. */
+static mm_bool web_bank_port_number(int bank, int *port_out)
+{
+    char name[32];
+    int port;
+    char extra;
+    if (!mm_gpio_bank_info(bank, name, sizeof(name), 0)) return MM_FALSE;
+    if (sscanf(name, "P%d%c", &port, &extra) != 1 || port < 0) return MM_FALSE;
+    *port_out = port;
+    return MM_TRUE;
+}
+
+/* Pad name as the target calls it: PA5 for STM32 banks, GPIO17 for RP2350,
+ * P1.05 for Nordic ports. */
 static void web_pad_name(int bank, int pin, char *out, size_t out_len)
 {
     int first;
+    int port;
     if (web_bank_gpio_range(bank, &first)) {
         (void)snprintf(out, out_len, "GPIO%d", first + pin);
+    } else if (web_bank_port_number(bank, &port)) {
+        (void)snprintf(out, out_len, "P%d.%02d", port, pin);
     } else {
         (void)snprintf(out, out_len, "P%c%d", 'A' + bank, pin);
     }
@@ -355,6 +371,23 @@ static mm_bool web_parse_pad(const char *name, int *bank_out, int *pin_out)
                 n >= first && n < first + available) {
                 *bank_out = bank;
                 *pin_out = n - first;
+                return MM_TRUE;
+            }
+        }
+        return MM_FALSE;
+    }
+    if (name != 0 && bank_out != 0 && pin_out != 0 && name[0] == 'P' &&
+        name[1] >= '0' && name[1] <= '9') {
+        int port;
+        int n;
+        char extra;
+        if (sscanf(name, "P%d.%d%c", &port, &n, &extra) != 2 || n < 0) return MM_FALSE;
+        for (bank = 0; bank < MM_WEB_PAD_BANKS; ++bank) {
+            int bank_port;
+            if (web_bank_port_number(bank, &bank_port) && bank_port == port &&
+                mm_gpio_bank_info(bank, 0, 0u, &available) && n < available) {
+                *bank_out = bank;
+                *pin_out = n;
                 return MM_TRUE;
             }
         }
