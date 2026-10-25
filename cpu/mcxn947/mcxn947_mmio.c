@@ -9,6 +9,7 @@
 #include "mcxn947/mcxn947_secure.h"
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
+#include "m33mu/gpio_pads.h"
 #include "m33mu/gpio.h"
 #include "m33mu/nvic.h"
 
@@ -226,10 +227,57 @@ static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     return MM_TRUE;
 }
 
+/* Pads: PORTn PCR MUX (bits 11:8, 0 = GPIO), PE (bit 1) and PS (bit 0,
+ * 1 = pull-up); MCXN947 RM PORT chapter. */
+static struct mm_gpio_pads gpio_pads[6];
+static int gpio_pad_bank_ids[6] = { 0, 1, 2, 3, 4, 5 };
+
+static mm_u32 port_pull_mask(int bank, mm_bool up)
+{
+    mm_u32 mask = 0u;
+    int pin;
+    for (pin = 0; pin < PORT_PCR_COUNT; ++pin) {
+        mm_u32 pcr = ports[bank].pcr[pin];
+        if ((pcr & 2u) != 0u && ((pcr & 1u) != 0u) == up) mask |= 1u << pin;
+    }
+    return mask;
+}
+
+static void gpio_pad_config(void *opaque, int pin, struct mm_gpio_pad_config *cfg)
+{
+    int bank = *(const int *)opaque;
+    mm_u32 pcr = ports[bank].pcr[pin];
+    mm_u32 mux = (pcr & PORT_PCR_MUX_MASK) >> PORT_PCR_MUX_SHIFT;
+    if (mux != 0u && cfg->mode != MM_GPIO_MODE_OUTPUT) {
+        cfg->mode = MM_GPIO_MODE_AF;
+        cfg->af = (mm_u8)mux;
+    }
+    cfg->pull = (pcr & 2u) == 0u ? MM_GPIO_PULL_NONE : (pcr & 1u) ? MM_GPIO_PULL_UP : MM_GPIO_PULL_DOWN;
+}
+
 static void gpio_sync_pdir(struct gpio_bank *g)
 {
+    int bank;
     if (g == 0) return;
-    g->regs[GPIO_PDIR / 4] = g->regs[GPIO_PDOR / 4];
+    bank = (int)(g - gpio_banks);
+    g->regs[GPIO_PDIR / 4] = mm_gpio_pads_input(&gpio_pads[bank], g->regs[GPIO_PDDR / 4],
+                                                g->regs[GPIO_PDOR / 4], port_pull_mask(bank, MM_TRUE),
+                                                port_pull_mask(bank, MM_FALSE), g->regs[GPIO_PDOR / 4]);
+    mm_gpio_pads_publish(&gpio_pads[bank], g->regs[GPIO_PDDR / 4], g->regs[GPIO_PDOR / 4],
+                         gpio_pad_config, &gpio_pad_bank_ids[bank]);
+}
+
+static mm_bool gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                          mm_u64 late_cycles)
+{
+    mm_u32 old_pdir;
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= 6 || !mm_gpio_pads_set_external(&gpio_pads[bank], pin, level)) return MM_FALSE;
+    old_pdir = gpio_banks[bank].regs[GPIO_PDIR / 4];
+    gpio_sync_pdir(&gpio_banks[bank]);
+    gpio_update_edges(bank, old_pdir, gpio_banks[bank].regs[GPIO_PDIR / 4]);
+    return MM_TRUE;
 }
 
 static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
@@ -279,6 +327,7 @@ static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32
     }
     if (offset == GPIO_PDDR && size_bytes == 4) {
         g->regs[GPIO_PDDR / 4] = value;
+        gpio_sync_pdir(g);
         gpio_update_edges(bank, old_pdir, g->regs[GPIO_PDIR / 4]);
         return MM_TRUE;
     }
@@ -323,8 +372,10 @@ static mm_bool port_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
 
 static void port_write_pcr(struct port_state *p, int pin, mm_u32 value)
 {
+    int bank = (int)(p - ports);
     if (pin < 0 || pin >= PORT_PCR_COUNT) return;
     p->pcr[pin] = value;
+    if (bank >= 0 && bank < 6) gpio_sync_pdir(&gpio_banks[bank]);
 }
 
 static mm_bool port_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
@@ -666,6 +717,10 @@ static mm_bool trdc_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32
 void mm_mcxn947_mmio_reset(void)
 {
     memset(gpio_banks, 0, sizeof(gpio_banks));
+    {
+        int b;
+        for (b = 0; b < 6; ++b) mm_gpio_pads_init(&gpio_pads[b], b, 32);
+    }
     memset(&syscon, 0, sizeof(syscon));
     memset(ports, 0, sizeof(ports));
     memset(&scg, 0, sizeof(scg));
@@ -722,6 +777,7 @@ void mm_mcxn947_mmio_reset(void)
     mm_gpio_bank_set_clock_reader(mcxn947_gpio_bank_clock, 0);
     mm_gpio_bank_set_seccfgr_reader(mcxn947_gpio_bank_read_seccfgr, 0);
     mm_gpio_set_bank_info_reader(mcxn947_gpio_bank_info, 0);
+    mm_gpio_set_external_input_writer(gpio_set_external_input_cb, 0);
     mm_rcc_set_clock_list_reader(mcxn947_rcc_clock_list_line, 0);
     mm_mcxn947_secure_reset();
     mm_mcxn947_romapi_reset();

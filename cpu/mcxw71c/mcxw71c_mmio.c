@@ -7,6 +7,7 @@
 #include "mcxw71c/mcxw71c_mmio.h"
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
+#include "m33mu/gpio_pads.h"
 #include "m33mu/gpio.h"
 #include "m33mu/nvic.h"
 
@@ -203,10 +204,56 @@ static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     return MM_TRUE;
 }
 
+/* Pads: PORTA-C PCR PE (bit 1) and PS (bit 0, 1 = pull-up) give the pulls;
+ * GPIOD has no PORT here, so no pull information. */
+static struct mm_gpio_pads gpio_pads[4];
+static int gpio_pad_bank_ids[4] = { 0, 1, 2, 3 };
+
+static mm_u32 port_pull_mask(int bank, mm_bool up)
+{
+    mm_u32 mask = 0u;
+    int pin;
+    int port = port_index_for_bank(bank);
+    if (port < 0) return 0u;
+    for (pin = 0; pin < 32; ++pin) {
+        mm_u32 pcr = ports[port].pcr[pin];
+        if ((pcr & 2u) != 0u && ((pcr & 1u) != 0u) == up) mask |= 1u << pin;
+    }
+    return mask;
+}
+
+static void gpio_pad_config(void *opaque, int pin, struct mm_gpio_pad_config *cfg)
+{
+    int port = port_index_for_bank(*(const int *)opaque);
+    mm_u32 pcr;
+    if (port < 0) return;
+    pcr = ports[port].pcr[pin];
+    cfg->pull = (pcr & 2u) == 0u ? MM_GPIO_PULL_NONE : (pcr & 1u) ? MM_GPIO_PULL_UP : MM_GPIO_PULL_DOWN;
+}
+
 static void gpio_sync_pdir(struct gpio_bank *g)
 {
+    int bank;
     if (g == 0) return;
-    g->regs[GPIO_PDIR / 4] = g->regs[GPIO_PDOR / 4];
+    bank = (int)(g - gpio_banks);
+    g->regs[GPIO_PDIR / 4] = mm_gpio_pads_input(&gpio_pads[bank], g->regs[GPIO_PDDR / 4],
+                                                g->regs[GPIO_PDOR / 4], port_pull_mask(bank, MM_TRUE),
+                                                port_pull_mask(bank, MM_FALSE), g->regs[GPIO_PDOR / 4]);
+    mm_gpio_pads_publish(&gpio_pads[bank], g->regs[GPIO_PDDR / 4], g->regs[GPIO_PDOR / 4],
+                         gpio_pad_config, &gpio_pad_bank_ids[bank]);
+}
+
+static mm_bool gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                          mm_u64 late_cycles)
+{
+    mm_u32 old_pdir;
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= 4 || !mm_gpio_pads_set_external(&gpio_pads[bank], pin, level)) return MM_FALSE;
+    old_pdir = gpio_banks[bank].regs[GPIO_PDIR / 4];
+    gpio_sync_pdir(&gpio_banks[bank]);
+    gpio_update_edges(bank, old_pdir, gpio_banks[bank].regs[GPIO_PDIR / 4]);
+    return MM_TRUE;
 }
 
 static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
@@ -251,6 +298,7 @@ static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32
     }
     if (offset == GPIO_PDDR && size_bytes == 4) {
         g->regs[GPIO_PDDR / 4] = value;
+        gpio_sync_pdir(g);
         gpio_update_edges(bank, old_pdir, g->regs[GPIO_PDIR / 4]);
         return MM_TRUE;
     }
@@ -299,8 +347,10 @@ static mm_bool port_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
 
 static void port_write_pcr(struct port_state *p, int pin, mm_u32 value)
 {
+    int port = (int)(p - ports);
     if (pin < 0 || pin >= 32) return;
     p->pcr[pin] = value;
+    if (port >= 0 && port < 3) gpio_sync_pdir(&gpio_banks[port]);
 }
 
 static mm_bool port_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
@@ -485,6 +535,10 @@ static mm_bool mcxw71c_rcc_clock_list_line(void *opaque, int line, char *out, si
 void mm_mcxw71c_mmio_reset(void)
 {
     memset(gpio_banks, 0, sizeof(gpio_banks));
+    {
+        int b;
+        for (b = 0; b < 4; ++b) mm_gpio_pads_init(&gpio_pads[b], b, 32);
+    }
     memset(&mrcc, 0, sizeof(mrcc));
     memset(&wdog, 0, sizeof(wdog));
     memset(&scg, 0, sizeof(scg));
@@ -523,6 +577,7 @@ void mm_mcxw71c_mmio_reset(void)
     mm_gpio_bank_set_clock_reader(mcxw71c_gpio_bank_clock, 0);
     mm_gpio_bank_set_seccfgr_reader(mcxw71c_gpio_bank_read_seccfgr, 0);
     mm_gpio_set_bank_info_reader(mcxw71c_gpio_bank_info, 0);
+    mm_gpio_set_external_input_writer(gpio_set_external_input_cb, 0);
     mm_rcc_set_clock_list_reader(mcxw71c_rcc_clock_list_line, 0);
 }
 

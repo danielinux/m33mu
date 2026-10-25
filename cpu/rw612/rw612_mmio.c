@@ -4,6 +4,7 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 #include <stdint.h>
 #include "rw612/rw612_mmio.h"
 #include "rw612/rw612_romapi.h"
@@ -11,6 +12,7 @@
 #include "rw612/cpu_config.h"
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
+#include "m33mu/gpio_pads.h"
 #include "m33mu/nvic.h"
 
 /* -------------------------------------------------------------------------
@@ -219,12 +221,31 @@ static mm_bool stub_reg_pair(struct mmio_bus *bus,
 #define GPIO_OFF_DIRCLR 0x2400u
 #define GPIO_OFF_DIRNOT 0x2480u
 
+#define GPIO_PORTS 2u
+
+/* Two 32-pin ports (GPIO0-31, GPIO32-63): DIR/PIN/SET/... at +4 per port,
+ * BYTE/WORD per pin 0..63. Pads are reported through m33mu/gpio_pads.h; the
+ * IO_MUX is a stub, so a pin with DIR set is taken as a driven GPIO. */
 struct gpio_state {
-    mm_u32 dir;
-    mm_u32 pin;
+    mm_u32 dir[GPIO_PORTS];
+    mm_u32 pin[GPIO_PORTS];
+    struct mm_gpio_pads pads[GPIO_PORTS];
 };
 
 static struct gpio_state gpio0;
+
+static mm_u32 gpio_input(const struct gpio_state *g, mm_u32 port)
+{
+    return mm_gpio_pads_input(&g->pads[port], g->dir[port], g->pin[port], 0u, 0u, g->pin[port]);
+}
+
+static void gpio_publish(struct gpio_state *g)
+{
+    mm_u32 port;
+    for (port = 0; port < GPIO_PORTS; ++port) {
+        mm_gpio_pads_publish(&g->pads[port], g->dir[port], g->pin[port], 0, 0);
+    }
+}
 
 static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                          mm_u32 *value_out)
@@ -235,17 +256,18 @@ static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     *value_out = 0;
 
     if (offset < GPIO_OFF_WORD) {
-        if (offset < 32u) *value_out = (g->pin >> offset) & 1u;
+        if (offset < 32u * GPIO_PORTS) *value_out = (gpio_input(g, offset / 32u) >> (offset % 32u)) & 1u;
         return MM_TRUE;
     }
     if (offset >= GPIO_OFF_WORD && offset < GPIO_OFF_DIR) {
         mm_u32 bit = (offset - GPIO_OFF_WORD) / 4u;
-        if (bit < 32u) *value_out = (g->pin >> bit) & 1u;
+        if (bit < 32u * GPIO_PORTS) *value_out = (gpio_input(g, bit / 32u) >> (bit % 32u)) & 1u;
         return MM_TRUE;
     }
-    if (size_bytes == 4u) {
-        if (offset == GPIO_OFF_DIR) { *value_out = g->dir; return MM_TRUE; }
-        if (offset == GPIO_OFF_PIN) { *value_out = g->pin; return MM_TRUE; }
+    if (size_bytes == 4u && offset >= GPIO_OFF_DIR && offset < GPIO_OFF_DIR + 4u * GPIO_PORTS) {
+        *value_out = g->dir[(offset - GPIO_OFF_DIR) / 4u];
+    } else if (size_bytes == 4u && offset >= GPIO_OFF_PIN && offset < GPIO_OFF_PIN + 4u * GPIO_PORTS) {
+        *value_out = gpio_input(g, (offset - GPIO_OFF_PIN) / 4u);
     }
     return MM_TRUE;
 }
@@ -254,37 +276,56 @@ static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                           mm_u32 value)
 {
     struct gpio_state *g = (struct gpio_state *)opaque;
+    mm_u32 base;
+    mm_u32 port;
     if (g == 0 || size_bytes == 0 || size_bytes > 4u) return MM_FALSE;
     if ((offset + size_bytes) > RW612_GPIO_SIZE) return MM_FALSE;
 
-    if (offset < GPIO_OFF_WORD) {
-        if (offset < 32u) {
-            if (value & 1u) g->pin |=  (1u << offset);
-            else            g->pin &= ~(1u << offset);
-        }
-        return MM_TRUE;
-    }
-    if (offset >= GPIO_OFF_WORD && offset < GPIO_OFF_DIR) {
-        mm_u32 bit = (offset - GPIO_OFF_WORD) / 4u;
-        if (bit < 32u) {
-            if (value & 1u) g->pin |=  (1u << bit);
-            else            g->pin &= ~(1u << bit);
+    if (offset < GPIO_OFF_DIR) {
+        mm_u32 bit = offset < GPIO_OFF_WORD ? offset : (offset - GPIO_OFF_WORD) / 4u;
+        if (bit < 32u * GPIO_PORTS) {
+            if (value & 1u) g->pin[bit / 32u] |=  (1u << (bit % 32u));
+            else            g->pin[bit / 32u] &= ~(1u << (bit % 32u));
+            gpio_publish(g);
         }
         return MM_TRUE;
     }
     if (size_bytes != 4u) return MM_TRUE;
-
-    switch (offset) {
-    case GPIO_OFF_DIR:    g->dir = value;      return MM_TRUE;
-    case GPIO_OFF_PIN:    g->pin = value;      return MM_TRUE;
-    case GPIO_OFF_SET:    g->pin |=  value;    return MM_TRUE;
-    case GPIO_OFF_CLR:    g->pin &= ~value;    return MM_TRUE;
-    case GPIO_OFF_NOT:    g->pin ^=  value;    return MM_TRUE;
-    case GPIO_OFF_DIRSET: g->dir |=  value;    return MM_TRUE;
-    case GPIO_OFF_DIRCLR: g->dir &= ~value;    return MM_TRUE;
-    case GPIO_OFF_DIRNOT: g->dir ^=  value;    return MM_TRUE;
+    port = (offset & 0x7Fu) / 4u;
+    base = offset - port * 4u;
+    if (port >= GPIO_PORTS) return MM_TRUE;
+    switch (base) {
+    case GPIO_OFF_DIR:    g->dir[port] = value;      break;
+    case GPIO_OFF_PIN:    g->pin[port] = value;      break;
+    case GPIO_OFF_SET:    g->pin[port] |=  value;    break;
+    case GPIO_OFF_CLR:    g->pin[port] &= ~value;    break;
+    case GPIO_OFF_NOT:    g->pin[port] ^=  value;    break;
+    case GPIO_OFF_DIRSET: g->dir[port] |=  value;    break;
+    case GPIO_OFF_DIRCLR: g->dir[port] &= ~value;    break;
+    case GPIO_OFF_DIRNOT: g->dir[port] ^=  value;    break;
     default: return MM_TRUE;
     }
+    gpio_publish(g);
+    return MM_TRUE;
+}
+
+static mm_bool gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                          mm_u64 late_cycles)
+{
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= (int)GPIO_PORTS) return MM_FALSE;
+    return mm_gpio_pads_set_external(&gpio0.pads[bank], pin, level);
+}
+
+/* Banks are named "GPIO<first>-<last>": pads are GPIO0..GPIO63. */
+static mm_bool gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)GPIO_PORTS) return MM_FALSE;
+    if (name_out != 0 && name_len > 0u) snprintf(name_out, name_len, "GPIO%d-%d", bank * 32, bank * 32 + 31);
+    if (pins_out != 0) *pins_out = 32;
+    return MM_TRUE;
 }
 
 /* -------------------------------------------------------------------------
@@ -333,6 +374,8 @@ void mm_rw612_mmio_reset(void)
 {
     rw612_clkrst_apply_resets();
     memset(&gpio0, 0, sizeof(gpio0));
+    mm_gpio_pads_init(&gpio0.pads[0], 0, 32);
+    mm_gpio_pads_init(&gpio0.pads[1], 1, 32);
     memset(io_mux_regs,   0, sizeof(io_mux_regs));
     memset(ahbsc_regs,    0, sizeof(ahbsc_regs));
     memset(wwdt_regs,     0, sizeof(wwdt_regs));
@@ -403,6 +446,8 @@ mm_bool mm_rw612_register_mmio(struct mmio_bus *bus)
     reg.write  = gpio_write;
     if (!reg_pair(bus, &reg, RW612_GPIO_BASE, RW612_GPIO_BASE | 0x10000000u)) return MM_FALSE;
     if (!reg_pair(bus, &reg, RW612_SECGPIO_BASE, RW612_SECGPIO_BASE | 0x10000000u)) return MM_FALSE;
+    mm_gpio_set_external_input_writer(gpio_set_external_input_cb, 0);
+    mm_gpio_set_bank_info_reader(gpio_bank_info, 0);
 
     /* Long tail */
     if (!stub_reg_pair(bus, &io_mux_stub,  0x40004000u)) return MM_FALSE;

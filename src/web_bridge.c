@@ -334,6 +334,23 @@ static mm_bool web_bank_port_number(int bank, int *port_out)
     return MM_TRUE;
 }
 
+/* Bank info named "<prefix><n>" exactly (PIO0 on LPC, "0" on MCX). */
+static mm_bool web_bank_named_port(int bank, const char *prefix, int *port_out)
+{
+    char name[32];
+    size_t n = strlen(prefix);
+    const char *p;
+    int port = 0;
+    if (!mm_gpio_bank_info(bank, name, sizeof(name), 0)) return MM_FALSE;
+    if (strncmp(name, prefix, n) != 0 || name[n] == '\0') return MM_FALSE;
+    for (p = name + n; *p != '\0'; ++p) {
+        if (*p < '0' || *p > '9') return MM_FALSE;
+        port = port * 10 + (*p - '0');
+    }
+    *port_out = port;
+    return MM_TRUE;
+}
+
 /* Pad name as the target calls it: PA5 for STM32 banks, GPIO17 for RP2350,
  * P1.05 for Nordic ports. */
 static void web_pad_name(int bank, int pin, char *out, size_t out_len)
@@ -344,6 +361,10 @@ static void web_pad_name(int bank, int pin, char *out, size_t out_len)
         (void)snprintf(out, out_len, "GPIO%d", first + pin);
     } else if (web_bank_port_number(bank, &port)) {
         (void)snprintf(out, out_len, "P%d.%02d", port, pin);
+    } else if (web_bank_named_port(bank, "PIO", &port)) {
+        (void)snprintf(out, out_len, "PIO%d_%d", port, pin);
+    } else if (web_bank_named_port(bank, "", &port)) {
+        (void)snprintf(out, out_len, "P%d_%d", port, pin);
     } else {
         (void)snprintf(out, out_len, "P%c%d", 'A' + bank, pin);
     }
@@ -355,6 +376,23 @@ static mm_bool web_parse_pad(const char *name, int *bank_out, int *pin_out)
     int pin = 0;
     const char *p;
     int available;
+    /* Vendor styles other than STM32 letters: match the formatter's names. */
+    if (name != 0 && bank_out != 0 && pin_out != 0 &&
+        !(name[0] == 'P' && name[1] >= 'A' && name[1] <= 'Z' && name[1] != 'I')) {
+        for (bank = 0; bank < MM_WEB_PAD_BANKS; ++bank) {
+            char candidate[16];
+            if (!mm_gpio_bank_info(bank, 0, 0u, &available)) continue;
+            for (pin = 0; pin < available && pin < MM_WEB_PAD_PINS; ++pin) {
+                web_pad_name(bank, pin, candidate, sizeof(candidate));
+                if (strcmp(candidate, name) == 0) {
+                    *bank_out = bank;
+                    *pin_out = pin;
+                    return MM_TRUE;
+                }
+            }
+        }
+        pin = 0;
+    }
     if (name != 0 && bank_out != 0 && pin_out != 0 && strncmp(name, "GPIO", 4) == 0) {
         int n = 0;
         int first;

@@ -163,6 +163,95 @@ static int test_stm32n657_gpio_pad(void)
     return 0;
 }
 
+/* A boot image whose code stores (address, value) pairs in order and stops
+ * at BKPT: vector table at `flash`, code at flash + 8, literal pool after. */
+struct web_store { mm_u32 addr; mm_u32 value; };
+
+static size_t make_store_elf(mm_u8 *image, size_t cap, mm_u32 flash, mm_u32 sp,
+                             const struct web_store *stores, size_t n)
+{
+    mm_u32 code_len = (mm_u32)(6u * n + 2u);
+    mm_u32 lit = 8u + ((code_len + 3u) & ~3u);
+    mm_u32 payload = lit + (mm_u32)n * 8u;
+    size_t total = 84u + payload;
+    size_t i;
+    if (total > cap) return 0u;
+    memset(image, 0, total);
+    image[0] = 0x7fu; image[1] = 'E'; image[2] = 'L'; image[3] = 'F';
+    image[4] = 1u; image[5] = 1u; image[6] = 1u;
+    put_le16(image + 18u, 40u);
+    put_le32(image + 24u, flash + 9u);
+    put_le32(image + 28u, 52u);
+    put_le16(image + 40u, 52u);
+    put_le16(image + 42u, 32u);
+    put_le16(image + 44u, 1u);
+    put_le32(image + 52u, 1u);
+    put_le32(image + 56u, 84u);
+    put_le32(image + 60u, flash);
+    put_le32(image + 64u, flash);
+    put_le32(image + 68u, payload);
+    put_le32(image + 72u, payload);
+    put_le32(image + 76u, 4u);
+    put_le32(image + 84u, sp);
+    put_le32(image + 88u, flash + 9u);
+    for (i = 0; i < n; ++i) {
+        mm_u32 at = 8u + (mm_u32)i * 6u;
+        mm_u32 l0 = lit + (mm_u32)i * 8u;
+        put_le16(image + 84u + at, (mm_u16)(0x4800u | ((l0 - ((at + 4u) & ~3u)) / 4u)));
+        put_le16(image + 84u + at + 2u, (mm_u16)(0x4900u | ((l0 + 4u - ((at + 6u) & ~3u)) / 4u)));
+        put_le16(image + 84u + at + 4u, 0x6001u); /* str r1, [r0] */
+        put_le32(image + 84u + l0, stores[i].addr);
+        put_le32(image + 84u + l0 + 4u, stores[i].value);
+    }
+    put_le16(image + 84u + 8u + (mm_u32)n * 6u, 0xbeabu);
+    return total;
+}
+
+/* Every port model reports a driven pad under the target's own pad name. */
+static int test_gpio_pads_per_target(void)
+{
+    static const struct {
+        const char *cpu; mm_u32 flash; mm_u32 sp; const char *pad; struct web_store st[4]; size_t n;
+    } cases[] = {
+        { "lpc55s69", 0x00000000u, 0x20044000u, "PIO0_5",
+          { { 0x4008E380u, 1u << 5 }, { 0x4008E200u, 1u << 5 } }, 2 },
+        { "rw612", 0x00000000u, 0x20080000u, "GPIO44",
+          { { 0x40102384u, 1u << 12 }, { 0x40102204u, 1u << 12 } }, 2 },
+        { "mcxn947", 0x00000000u, 0x20080000u, "P1_2",
+          { { 0x40000200u, 1u << 20 }, { 0x40000100u, 1u << 20 },
+            { 0x40097034u, 1u << 2 }, { 0x40097024u, 1u << 2 } }, 4 },
+        { "mcxw71c", 0x10000000u, 0x3001C000u, "PA1",
+          { { 0x4001C404u, 1u | (1u << 30) }, { 0x48010054u, 1u << 1 }, { 0x48010044u, 1u << 1 } }, 3 },
+        { "nrf54lm20", 0x10000000u, 0x30080000u, "P1.05",
+          { { 0x500D8218u, 1u << 5 }, { 0x500D8208u, 1u << 5 } }, 2 },
+    };
+    size_t c;
+    for (c = 0; c < sizeof(cases) / sizeof(cases[0]); ++c) {
+        mm_u8 image[256];
+        size_t len = make_store_elf(image, sizeof(image), cases[c].flash, cases[c].sp,
+                                    cases[c].st, cases[c].n);
+        struct mm_web_config config = { cases[c].cpu, len };
+        struct mm_web_step_result step;
+        struct mm_web_pad_state pad;
+        enum mm_web_error error;
+        struct mm_web_session *session = mm_web_create(&config, &error);
+        observed_pad[0] = '\0';
+        if (session == 0 || mm_web_load_elf(session, image, len) != MM_WEB_OK ||
+            mm_web_set_pad_listener(session, on_pad, 0) != MM_WEB_OK ||
+            mm_web_step_instructions(session, 64u, &step) != MM_WEB_OK || !step.stopped ||
+            mm_web_get_pad_state(session, cases[c].pad, &pad) != MM_WEB_OK ||
+            pad.level != 1u || pad.mode != MM_GPIO_MODE_OUTPUT) {
+            fprintf(stderr, "web_session_test: %s pad %s not driven high (last %s=%u, error %d, stopped %d)\n",
+                    cases[c].cpu, cases[c].pad, observed_pad, (unsigned)observed_level, (int)error,
+                    (int)step.stopped);
+            mm_web_destroy(session);
+            return 1;
+        }
+        mm_web_destroy(session);
+    }
+    return 0;
+}
+
 enum fault_probe_kind {
     FAULT_PROBE_UNDEFINED_DISABLED,
     FAULT_PROBE_UNDEFINED_ENABLED,
@@ -1035,6 +1124,7 @@ int main(void)
     if (test_breakpoints() != 0) return 1;
     if (test_stm32n657_web_boot() != 0) return 1;
     if (test_stm32n657_gpio_pad() != 0) return 1;
+    if (test_gpio_pads_per_target() != 0) return 1;
     puts("web_session_test: ok");
     return 0;
 }

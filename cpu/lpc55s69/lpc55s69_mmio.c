@@ -4,6 +4,7 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 #include "lpc55s69/lpc55s69_mmio.h"
 #include "lpc55s69/lpc55s69_romapi.h"
 #include "lpc55s69/lpc55s69_hashcrypt.h"
@@ -14,6 +15,7 @@
 #include "m33mu/memmap.h"
 #include "m33mu/mmio.h"
 #include "m33mu/nvic.h"
+#include "m33mu/gpio_pads.h"
 
 /* -------------------------------------------------------------------------
  * SYSCON  (0x40000000 NS, 0x50000000 S)
@@ -120,6 +122,7 @@ static mm_bool syscon_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
 #define IOCON_SIZE     0x100u
 
 static mm_u32 iocon_regs[IOCON_SIZE / 4u];
+static void lpc55_gpio_iocon_changed(void);
 
 static mm_bool iocon_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                           mm_u32 *value_out)
@@ -142,6 +145,7 @@ static mm_bool iocon_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     if ((offset + size_bytes) > IOCON_SIZE)
         return MM_FALSE;
     memcpy((mm_u8 *)iocon_regs + offset, &value, size_bytes);
+    lpc55_gpio_iocon_changed();
     return MM_TRUE;
 }
 
@@ -194,7 +198,7 @@ struct gpio_state {
 
 static struct gpio_state gpio;
 
-static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
+static mm_bool gpio_read_regs(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                          mm_u32 *value_out)
 {
     struct gpio_state *g = (struct gpio_state *)opaque;
@@ -262,7 +266,7 @@ static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     return MM_TRUE;
 }
 
-static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
+static mm_bool gpio_write_regs(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                           mm_u32 value)
 {
     struct gpio_state *g = (struct gpio_state *)opaque;
@@ -367,6 +371,108 @@ static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
         return MM_TRUE;
     }
 
+    return MM_TRUE;
+}
+
+/* Pads: PIO0/PIO1 with IOCON FUNC (bits 3:0, 0 = GPIO), MODE (5:4: 1 pull-down,
+ * 2 pull-up) and OD (bit 9), LPC55S6x UM11126 IOCON chapter. */
+static struct mm_gpio_pads gpio_pads[GPIO_PORT_COUNT];
+static mm_u32 gpio_port_ids[GPIO_PORT_COUNT] = { 0u, 1u };
+
+static mm_u32 iocon_pin(mm_u32 port, int pin)
+{
+    mm_u32 idx = port * GPIO_PINS_PER_PORT + (mm_u32)pin;
+    return idx < IOCON_SIZE / 4u ? iocon_regs[idx] : 0u;
+}
+
+static void gpio_pad_config(void *opaque, int pin, struct mm_gpio_pad_config *cfg)
+{
+    mm_u32 port = *(const mm_u32 *)opaque;
+    mm_u32 cnf = iocon_pin(port, pin);
+    mm_u32 mode = (cnf >> 4) & 3u;
+    if ((cnf & 0xFu) != 0u && cfg->mode != MM_GPIO_MODE_OUTPUT) {
+        cfg->mode = MM_GPIO_MODE_AF;
+        cfg->af = (mm_u8)(cnf & 0xFu);
+    }
+    cfg->pull = mode == 2u ? MM_GPIO_PULL_UP : mode == 1u ? MM_GPIO_PULL_DOWN : MM_GPIO_PULL_NONE;
+    cfg->open_drain = (cnf & (1u << 9)) != 0u ? 1u : 0u;
+}
+
+static mm_u32 gpio_port_pull(mm_u32 port, mm_u32 want)
+{
+    mm_u32 mask = 0u;
+    int pin;
+    for (pin = 0; pin < 32; ++pin) {
+        if (((iocon_pin(port, pin) >> 4) & 3u) == want) mask |= 1u << pin;
+    }
+    return mask;
+}
+
+/* Port pins the firmware drives: GPIO function and DIR set. */
+static mm_u32 gpio_port_driven(const struct gpio_state *g, mm_u32 port)
+{
+    mm_u32 gpio_fn = 0u;
+    int pin;
+    for (pin = 0; pin < 32; ++pin) {
+        if ((iocon_pin(port, pin) & 0xFu) == 0u) gpio_fn |= 1u << pin;
+    }
+    return g->dir[port] & gpio_fn;
+}
+
+static void gpio_publish(struct gpio_state *g)
+{
+    mm_u32 port;
+    for (port = 0; port < GPIO_PORT_COUNT; ++port) {
+        mm_gpio_pads_publish(&gpio_pads[port], gpio_port_driven(g, port), g->pin[port],
+                             gpio_pad_config, (void *)&gpio_port_ids[port]);
+    }
+}
+
+static mm_bool gpio_read(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 *value_out)
+{
+    struct gpio_state *g = (struct gpio_state *)opaque;
+    mm_u32 latch[GPIO_PORT_COUNT];
+    mm_u32 port;
+    mm_bool ok;
+    if (g == 0) return MM_FALSE;
+    /* Reads see the pads; the output latch is restored afterwards. */
+    for (port = 0; port < GPIO_PORT_COUNT; ++port) {
+        latch[port] = g->pin[port];
+        g->pin[port] = mm_gpio_pads_input(&gpio_pads[port], gpio_port_driven(g, port), latch[port],
+                                          gpio_port_pull(port, 2u), gpio_port_pull(port, 1u), latch[port]);
+    }
+    ok = gpio_read_regs(opaque, offset, size_bytes, value_out);
+    for (port = 0; port < GPIO_PORT_COUNT; ++port) g->pin[port] = latch[port];
+    return ok;
+}
+
+static mm_bool gpio_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 value)
+{
+    mm_bool ok = gpio_write_regs(opaque, offset, size_bytes, value);
+    if (ok) gpio_publish((struct gpio_state *)opaque);
+    return ok;
+}
+
+static void lpc55_gpio_iocon_changed(void)
+{
+    gpio_publish(&gpio);
+}
+
+static mm_bool gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
+                                          mm_u64 late_cycles)
+{
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= (int)GPIO_PORT_COUNT) return MM_FALSE;
+    return mm_gpio_pads_set_external(&gpio_pads[bank], pin, level);
+}
+
+static mm_bool gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)GPIO_PORT_COUNT) return MM_FALSE;
+    if (name_out != 0 && name_len > 0u) snprintf(name_out, name_len, "PIO%d", bank);
+    if (pins_out != 0) *pins_out = (int)GPIO_PINS_PER_PORT;
     return MM_TRUE;
 }
 
@@ -1136,6 +1242,8 @@ void mm_lpc55s69_mmio_reset(void)
 {
     memset(&syscon, 0, sizeof(syscon));
     memset(&gpio, 0, sizeof(gpio));
+    mm_gpio_pads_init(&gpio_pads[0], 0, 32);
+    mm_gpio_pads_init(&gpio_pads[1], 1, 32);
     memset(iocon_regs, 0, sizeof(iocon_regs));
     memset(flash_ctrl_regs, 0, sizeof(flash_ctrl_regs));
     flash_ctrl_regs[FC_OFF_MODULE_ID / 4u] = 0xC40F0800u;
@@ -1305,6 +1413,9 @@ mm_bool mm_lpc55s69_register_mmio(struct mmio_bus *bus)
     reg.write  = gpio_write;
     if (!reg_pair(bus, &reg, GPIO_BASE, GPIO_SEC_BASE))
         return MM_FALSE;
+
+    mm_gpio_set_external_input_writer(gpio_set_external_input_cb, 0);
+    mm_gpio_set_bank_info_reader(gpio_bank_info, 0);
 
     /* SECGPIO (alias of GPIO for secure access) */
     reg.size   = GPIO_SIZE;
