@@ -124,6 +124,7 @@ void mm_scs_set_fpu_present(struct mm_scs *scs, mm_bool present);
 
 /* Registers MMIO regions for secure and non-secure SCS views. */
 mm_bool mm_scs_register_regions(struct mm_scs *scs, struct mmio_bus *bus, mm_u32 base_secure, mm_u32 base_nonsecure, struct mm_nvic *nvic);
+mm_bool mm_scs_register_pmu_region(struct mmio_bus *bus, mm_u32 base);
 mm_bool mm_scs_register_regions_multi(const struct mm_scs_mux *mux, struct mmio_bus *bus, mm_u32 base_secure, mm_u32 base_nonsecure);
 
 /* Enable/disable verbose MPU/SAU setup logging. */

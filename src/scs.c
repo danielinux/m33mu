@@ -40,7 +40,6 @@ struct mm_scs_mmio {
 #define SCS_SCB_OFFSET 0x0D00u /* SCB window starts at 0xE000ED00 inside SCS page */
 #define PMU_PAGE_SIZE 0x1000u
 #define PMU_PMCCNTR_OFFSET 0xE00u
-#define PMU_OFFSET_FROM_SCS_PAGE 0xB000u /* PMU 0xE000_3000 vs SCS page 0xE000_E000 */
 #define MVFR0_FPV5_SP_D16 0x10110021u
 #define MVFR1_FPV5_SP_D16 0x11000011u
 #define CCR_STKALIGN (1u << 9)
@@ -803,7 +802,7 @@ static mm_bool pmu_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
     return MM_TRUE;
 }
 
-static mm_bool pmu_register_region(struct mmio_bus *bus, mm_u32 base)
+mm_bool mm_scs_register_pmu_region(struct mmio_bus *bus, mm_u32 base)
 {
     struct mmio_region reg;
     memset(&reg, 0, sizeof(reg));
@@ -1371,10 +1370,6 @@ mm_bool mm_scs_register_regions(struct mm_scs *scs, struct mmio_bus *bus, mm_u32
 
     if (!mmio_bus_register_region(bus, &reg_s)) return MM_FALSE;
 
-    if (!pmu_register_region(bus, page_base_secure - PMU_OFFSET_FROM_SCS_PAGE)) {
-        return MM_FALSE;
-    }
-
     if (base_nonsecure != base_secure) {
         ctx_nonsecure.scs = scs;
         ctx_nonsecure.nvic = nvic;
@@ -1429,10 +1424,6 @@ mm_bool mm_scs_register_regions_multi(const struct mm_scs_mux *mux, struct mmio_
     reg_s.save = scs_save;
     reg_s.load = scs_load;
     if (!mmio_bus_register_region(bus, &reg_s)) return MM_FALSE;
-
-    if (!pmu_register_region(bus, page_base_secure - PMU_OFFSET_FROM_SCS_PAGE)) {
-        return MM_FALSE;
-    }
 
     if (base_nonsecure != base_secure) {
         ctx_nonsecure.scs = 0;

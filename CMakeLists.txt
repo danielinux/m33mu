@@ -27,6 +27,7 @@ option(M33MU_ENABLE_TPM_LIBTPMS "Enable libtpms integration if found"   ON)
 option(M33MU_ENABLE_WOLFSSL     "Enable wolfSSL integration if found"   ON)
 option(M33MU_ENABLE_LIBDW       "Enable libdw/libdwfl symbolization if found" ON)
 option(M33MU_ENABLE_RUST_PLUGINS "Enable Rust simulator plugins (ATECC608/SE050/STSAFE) if cargo is found" ON)
+option(M33MU_ENABLE_ONNXRUNTIME "Enable the optional ONNX Runtime NPU model backend" OFF)
 
 # -----------------------------------------------------------------------------
 # Compiler flags (match Makefile)
@@ -127,27 +128,27 @@ endif()
 # -----------------------------------------------------------------------------
 set(M33MU_HAS_ONNXRUNTIME FALSE)
 set(NPU_ONNX_SRC "${CMAKE_SOURCE_DIR}/src/npu_onnx.c")
-find_library(ONNXRUNTIME_LIBRARY
-  NAMES onnxruntime
-)
-if(NOT ONNXRUNTIME_LIBRARY)
-  # Some distros ship only the versioned runtime lib (no unversioned .so).
-  file(GLOB _m33mu_ort_libs
-    "/usr/lib/x86_64-linux-gnu/libonnxruntime.so.*"
-    "/usr/lib/aarch64-linux-gnu/libonnxruntime.so.*"
-    "/usr/lib/libonnxruntime.so.*"
-    "/usr/local/lib/libonnxruntime.so.*")
-  list(SORT _m33mu_ort_libs ORDER DESCENDING)
-  if(_m33mu_ort_libs)
-    list(GET _m33mu_ort_libs 0 ONNXRUNTIME_LIBRARY)
+if(M33MU_ENABLE_ONNXRUNTIME)
+  find_library(ONNXRUNTIME_LIBRARY NAMES onnxruntime)
+  if(NOT ONNXRUNTIME_LIBRARY)
+    # Some distros ship only the versioned runtime lib (no unversioned .so).
+    file(GLOB _m33mu_ort_libs
+      "/usr/lib/x86_64-linux-gnu/libonnxruntime.so.*"
+      "/usr/lib/aarch64-linux-gnu/libonnxruntime.so.*"
+      "/usr/lib/libonnxruntime.so.*"
+      "/usr/local/lib/libonnxruntime.so.*")
+    list(SORT _m33mu_ort_libs ORDER DESCENDING)
+    if(_m33mu_ort_libs)
+      list(GET _m33mu_ort_libs 0 ONNXRUNTIME_LIBRARY)
+    endif()
   endif()
-endif()
-if(ONNXRUNTIME_LIBRARY AND EXISTS "${CMAKE_SOURCE_DIR}/third_party/onnxruntime/onnxruntime_c_api.h")
+  if(NOT ONNXRUNTIME_LIBRARY OR NOT EXISTS "${ONNXRUNTIME_LIBRARY}" OR
+     NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/onnxruntime/onnxruntime_c_api.h")
+    message(FATAL_ERROR "M33MU_ENABLE_ONNXRUNTIME requires libonnxruntime and the bundled ONNX Runtime C API header")
+  endif()
   set(M33MU_HAS_ONNXRUNTIME TRUE)
 else()
   list(REMOVE_ITEM M33MU_SOURCES "${NPU_ONNX_SRC}")
-  list(APPEND M33MU_CONFIG_WARNINGS
-    "onnxruntime not found: --npu-model (NPU tensor backend) will be unavailable.")
 endif()
 
 # -----------------------------------------------------------------------------
@@ -916,7 +917,7 @@ message(STATUS "${M33MU_COLOR_YELLOW}  libelf: ${M33MU_STATUS_LIBELF}${M33MU_COL
 message(STATUS "${M33MU_COLOR_YELLOW}  libdw/libdwfl: ${M33MU_STATUS_LIBDW}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_YELLOW}  tests enabled: ${M33MU_BUILD_TESTS}${M33MU_COLOR_RESET}")
 message(STATUS "${M33MU_COLOR_MAGENTA}  --------------------------------------------${M33MU_COLOR_RESET}")
-message(STATUS "${M33MU_COLOR_YELLOW}  features: capstone=${M33MU_HAS_CAPSTONE} tpm=${M33MU_HAS_LIBTPMS} wolfssl=${M33MU_HAS_WOLFSSL} vde=${M33MU_HAS_VDE} tui=${M33MU_HAS_NCURSES} libelf=${M33MU_HAS_LIBELF} libdw=${M33MU_HAS_LIBDW}${M33MU_COLOR_RESET}")
+message(STATUS "${M33MU_COLOR_YELLOW}  features: capstone=${M33MU_HAS_CAPSTONE} tpm=${M33MU_HAS_LIBTPMS} wolfssl=${M33MU_HAS_WOLFSSL} vde=${M33MU_HAS_VDE} tui=${M33MU_HAS_NCURSES} libelf=${M33MU_HAS_LIBELF} libdw=${M33MU_HAS_LIBDW} onnxruntime=${M33MU_HAS_ONNXRUNTIME}${M33MU_COLOR_RESET}")
 
 if(M33MU_CONFIG_WARNINGS)
   foreach(msg IN LISTS M33MU_CONFIG_WARNINGS)

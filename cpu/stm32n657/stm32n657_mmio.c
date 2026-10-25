@@ -32,6 +32,7 @@
 
 #include "m33mu/cpu.h"
 #include "m33mu/memmap.h"
+#include "m33mu/scs.h"
 
 #include <string.h>
 
@@ -400,6 +401,10 @@ mm_bool mm_stm32n657_tz_attr_for_addr(mm_u32 addr,
 mm_bool mm_stm32n657_register_mmio(struct mmio_bus *bus)
 {
     mm_u32 i;
+
+    if (!mm_scs_register_pmu_region(bus, 0xE0003000u)) {
+        return MM_FALSE;
+    }
 
     if (!n657_register_both(bus, N657_RCC_BASE, N657_RCC_WORDS * 4u,
                             g_soc.rcc, n657_rcc_read, n657_blk_write,

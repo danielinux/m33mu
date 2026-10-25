@@ -6514,7 +6514,9 @@ int main(int argc, char **argv)
             }
             mm_memmap_init(&map, regions, sizeof(regions) / sizeof(regions[0]));
             g_timeout_map = &map;
+#ifdef M33MU_HAS_ONNXRUNTIME
             g_npu_out_dump = opt_npu_out_dump;
+#endif
             mm_target_soc_reset(&cfg);
             mm_timer_reset(&cfg);
             mm_signal_prepare_for_run();
