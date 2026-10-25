@@ -82,6 +82,39 @@ static size_t make_h563_elf(mm_u8 image[96])
     return 96u;
 }
 
+static int test_stm32n657_web_boot(void)
+{
+    struct mm_web_config config = { "stm32n657", 96u };
+    enum mm_web_error error;
+    struct mm_web_session *session;
+    struct mm_web_cpu_state cpu;
+    struct mm_web_step_result step;
+    mm_u8 image[96];
+
+    (void)make_h563_elf(image);
+    put_le32(image + 24u, 0x34000000u); /* ELF entry */
+    put_le32(image + 60u, 0x34000000u); /* load address */
+    put_le32(image + 64u, 0x34000000u); /* physical address */
+    put_le32(image + 84u, 0x34065000u); /* N657 AXISRAM stack */
+    put_le32(image + 88u, 0x34000009u); /* Thumb reset handler */
+
+    session = mm_web_create(&config, &error);
+    if (session == 0 || error != MM_WEB_OK ||
+        mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK ||
+        mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+        cpu.msp_s != 0x34065000u || cpu.r[15] != 0x34000009u ||
+        cpu.cpu_hz != 320000000u ||
+        mm_web_step_instructions(session, 1u, &step) != MM_WEB_OK ||
+        mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK ||
+        cpu.r[0] != 1u || cpu.r[15] != 0x3400000bu) {
+        mm_web_destroy(session);
+        fprintf(stderr, "web_session_test: STM32N657 boot/step failed (error=%d)\n", (int)error);
+        return 1;
+    }
+    mm_web_destroy(session);
+    return 0;
+}
+
 enum fault_probe_kind {
     FAULT_PROBE_UNDEFINED_DISABLED,
     FAULT_PROBE_UNDEFINED_ENABLED,
@@ -952,6 +985,7 @@ int main(void)
     if (test_lockup() != 0) return 1;
     if (test_it_block_survives_exception() != 0) return 1;
     if (test_breakpoints() != 0) return 1;
+    if (test_stm32n657_web_boot() != 0) return 1;
     puts("web_session_test: ok");
     return 0;
 }
