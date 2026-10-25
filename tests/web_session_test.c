@@ -115,6 +115,54 @@ static int test_stm32n657_web_boot(void)
     return 0;
 }
 
+/* N657 GPIO on the shared STM32 model: firmware makes PG0 an output and
+ * drives it high; the session's pad listener reports PG0 = 1. */
+static int test_stm32n657_gpio_pad(void)
+{
+    static const mm_u16 code[] = {
+        0x4803u, /* ldr r0, =GPIOG */
+        0x4904u, /* ldr r1, =MODER (PG0 output) */
+        0x6001u, /* str r1, [r0] */
+        0x2101u, /* movs r1, #1 */
+        0x6181u, /* str r1, [r0, #0x18]: BSRR set PG0 */
+        0xbeabu, /* bkpt */
+        0xbf00u, 0xbf00u
+    };
+    struct mm_web_config config = { "stm32n657", 116u };
+    enum mm_web_error error;
+    struct mm_web_session *session;
+    struct mm_web_step_result step;
+    struct mm_web_pad_state pad;
+    mm_u8 image[116];
+    mm_u32 i;
+    (void)make_h563_elf(image);
+    put_le32(image + 24u, 0x34000000u);
+    put_le32(image + 60u, 0x34000000u);
+    put_le32(image + 64u, 0x34000000u);
+    put_le32(image + 68u, 32u);
+    put_le32(image + 72u, 32u);
+    put_le32(image + 84u, 0x34065000u);
+    put_le32(image + 88u, 0x34000009u);
+    for (i = 0; i < sizeof(code) / sizeof(code[0]); ++i) put_le16(image + 92u + i * 2u, code[i]);
+    put_le32(image + 108u, 0x46021800u);
+    put_le32(image + 112u, 0xfffffffdu);
+    session = mm_web_create(&config, &error);
+    observed_pad[0] = '\0';
+    if (session == 0 || mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK ||
+        mm_web_set_pad_listener(session, on_pad, 0) != MM_WEB_OK ||
+        mm_web_step_instructions(session, 16u, &step) != MM_WEB_OK || !step.stopped ||
+        strcmp(observed_pad, "PG0") != 0 || observed_level != 1u ||
+        mm_web_get_pad_state(session, "PG0", &pad) != MM_WEB_OK || pad.level != 1u ||
+        pad.mode != MM_GPIO_MODE_OUTPUT) {
+        fprintf(stderr, "web_session_test: N657 PG0 pad not reported (pad=%s level=%u)\n",
+                observed_pad, (unsigned)observed_level);
+        mm_web_destroy(session);
+        return 1;
+    }
+    mm_web_destroy(session);
+    return 0;
+}
+
 enum fault_probe_kind {
     FAULT_PROBE_UNDEFINED_DISABLED,
     FAULT_PROBE_UNDEFINED_ENABLED,
@@ -986,6 +1034,7 @@ int main(void)
     if (test_it_block_survives_exception() != 0) return 1;
     if (test_breakpoints() != 0) return 1;
     if (test_stm32n657_web_boot() != 0) return 1;
+    if (test_stm32n657_gpio_pad() != 0) return 1;
     puts("web_session_test: ok");
     return 0;
 }

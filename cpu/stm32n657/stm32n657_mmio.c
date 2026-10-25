@@ -29,6 +29,8 @@
 
 #include "stm32n657/stm32n657_mmio.h"
 #include "stm32n657/stm32n657_usart.h"
+#include "stm32_gpio.h"
+#include "m33mu/gpio.h"
 
 #include "m33mu/cpu.h"
 #include "m33mu/memmap.h"
@@ -102,6 +104,47 @@ struct n657_soc {
 };
 
 static struct n657_soc g_soc;
+
+/* GPIOA..Q use the shared STM32 GPIO model, so pads report drive and
+ * configuration and take external input levels like the other STM32s. */
+static struct stm32_gpio_state g_gpio[N657_GPIO_COUNT];
+static struct stm32_gpio_ctx g_gpio_ctx[N657_GPIO_COUNT * 2u];
+
+static mm_bool n657_gpio_set_external_input_cb(void *opaque, int bank, int pin,
+                                               mm_bool level, mm_u64 late_cycles)
+{
+    (void)opaque;
+    (void)late_cycles;
+    if (bank < 0 || bank >= (int)N657_GPIO_COUNT || pin < 0 || pin > 15) return MM_FALSE;
+    return stm32_gpio_set_external_input(&g_gpio_ctx[bank * 2], pin, level);
+}
+
+static mm_bool n657_gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len,
+                                   int *pins_out)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)N657_GPIO_COUNT) return MM_FALSE;
+    if (name_out != 0 && name_len > 1u) {
+        name_out[0] = (char)('A' + bank);
+        name_out[1] = '\0';
+    }
+    if (pins_out != 0) *pins_out = 16;
+    return MM_TRUE;
+}
+
+static mm_u32 n657_gpio_bank_read(void *opaque, int bank)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)N657_GPIO_COUNT) return 0u;
+    return g_gpio[bank].regs[STM32_GPIO_IDR_OFFSET / 4u];
+}
+
+static mm_u32 n657_gpio_bank_read_moder(void *opaque, int bank)
+{
+    (void)opaque;
+    if (bank < 0 || bank >= (int)N657_GPIO_COUNT) return 0u;
+    return g_gpio[bank].regs[STM32_GPIO_MODER_OFFSET / 4u];
+}
 
 static mm_u32 n657_size_mask(mm_u32 size)
 {
@@ -357,6 +400,13 @@ void mm_stm32n657_mmio_reset(void)
     mm_u32 unit;
 
     memset(&g_soc, 0, sizeof(g_soc));
+    for (i = 0u; i < N657_GPIO_COUNT; ++i) {
+        stm32_gpio_reset(&g_gpio[i], (int)i);
+        g_gpio_ctx[i * 2u].gpio = &g_gpio[i];
+        g_gpio_ctx[i * 2u].bank_index = (int)i;
+        g_gpio_ctx[i * 2u + 1u] = g_gpio_ctx[i * 2u];
+        g_gpio_ctx[i * 2u + 1u].is_secure_alias = MM_TRUE;
+    }
     /* DBGMCU DEVCAP: report an N657 device. */
     g_soc.dbgmcu[0x0c / 4u] = 0x00000000u;
     /* ATON VERSION registers: seed both units. */
@@ -462,13 +512,19 @@ mm_bool mm_stm32n657_register_mmio(struct mmio_bus *bus)
         return MM_FALSE;
     }
     for (i = 0u; i < N657_GPIO_COUNT; ++i) {
-        if (!n657_register_both(bus, N657_GPIOA_BASE + (i * 0x400u),
-                                N657_GPIO_WORDS * 4u, g_soc.gpio[i],
-                                n657_blk_read, n657_blk_write,
-                                "GPIO")) {
+        mm_u32 base = N657_GPIOA_BASE + (i * 0x400u);
+        if (!n657_register(bus, base, STM32_GPIO_REG_SIZE, &g_gpio_ctx[i * 2u],
+                           stm32_gpio_read, stm32_gpio_write, "GPIO") ||
+            !n657_register(bus, base + N657_S_OFF, STM32_GPIO_REG_SIZE,
+                           &g_gpio_ctx[i * 2u + 1u], stm32_gpio_read,
+                           stm32_gpio_write, "GPIO")) {
             return MM_FALSE;
         }
     }
+    mm_gpio_set_external_input_writer(n657_gpio_set_external_input_cb, 0);
+    mm_gpio_set_bank_info_reader(n657_gpio_bank_info, 0);
+    mm_gpio_bank_set_reader(n657_gpio_bank_read, 0);
+    mm_gpio_bank_set_moder_reader(n657_gpio_bank_read_moder, 0);
     mm_stm32n657_usart_init(bus, 0);
     return MM_TRUE;
 }
