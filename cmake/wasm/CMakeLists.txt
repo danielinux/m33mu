@@ -29,6 +29,9 @@ set(M33MU_WASM_HOST_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/../../src/m33mu/eth_backend.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/m33mu/usbdev.c"
   "${CMAKE_CURRENT_LIST_DIR}/../../src/m33mu/tpm_tis.c"
+  # The optional ONNX Runtime backend links a native host library. N6's
+  # register-file model is included through cpu/stm32n657/*.c above.
+  "${CMAKE_CURRENT_LIST_DIR}/../../src/npu_onnx.c"
 )
 list(REMOVE_ITEM M33MU_WASM_SOURCES ${M33MU_WASM_HOST_SOURCES})
 
