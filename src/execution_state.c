@@ -458,6 +458,7 @@ mm_bool mm_execution_state_init_core_system(
         mm_scs_set_fpu_present(
             &state->cores[i].scs,
             (state->target.flags & MM_TARGET_FLAG_FPU) != 0u);
+        mm_nvic_set_lines(&state->cores[i].nvic, state->target.irq_lines);
     }
     if (state->target.core_count > 1u) {
         state->scs_mux.scs[0] = &state->cores[0].scs;

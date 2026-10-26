@@ -26,7 +26,9 @@
 #include "m33mu/cpu.h"
 #include "m33mu/mmio.h"
 
-#define MM_MAX_IRQ 192
+/* Architectural maximum for ARMv8-M (ICTR.INTLINESNUM = 14). A target
+ * implements fewer lines with mm_nvic_set_lines(). */
+#define MM_MAX_IRQ 480
 
 struct mm_scs;
 
@@ -37,11 +39,18 @@ struct mm_nvic {
     /* ITNS: 1 => targets Non-secure state, 0 => targets Secure state. */
     mm_u32 itns_mask[(MM_MAX_IRQ + 31) / 32];
     mm_u8 priority[MM_MAX_IRQ];
+    /* Implemented interrupt lines (0 = MM_MAX_IRQ); lines at or above it
+     * are RAZ/WI. */
+    mm_u32 lines;
 };
 
 typedef void (*mm_nvic_enable_hook_t)(mm_u32 irq, mm_bool enable, void *opaque);
 
 void mm_nvic_init(struct mm_nvic *nvic);
+void mm_nvic_set_lines(struct mm_nvic *nvic, mm_u32 lines);
+mm_u32 mm_nvic_lines(const struct mm_nvic *nvic);
+/* Bits of 32-line register word `word` that map to implemented lines. */
+mm_u32 mm_nvic_word_mask(const struct mm_nvic *nvic, mm_u32 word);
 void mm_nvic_set_enable(struct mm_nvic *nvic, mm_u32 irq, mm_bool enable);
 void mm_nvic_set_pending(struct mm_nvic *nvic, mm_u32 irq, mm_bool pending);
 mm_bool mm_nvic_is_pending(const struct mm_nvic *nvic, mm_u32 irq);

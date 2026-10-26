@@ -284,6 +284,7 @@ static mm_bool scs_read_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
         }
     }
     if (matched) {
+        word &= mm_nvic_word_mask(nvic, idx);
         if (eff_sec == MM_NONSECURE && idx < NVIC_WORDS) {
             word &= nvic->itns_mask[idx];
         }
@@ -298,9 +299,9 @@ static mm_bool scs_read_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
                 printf("[NVIC_IPR_READ] off=0x%03lx idx=%lu -> 0x%02lx\n",
                        (unsigned long)offset,
                        (unsigned long)idx,
-                       (unsigned long)((idx < MM_MAX_IRQ) ? nvic->priority[idx] : 0xffu));
+                       (unsigned long)((idx < mm_nvic_lines(nvic)) ? nvic->priority[idx] : 0u));
             }
-            *value_out = (idx < MM_MAX_IRQ) ? nvic->priority[idx] : 0xffu;
+            *value_out = (idx < mm_nvic_lines(nvic)) ? nvic->priority[idx] : 0u;
             return MM_TRUE;
         }
         if (size_bytes == 4u && (idx % 4u) == 0u) {
@@ -308,7 +309,7 @@ static mm_bool scs_read_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
             mm_u32 i;
             for (i = 0; i < 4u; ++i) {
                 mm_u32 pidx = idx + i;
-                mm_u8 p = (pidx < MM_MAX_IRQ) ? nvic->priority[pidx] : 0xffu;
+                mm_u8 p = (pidx < mm_nvic_lines(nvic)) ? nvic->priority[pidx] : 0u;
                 v |= ((mm_u32)p) << (i * 8u);
             }
             *value_out = v;
@@ -444,8 +445,13 @@ static mm_bool scs_write_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
                               mm_u32 offset, mm_u32 aligned, mm_u32 size_bytes, mm_u32 value)
 {
     if (nvic != 0 && size_bytes == 4u) {
-        mm_u32 idx;
+        mm_u32 idx = 0;
         mm_u32 v = value;
+
+        if (aligned >= 0x100u && aligned < 0x400u) {
+            idx = ((aligned - 0x100u) % 0x80u) / 4u;
+            v &= mm_nvic_word_mask(nvic, idx);
+        }
 
         if (aligned >= 0x100u && aligned < NVIC_REG_BLOCK_END) {
             idx = (aligned - 0x100u) / 4u;
@@ -510,7 +516,7 @@ static mm_bool scs_write_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
             if (idx < NVIC_WORDS) {
                 mm_u32 old_itns = nvic->itns_mask[idx];
                 if (eff_sec == MM_SECURE) {
-                    nvic->itns_mask[idx] = value;
+                    nvic->itns_mask[idx] = v;
                 }
                 if (nvic_trace_enabled() && old_itns != nvic->itns_mask[idx]) {
                     printf("[NVIC_ITNS_WRITE] sec=%d idx=%lu val=0x%08lx itns=0x%08lx\n",
@@ -524,7 +530,7 @@ static mm_bool scs_write_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
     if (nvic != 0 && offset >= 0x400u && offset < NVIC_IPR_END) {
         mm_u32 idx = offset - 0x400u;
         if (size_bytes == 1u) {
-            if (idx < MM_MAX_IRQ) {
+            if (idx < mm_nvic_lines(nvic)) {
                 mm_u8 old_prio = nvic->priority[idx];
                 mm_u8 new_prio = (mm_u8)(value & 0xFFu);
                 nvic->priority[idx] = new_prio;
@@ -541,7 +547,7 @@ static mm_bool scs_write_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
             for (i = 0; i < 4u; ++i) {
                 mm_u32 pidx = idx + i;
                 mm_u8 p = (mm_u8)((value >> (i * 8u)) & 0xFFu);
-                if (pidx < MM_MAX_IRQ) {
+                if (pidx < mm_nvic_lines(nvic)) {
                     if (nvic->priority[pidx] != p) changed = MM_TRUE;
                     nvic->priority[pidx] = p;
                 }
@@ -907,7 +913,8 @@ static mm_bool scs_read_internal(void *opaque, mm_u32 offset, mm_u32 size_bytes,
         enum mm_sec_state eff_sec = scs_effective_sec(ctx, scs);
         aligned = offset & ~0x3u;
         if (aligned == NVIC_ICTR) {
-            return scs_finish_read_subword(offset, size_bytes, NVIC_WORDS - 1u, value_out);
+            mm_u32 lines = (nvic != 0) ? mm_nvic_lines(nvic) : MM_MAX_IRQ;
+            return scs_finish_read_subword(offset, size_bytes, (lines + 31u) / 32u - 1u, value_out);
         }
         if (scs_read_systick(scs, eff_sec, aligned, clear_countflag, noisy, &val)) {
             return scs_finish_read_subword(offset, size_bytes, val, value_out);

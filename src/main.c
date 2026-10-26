@@ -5587,8 +5587,10 @@ int main(int argc, char **argv)
             mm_spiflash_register_prot_regions(&execution.protection[0]);
 
             mm_nvic_init(&execution.cores[0].nvic);
+            mm_nvic_set_lines(&execution.cores[0].nvic, execution.target.irq_lines);
             if (execution.target.core_count > 1u) {
                 mm_nvic_init(&execution.cores[1].nvic);
+                mm_nvic_set_lines(&execution.cores[1].nvic, execution.target.irq_lines);
             }
             g_cpu0 = &execution.cores[0].cpu;
             g_nvic0 = &execution.cores[0].nvic;

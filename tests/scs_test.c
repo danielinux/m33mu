@@ -265,6 +265,37 @@ static int test_nvic_ictr(void)
     return 0;
 }
 
+/* A target with 131 lines (STM32H563): ICTR reports 5 words, bits above
+ * line 130 read as zero and ignore writes, as do their priorities. */
+static int test_nvic_target_lines(void)
+{
+    struct mm_scs scs;
+    struct mm_nvic nvic;
+    struct mmio_bus bus;
+    struct mmio_region regions[2];
+    mm_u32 val = 0;
+
+    if (nvic_bus_setup(&scs, &bus, regions, &nvic) != 0) return 1;
+    mm_nvic_set_lines(&nvic, 131u);
+    if (!mmio_bus_read(&bus, 0xE000E004u, 4u, &val) || val != 4u) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E110u, 4u, 0xFFFFFFFFu)) return 1;
+    if (nvic.enable_mask[4] != 0x7u) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E110u, 4u, &val) || val != 0x7u) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E214u, 4u, 0xFFFFFFFFu)) return 1;
+    if (nvic.pending_mask[5] != 0u) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E390u, 4u, 0xFFFFFFFFu)) return 1;
+    if (nvic.itns_mask[4] != 0x7u) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E400u + 128u, 4u, 0x40404040u)) return 1;
+    if (nvic.priority[130] != 0x40u || nvic.priority[131] != 0xffu) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E400u + 128u, 4u, &val) || val != 0x00404040u) return 1;
+    mm_nvic_set_pending(&nvic, 131u, MM_TRUE);
+    mm_nvic_set_enable(&nvic, 200u, MM_TRUE);
+    if (nvic.pending_mask[4] != 0u || nvic.enable_mask[6] != 0u) return 1;
+    mm_nvic_set_pending(&nvic, 130u, MM_TRUE);
+    if (nvic.pending_mask[4] != (1u << 2)) return 1;
+    return 0;
+}
+
 static int test_nvic_high_enable_pending(void)
 {
     struct mm_scs scs;
@@ -419,6 +450,7 @@ int main(void)
         { "sau_region_bank", test_sau_region_bank },
         { "fault_regs_banked", test_fault_regs_banked },
         { "nvic_ictr", test_nvic_ictr },
+        { "nvic_target_lines", test_nvic_target_lines },
         { "nvic_high_enable_pending", test_nvic_high_enable_pending },
         { "nvic_high_itns", test_nvic_high_itns },
         { "nvic_high_ipr", test_nvic_high_ipr },

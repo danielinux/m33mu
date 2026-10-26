@@ -63,6 +63,29 @@ void mm_nvic_init(struct mm_nvic *nvic)
     for (i = 0; i < MM_MAX_IRQ; ++i) {
         nvic->priority[i] = 0xffu;
     }
+    nvic->lines = MM_MAX_IRQ;
+}
+
+void mm_nvic_set_lines(struct mm_nvic *nvic, mm_u32 lines)
+{
+    if (nvic == 0) return;
+    if (lines == 0u || lines > MM_MAX_IRQ) lines = MM_MAX_IRQ;
+    nvic->lines = lines;
+}
+
+mm_u32 mm_nvic_lines(const struct mm_nvic *nvic)
+{
+    if (nvic == 0 || nvic->lines == 0u || nvic->lines > MM_MAX_IRQ) return MM_MAX_IRQ;
+    return nvic->lines;
+}
+
+mm_u32 mm_nvic_word_mask(const struct mm_nvic *nvic, mm_u32 word)
+{
+    mm_u32 first = word * 32u;
+    mm_u32 lines = mm_nvic_lines(nvic);
+    if (nvic == 0 || first >= lines) return 0u;
+    if (lines - first >= 32u) return 0xffffffffu;
+    return (1u << (lines - first)) - 1u;
 }
 
 static mm_bool bitop(mm_u32 *arr, mm_u32 idx, mm_bool set)
@@ -83,6 +106,7 @@ static mm_bool bitop(mm_u32 *arr, mm_u32 idx, mm_bool set)
 
 void mm_nvic_set_enable(struct mm_nvic *nvic, mm_u32 irq, mm_bool enable)
 {
+    if (irq >= mm_nvic_lines(nvic)) return;
     bitop(nvic->enable_mask, irq, enable);
     if (g_enable_hook != 0) {
         g_enable_hook(irq, enable, g_enable_hook_opaque);
@@ -96,7 +120,7 @@ void mm_nvic_set_pending(struct mm_nvic *nvic, mm_u32 irq, mm_bool pending)
     if (nvic == 0) return;
     word = irq / 32u;
     mask = 1u << (irq % 32u);
-    if (word >= (MM_MAX_IRQ + 31u) / 32u) return;
+    if (irq >= mm_nvic_lines(nvic)) return;
     if (pending) {
         nvic->pending_mask[word] |= mask;
     } else {
@@ -112,6 +136,7 @@ void mm_nvic_set_pending(struct mm_nvic *nvic, mm_u32 irq, mm_bool pending)
 
 void mm_nvic_set_itns(struct mm_nvic *nvic, mm_u32 irq, mm_bool target_nonsecure)
 {
+    if (irq >= mm_nvic_lines(nvic)) return;
     bitop(nvic->itns_mask, irq, target_nonsecure);
 }
 
@@ -135,7 +160,7 @@ void mm_nvic_set_active(struct mm_nvic *nvic, mm_u32 irq, mm_bool active)
     mm_u32 bit = irq % 32u;
     mm_u32 mask = 1u << bit;
     if (nvic == 0) return;
-    if (word >= (MM_MAX_IRQ + 31u) / 32u) return;
+    if (irq >= mm_nvic_lines(nvic)) return;
     if (active) nvic->active_mask[word] |= mask;
     else nvic->active_mask[word] &= ~mask;
 }

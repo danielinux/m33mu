@@ -124,6 +124,9 @@ struct mm_target_cfg {
     /* Optional: how long flash operations take (m33mu/flash_ops.h).
      * 0 = unknown, operations take no time. */
     const struct mm_flash_timing *flash_timing;
+
+    /* Implemented NVIC interrupt lines (0 = MM_MAX_IRQ). */
+    mm_u32 irq_lines;
 };
 
 #define MM_TARGET_FLAG_NVM_WRITEONCE (1u << 0)
