@@ -26,7 +26,7 @@
 #include "m33mu/cpu.h"
 #include "m33mu/mmio.h"
 
-#define MM_MAX_IRQ 128
+#define MM_MAX_IRQ 192
 
 struct mm_scs;
 

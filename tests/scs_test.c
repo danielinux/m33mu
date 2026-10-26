@@ -20,8 +20,13 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 #include "m33mu/scs.h"
 #include "m33mu/mmio.h"
+#include "m33mu/nvic.h"
+
+#define NVIC_TEST_WORDS ((MM_MAX_IRQ + 31u) / 32u)
+#define NVIC_TEST_LAST (NVIC_TEST_WORDS - 1u)
 
 static int test_vtor_banked(void)
 {
@@ -221,6 +226,130 @@ static int test_fault_regs_banked(void)
     return 0;
 }
 
+static int nvic_bus_setup(struct mm_scs *scs, struct mmio_bus *bus,
+                          struct mmio_region *regions, struct mm_nvic *nvic)
+{
+    mm_scs_init(scs, 0x410fd210u);
+    scs->last_access_sec = MM_SECURE;
+    mm_nvic_init(nvic);
+    mmio_bus_init(bus, regions, 2);
+    return mm_scs_register_regions(scs, bus, 0xE000ED00u, 0xE002ED00u, nvic) ? 0 : 1;
+}
+
+static int nvic_set_clear_word(struct mmio_bus *bus, mm_u32 set_addr, mm_u32 clr_addr,
+                               const mm_u32 *mask_word, mm_u32 bit)
+{
+    mm_u32 val = 0;
+    if (!mmio_bus_write(bus, set_addr, 4u, bit)) return 1;
+    if (*mask_word != bit) return 1;
+    if (!mmio_bus_read(bus, set_addr, 4u, &val) || val != bit) return 1;
+    if (!mmio_bus_read(bus, clr_addr, 4u, &val) || val != bit) return 1;
+    if (!mmio_bus_write(bus, clr_addr, 4u, bit)) return 1;
+    if (*mask_word != 0u) return 1;
+    if (!mmio_bus_read(bus, set_addr, 4u, &val) || val != 0u) return 1;
+    return 0;
+}
+
+static int test_nvic_ictr(void)
+{
+    struct mm_scs scs;
+    struct mm_nvic nvic;
+    struct mmio_bus bus;
+    struct mmio_region regions[2];
+    mm_u32 val = 0;
+
+    if (nvic_bus_setup(&scs, &bus, regions, &nvic) != 0) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E004u, 4u, &val) || val != NVIC_TEST_LAST) return 1;
+    if (!mmio_bus_read(&bus, 0xE002E004u, 4u, &val) || val != NVIC_TEST_LAST) return 1;
+    return 0;
+}
+
+static int test_nvic_high_enable_pending(void)
+{
+    struct mm_scs scs;
+    struct mm_nvic nvic;
+    struct mmio_bus bus;
+    struct mmio_region regions[2];
+    mm_u32 val = 0;
+
+    if (nvic_bus_setup(&scs, &bus, regions, &nvic) != 0) return 1;
+    if (nvic_set_clear_word(&bus, 0xE000E108u, 0xE000E188u, &nvic.enable_mask[2], 1u << 5)) return 1;
+    if (nvic_set_clear_word(&bus, 0xE000E110u, 0xE000E190u, &nvic.enable_mask[4], 1u << 21)) return 1;
+    if (nvic_set_clear_word(&bus, 0xE000E114u, 0xE000E194u, &nvic.enable_mask[5], 1u << 2)) return 1;
+    if (nvic_set_clear_word(&bus, 0xE000E100u + 4u * NVIC_TEST_LAST, 0xE000E180u + 4u * NVIC_TEST_LAST,
+                            &nvic.enable_mask[NVIC_TEST_LAST], 1u << ((MM_MAX_IRQ - 1u) % 32u))) return 1;
+    if (nvic_set_clear_word(&bus, 0xE000E210u, 0xE000E290u, &nvic.pending_mask[4], 1u << 21)) return 1;
+    if (nvic_set_clear_word(&bus, 0xE000E214u, 0xE000E294u, &nvic.pending_mask[5], 1u << 1)) return 1;
+    nvic.active_mask[4] = 1u << 21;
+    if (!mmio_bus_read(&bus, 0xE000E310u, 4u, &val) || val != (1u << 21)) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E388u, 4u, 0xFFFFFFFFu)) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E388u, 4u, &val) || val != 0xFFFFFFFFu) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E108u, 4u, 0xFFFFFFFFu)) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E108u, 4u, &val) || val != 0xFFFFFFFFu) return 1;
+    return 0;
+}
+
+static int test_nvic_high_itns(void)
+{
+    struct mm_scs scs;
+    struct mm_nvic nvic;
+    struct mmio_bus bus;
+    struct mmio_region regions[2];
+    mm_u32 val = 0;
+
+    if (nvic_bus_setup(&scs, &bus, regions, &nvic) != 0) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E110u, 4u, 1u << 21)) return 1;
+    if (!mmio_bus_read(&bus, 0xE002E110u, 4u, &val) || val != 0u) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E390u, 4u, 1u << 21)) return 1;
+    if (nvic.itns_mask[4] != (1u << 21)) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E390u, 4u, &val) || val != (1u << 21)) return 1;
+    if (!mmio_bus_read(&bus, 0xE002E390u, 4u, &val) || val != 0u) return 1;
+    if (!mmio_bus_read(&bus, 0xE002E110u, 4u, &val) || val != (1u << 21)) return 1;
+    return 0;
+}
+
+static int test_nvic_high_ipr(void)
+{
+    struct mm_scs scs;
+    struct mm_nvic nvic;
+    struct mmio_bus bus;
+    struct mmio_region regions[2];
+    mm_u32 val = 0;
+
+    if (nvic_bus_setup(&scs, &bus, regions, &nvic) != 0) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E495u, 1u, 0xA0u)) return 1;
+    if (nvic.priority[149] != 0xA0u) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E495u, 1u, &val) || val != 0xA0u) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E494u, 4u, &val) || ((val >> 8) & 0xFFu) != 0xA0u) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E400u + MM_MAX_IRQ - 1u, 1u, 0x60u)) return 1;
+    if (nvic.priority[MM_MAX_IRQ - 1u] != 0x60u) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E400u + MM_MAX_IRQ - 1u, 1u, &val) || val != 0x60u) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E400u + MM_MAX_IRQ - 4u, 4u, 0x10203040u)) return 1;
+    if (nvic.priority[MM_MAX_IRQ - 4u] != 0x40u || nvic.priority[MM_MAX_IRQ - 1u] != 0x10u) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E400u + MM_MAX_IRQ - 4u, 4u, &val) || val != 0x10203040u) return 1;
+    return 0;
+}
+
+static int test_nvic_out_of_range(void)
+{
+    struct mm_scs scs;
+    struct mm_nvic nvic;
+    struct mm_nvic before;
+    struct mmio_bus bus;
+    struct mmio_region regions[2];
+    mm_u32 val = 0;
+
+    if (nvic_bus_setup(&scs, &bus, regions, &nvic) != 0) return 1;
+    memcpy(&before, &nvic, sizeof(before));
+    if (!mmio_bus_write(&bus, 0xE000E100u + 4u * NVIC_TEST_WORDS, 4u, 0xFFFFFFFFu)) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E400u + MM_MAX_IRQ, 1u, 0x20u)) return 1;
+    if (!mmio_bus_write(&bus, 0xE000E400u + MM_MAX_IRQ, 4u, 0x20202020u)) return 1;
+    if (memcmp(&before, &nvic, sizeof(before)) != 0) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E100u + 4u * NVIC_TEST_WORDS, 4u, &val) || val != 0u) return 1;
+    if (!mmio_bus_read(&bus, 0xE000E400u + MM_MAX_IRQ, 4u, &val) || val != 0u) return 1;
+    return 0;
+}
+
 int main(void)
 {
     struct { const char *name; int (*fn)(void); } tests[] = {
@@ -231,6 +360,11 @@ int main(void)
         { "sau_secure_only", test_sau_secure_only },
         { "sau_region_bank", test_sau_region_bank },
         { "fault_regs_banked", test_fault_regs_banked },
+        { "nvic_ictr", test_nvic_ictr },
+        { "nvic_high_enable_pending", test_nvic_high_enable_pending },
+        { "nvic_high_itns", test_nvic_high_itns },
+        { "nvic_high_ipr", test_nvic_high_ipr },
+        { "nvic_out_of_range", test_nvic_out_of_range },
     };
     int failures = 0;
     int i;

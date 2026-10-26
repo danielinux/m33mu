@@ -44,6 +44,8 @@ jobs:
         # 2 MB bank. Against a model still masking SNB with 0x7f the erase
         # is truncated to sector 122 and the test fails.
         run: build/m33mu --cpu stm32h5f4 tests/firmware/test-stm32h5f4-dualbank/app.bin tests/firmware/test-stm32h5f4-dualbank/app.bin:0x200000 --dualbank --expect-bkpt 0x7f --timeout 60 --uart-stdout --quit-on-faults
+      - name: Run STM32H5F4 NVIC high IRQ firmware test
+        run: build/m33mu --cpu stm32h5f4 tests/firmware/test-stm32h5f4-nvic-high-irq/app.bin --dualbank --expect-bkpt 0x7f --timeout 10 --quit-on-faults
       # NOTE: The STM32H5 wolfSSL IoTSAFE mTLS firmware test is
       # intentionally NOT run in CI. It performs a full TLS 1.2 handshake
       # under emulated Cortex-M33 with software P-256/AES-GCM and exhibits
