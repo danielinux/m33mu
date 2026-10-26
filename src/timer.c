@@ -23,24 +23,47 @@
 
 void mm_timer_init(const struct mm_target_cfg *cfg, struct mmio_bus *bus, struct mm_nvic *nvic)
 {
-    if (cfg == 0 || cfg->timer_init == 0) {
+    if (cfg == 0) {
         return;
     }
-    cfg->timer_init(bus, nvic);
+    if (cfg->timer_init != 0) {
+        cfg->timer_init(bus, nvic);
+    }
+    if (cfg->adc_init != 0) {
+        cfg->adc_init(bus, nvic);
+    }
 }
 
 void mm_timer_reset(const struct mm_target_cfg *cfg)
 {
-    if (cfg == 0 || cfg->timer_reset == 0) {
+    if (cfg == 0) {
         return;
     }
-    cfg->timer_reset();
+    if (cfg->timer_reset != 0) {
+        cfg->timer_reset();
+    }
+    if (cfg->adc_reset != 0) {
+        cfg->adc_reset();
+    }
 }
 
 void mm_timer_tick(const struct mm_target_cfg *cfg, mm_u64 cycles)
 {
-    if (cfg == 0 || cfg->timer_tick == 0) {
+    if (cfg == 0) {
         return;
     }
-    cfg->timer_tick(cycles);
+    if (cfg->timer_tick != 0) {
+        cfg->timer_tick(cycles);
+    }
+    if (cfg->adc_tick != 0) {
+        cfg->adc_tick(cycles);
+    }
+}
+
+mm_u64 mm_timer_adc_cycles_until_event(const struct mm_target_cfg *cfg)
+{
+    if (cfg == 0 || cfg->adc_cycles_until_event == 0) {
+        return (mm_u64)-1;
+    }
+    return cfg->adc_cycles_until_event();
 }

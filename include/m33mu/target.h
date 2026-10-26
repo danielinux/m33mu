@@ -127,6 +127,13 @@ struct mm_target_cfg {
 
     /* Implemented NVIC interrupt lines (0 = MM_MAX_IRQ). */
     mm_u32 irq_lines;
+
+    /* Optional ADC model, driven with the timers (m33mu/timer.h).
+     * adc_cycles_until_event returns (mm_u64)-1 when nothing is scheduled. */
+    void (*adc_init)(struct mmio_bus *bus, struct mm_nvic *nvic);
+    void (*adc_reset)(void);
+    void (*adc_tick)(mm_u64 cycles);
+    mm_u64 (*adc_cycles_until_event)(void);
 };
 
 #define MM_TARGET_FLAG_NVM_WRITEONCE (1u << 0)

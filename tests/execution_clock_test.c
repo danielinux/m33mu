@@ -8,10 +8,18 @@
 #include "m33mu/execution_clock.h"
 
 static mm_u64 timer_cycles;
+static mm_u64 adc_cycles;
+static int adc_calls;
 
 static void timer_tick(mm_u64 cycles)
 {
     timer_cycles += cycles;
+}
+
+static void adc_tick(mm_u64 cycles)
+{
+    adc_cycles += cycles;
+    adc_calls++;
 }
 
 int main(void)
@@ -25,12 +33,16 @@ int main(void)
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.timer_tick = timer_tick;
+    cfg.adc_tick = adc_tick;
     mm_scs_init(&scs, 0u);
     timer_cycles = 0u;
+    adc_cycles = 0u;
+    adc_calls = 0;
 
     mm_execution_advance_cycles(&scs, &cfg, 0u, MM_FALSE, 0u,
                                 &total, &virtual_cycles, &since_poll);
-    if (total != 7u || virtual_cycles != 11u || since_poll != 3u || timer_cycles != 0u) {
+    if (total != 7u || virtual_cycles != 11u || since_poll != 3u || timer_cycles != 0u ||
+        adc_calls != 0) {
         printf("execution_clock_test: zero-cycle advance changed state\n");
         return 1;
     }
@@ -59,6 +71,17 @@ int main(void)
     if (clock.cycle_total != 9u || clock.virtual_cycles != 9u ||
         clock.cycles_since_poll != 9u || timer_cycles != 27u) {
         printf("execution_clock_test: owned scheduler clock advance mismatch\n");
+        return 1;
+    }
+    if (adc_cycles != timer_cycles || adc_calls != 3) {
+        printf("execution_clock_test: ADC not ticked with the timers\n");
+        return 1;
+    }
+
+    cfg.timer_tick = 0;
+    mm_execution_advance_cycles(&scs, &cfg, 4u, MM_FALSE, 0u, 0, 0, 0);
+    if (adc_cycles != 31u || timer_cycles != 27u) {
+        printf("execution_clock_test: ADC tick depends on the timer hook\n");
         return 1;
     }
 

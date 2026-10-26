@@ -139,7 +139,11 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             &STM32H563_FLASH_TIMING,
-            131u /* RM0481: LPTIM6 = 130 is the last line */
+            131u, /* RM0481: LPTIM6 = 130 is the last line */
+            0,
+            0,
+            0,
+            0
         }
     },
     {
@@ -177,6 +181,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32H533_TIMER_INIT,
             STM32H533_TIMER_RESET,
             STM32H533_TIMER_TICK,
+            0,
+            0,
+            0,
+            0,
             0,
             0,
             0,
@@ -223,7 +231,11 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             0,
-            162u /* RM0517: OTG_HS = 161 is the last line */
+            162u, /* RM0517: OTG_HS = 161 is the last line */
+            0,
+            0,
+            0,
+            0
         }
     },
     {
@@ -261,6 +273,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             STM32U585_TIMER_INIT,
             STM32U585_TIMER_RESET,
             STM32U585_TIMER_TICK,
+            0,
+            0,
+            0,
+            0,
             0,
             0,
             0,
@@ -307,6 +323,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             0,
+            0,
+            0,
+            0,
+            0,
             0
         }
     },
@@ -345,6 +365,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             MCXW71C_TIMER_INIT,
             MCXW71C_TIMER_RESET,
             MCXW71C_TIMER_TICK,
+            0,
+            0,
+            0,
+            0,
             0,
             0,
             0,
@@ -391,6 +415,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             0,
+            0,
+            0,
+            0,
+            0,
             0
         }
     },
@@ -429,6 +457,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             NRF5340_TIMER_INIT,
             NRF5340_TIMER_RESET,
             NRF5340_TIMER_TICK,
+            0,
+            0,
+            0,
+            0,
             0,
             0,
             0,
@@ -475,6 +507,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             0,
+            0,
+            0,
+            0,
+            0,
             0
         }
     },
@@ -517,7 +553,11 @@ static const struct mm_cpu_entry cpu_table[] = {
             &mm_rp2350_mc_ops,
             0,
             0,
-            52u /* datasheet: 52 IRQs incl. SPAREIRQ_0-5 */
+            52u, /* datasheet: 52 IRQs incl. SPAREIRQ_0-5 */
+            0,
+            0,
+            0,
+            0
         }
     },
     {
@@ -555,6 +595,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             LPC55S69_TIMER_INIT,
             LPC55S69_TIMER_RESET,
             LPC55S69_TIMER_TICK,
+            0,
+            0,
+            0,
+            0,
             0,
             0,
             0,
@@ -601,6 +645,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             0,
+            0,
+            0,
+            0,
+            0,
             0
         }
     },
@@ -640,6 +688,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             M2354_TIMER_RESET,
             M2354_TIMER_TICK,
             M2354_TZ_ATTR,
+            0,
+            0,
+            0,
+            0,
             0,
             0,
             0,
@@ -685,6 +737,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             0,
+            0,
+            0,
+            0,
+            0,
             0
         }
     },
@@ -723,6 +779,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             RW612_TIMER_INIT,
             RW612_TIMER_RESET,
             RW612_TIMER_TICK,
+            0,
+            0,
+            0,
+            0,
             0,
             0,
             0,
@@ -768,6 +828,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             IMXRT700_MC_OPS,
             IMXRT700_BOOT_RESOLVE,
+            0,
+            0,
+            0,
+            0,
             0,
             0
         }

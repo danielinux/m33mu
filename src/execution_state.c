@@ -797,6 +797,7 @@ mm_u64 mm_execution_state_cycles_until_wake(
 {
     mm_u64 delta;
     mm_u64 signal_delta;
+    mm_u64 adc_delta;
     if (state == 0 || core_index >= 2u) {
         return (mm_u64)-1;
     }
@@ -804,6 +805,10 @@ mm_u64 mm_execution_state_cycles_until_wake(
     signal_delta = mm_execution_state_signal_cycles_until_event(state);
     if (signal_delta < delta) {
         delta = signal_delta != 0u ? signal_delta : 1u;
+    }
+    adc_delta = mm_timer_adc_cycles_until_event(&state->target);
+    if (adc_delta < delta) {
+        delta = adc_delta != 0u ? adc_delta : 1u;
     }
     if (host_deadline_cycles != 0u && host_deadline_cycles < delta) {
         delta = host_deadline_cycles;
