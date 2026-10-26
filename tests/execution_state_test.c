@@ -116,6 +116,11 @@ static void test_timer_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 static void test_usart_poll(void) { note_target_setup('A'); }
 static void test_spi_poll(void) { note_target_setup('B'); }
 static void test_eth_poll(void) { note_target_setup('C'); }
+static void test_adc_reset(void) { note_target_setup('D'); }
+static void test_adc_init(struct mmio_bus *bus, struct mm_nvic *nvic)
+{ (void)bus; (void)nvic; note_target_setup('E'); }
+static mm_u64 g_adc_event;
+static mm_u64 test_adc_cycles_until_event(void) { return g_adc_event; }
 
 static mm_bool test_fpu_allowed(const struct mm_cpu *cpu,
                                 const struct mm_scs *scs)
@@ -147,11 +152,13 @@ static int test_target_setup_order(void)
     state.target.eth_reset = test_eth_reset;
     state.target.eth_init = test_eth_init;
     state.target.timer_init = test_timer_init;
+    state.target.adc_reset = test_adc_reset;
+    state.target.adc_init = test_adc_init;
     target_setup_count = 0u;
     mm_execution_state_reset_soc(&state);
     mm_execution_state_init_target_devices(&state);
-    if (target_setup_count != 9u ||
-        memcmp(target_setup_order, "012345678", 9u) != 0) {
+    if (target_setup_count != 11u ||
+        memcmp(target_setup_order, "01D2345678E", 11u) != 0) {
         mm_execution_state_destroy(&state);
         return 1;
     }
@@ -267,6 +274,24 @@ static int test_session_sleep_wake(void)
         mm_execution_state_destroy(&state);
         return 1;
     }
+    state.target.adc_cycles_until_event = test_adc_cycles_until_event;
+    g_adc_event = 5u;
+    if (mm_execution_state_cycles_until_wake(&state, 0u, 0u) != 5u ||
+        mm_execution_state_cycles_until_wake(&state, 0u, 4u) != 4u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    g_adc_event = 0u;
+    if (mm_execution_state_cycles_until_wake(&state, 0u, 0u) != 1u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    g_adc_event = (mm_u64)-1;
+    if (mm_execution_state_cycles_until_wake(&state, 0u, 0u) != 7u) {
+        mm_execution_state_destroy(&state);
+        return 1;
+    }
+    state.target.adc_cycles_until_event = 0;
 
     cpu->sleeping = MM_TRUE;
     cpu->sleep_wfe = MM_TRUE;

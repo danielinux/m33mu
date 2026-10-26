@@ -27,5 +27,7 @@
 void mm_timer_init(const struct mm_target_cfg *cfg, struct mmio_bus *bus, struct mm_nvic *nvic);
 void mm_timer_reset(const struct mm_target_cfg *cfg);
 void mm_timer_tick(const struct mm_target_cfg *cfg, mm_u64 cycles);
+/* Cycles until the next scheduled ADC event, (mm_u64)-1 if none. */
+mm_u64 mm_timer_adc_cycles_until_event(const struct mm_target_cfg *cfg);
 
 #endif /* M33MU_TIMER_H */
