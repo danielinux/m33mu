@@ -254,6 +254,22 @@ static int hex_nibble(char c)
     return -1;
 }
 
+/* Unsigned decimal in [lo, hi]. */
+static mm_bool parse_dec_i32(const char *s, mm_i32 lo, mm_i32 hi, mm_i32 *out)
+{
+    char *endp;
+    long v;
+    if (s[0] < '0' || s[0] > '9') {
+        return MM_FALSE;
+    }
+    v = strtol(s, &endp, 10);
+    if (*endp != '\0' || v < lo || v > hi) {
+        return MM_FALSE;
+    }
+    *out = (mm_i32)v;
+    return MM_TRUE;
+}
+
 static mm_bool parse_hex_blob(const char *s, mm_u8 *out, mm_u32 out_cap, mm_u32 *out_len)
 {
     const char *hex = s;
@@ -4494,13 +4510,10 @@ int main(int argc, char **argv)
             }
             iotsafe_uart_count++;
         } else if (strncmp(argv[i], "--vdd-mv=", 9) == 0) {
-            char *endp;
-            long v = strtol(argv[i] + 9, &endp, 0);
-            if (*endp != '\0') {
+            if (!parse_dec_i32(argv[i] + 9, 1, 5500, &opt_vdd_mv)) {
                 fprintf(stderr, "invalid --vdd-mv value: %s\n", argv[i]);
                 return 1;
             }
-            opt_vdd_mv = (mm_i32)v;
         } else if (strncmp(argv[i], "--gpio-vil-mv=", 14) == 0 ||
                    strncmp(argv[i], "--gpio-vih-mv=", 14) == 0) {
             char *endp;
