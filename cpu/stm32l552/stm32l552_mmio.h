@@ -40,6 +40,7 @@ mm_u32 *mm_stm32l552_tzsc_regs(void);
 void mm_stm32l552_rng_set_nvic(struct mm_nvic *nvic);
 void mm_stm32l552_exti_set_nvic(struct mm_nvic *nvic);
 void mm_stm32l552_watchdog_tick(mm_u64 cycles);
+void mm_stm32l552_timer_output(mm_u32 tim, int ch, mm_u8 level, mm_u64 cycles_ahead);
 mm_bool mm_stm32l552_mpcbb_block_secure(int bank, mm_u32 block_index);
 void mm_stm32l552_mmio_reset(void);
 

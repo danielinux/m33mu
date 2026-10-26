@@ -424,6 +424,63 @@ static struct wwdg_state wwdg;
 static struct flash_state flash_ctl;
 static struct stm32_gpio_state gpio[8]; /* A..H (L552 has 8 banks) */
 static struct stm32_gpio_ctx gpio_ctx_data[16]; /* NS + S for each bank */
+
+/* TIM2..TIM5 channel pins: bank, pin, AF, timer (0 = TIM2), channel. From
+ * ST's pin data in Zephyr hal_stm32 dts/st/l5/stm32l552z(c-e)txq-pinctrl.dtsi. */
+static const struct { mm_u8 bank, pin, af, tim, ch; } g_tim_pins[] = {
+    { 0, 0, 1, 0, 1 }, /* PA0 TIM2_CH1 */
+    { 0, 0, 2, 3, 1 }, /* PA0 TIM5_CH1 */
+    { 0, 1, 1, 0, 2 }, /* PA1 TIM2_CH2 */
+    { 0, 1, 2, 3, 2 }, /* PA1 TIM5_CH2 */
+    { 0, 2, 1, 0, 3 }, /* PA2 TIM2_CH3 */
+    { 0, 2, 2, 3, 3 }, /* PA2 TIM5_CH3 */
+    { 0, 3, 1, 0, 4 }, /* PA3 TIM2_CH4 */
+    { 0, 3, 2, 3, 4 }, /* PA3 TIM5_CH4 */
+    { 0, 5, 1, 0, 1 }, /* PA5 TIM2_CH1 */
+    { 0, 6, 2, 1, 1 }, /* PA6 TIM3_CH1 */
+    { 0, 7, 2, 1, 2 }, /* PA7 TIM3_CH2 */
+    { 0, 15, 1, 0, 1 }, /* PA15 TIM2_CH1 */
+    { 1, 0, 2, 1, 3 }, /* PB0 TIM3_CH3 */
+    { 1, 1, 2, 1, 4 }, /* PB1 TIM3_CH4 */
+    { 1, 3, 1, 0, 2 }, /* PB3 TIM2_CH2 */
+    { 1, 4, 2, 1, 1 }, /* PB4 TIM3_CH1 */
+    { 1, 5, 2, 1, 2 }, /* PB5 TIM3_CH2 */
+    { 1, 6, 2, 2, 1 }, /* PB6 TIM4_CH1 */
+    { 1, 7, 2, 2, 2 }, /* PB7 TIM4_CH2 */
+    { 1, 8, 2, 2, 3 }, /* PB8 TIM4_CH3 */
+    { 1, 9, 2, 2, 4 }, /* PB9 TIM4_CH4 */
+    { 1, 10, 1, 0, 3 }, /* PB10 TIM2_CH3 */
+    { 1, 11, 1, 0, 4 }, /* PB11 TIM2_CH4 */
+    { 2, 6, 2, 1, 1 }, /* PC6 TIM3_CH1 */
+    { 2, 7, 2, 1, 2 }, /* PC7 TIM3_CH2 */
+    { 2, 8, 2, 1, 3 }, /* PC8 TIM3_CH3 */
+    { 2, 9, 2, 1, 4 }, /* PC9 TIM3_CH4 */
+    { 3, 12, 2, 2, 1 }, /* PD12 TIM4_CH1 */
+    { 3, 13, 2, 2, 2 }, /* PD13 TIM4_CH2 */
+    { 3, 14, 2, 2, 3 }, /* PD14 TIM4_CH3 */
+    { 3, 15, 2, 2, 4 }, /* PD15 TIM4_CH4 */
+    { 4, 3, 2, 1, 1 }, /* PE3 TIM3_CH1 */
+    { 4, 4, 2, 1, 2 }, /* PE4 TIM3_CH2 */
+    { 4, 5, 2, 1, 3 }, /* PE5 TIM3_CH3 */
+    { 4, 6, 2, 1, 4 }, /* PE6 TIM3_CH4 */
+    { 5, 6, 2, 3, 1 }, /* PF6 TIM5_CH1 */
+    { 5, 7, 2, 3, 2 }, /* PF7 TIM5_CH2 */
+    { 5, 8, 2, 3, 3 }, /* PF8 TIM5_CH3 */
+    { 5, 9, 2, 3, 4 }, /* PF9 TIM5_CH4 */
+};
+
+/* Output OCx of TIM2+tim reaches every pin whose AF selects it. */
+void mm_stm32l552_timer_output(mm_u32 tim, int ch, mm_u8 level, mm_u64 cycles_ahead)
+{
+    size_t i;
+    for (i = 0; i < sizeof(g_tim_pins) / sizeof(g_tim_pins[0]); ++i) {
+        if (g_tim_pins[i].tim == tim && g_tim_pins[i].ch == ch &&
+            g_tim_pins[i].bank < sizeof(gpio) / sizeof(gpio[0])) {
+            stm32_gpio_drive_af(&gpio_ctx_data[g_tim_pins[i].bank * 2], g_tim_pins[i].pin,
+                                g_tim_pins[i].af, level, cycles_ahead);
+        }
+    }
+}
 static struct dma_state dma1;
 static struct dma_state dma2;
 static void *rng_ctx[2][4];
