@@ -222,6 +222,22 @@ static int test_high_irq_itns(void)
     return 0;
 }
 
+static int test_is_active(void)
+{
+    struct mm_nvic nvic;
+    mm_nvic_init(&nvic);
+    if (mm_nvic_is_active(&nvic, 5u)) return 1;
+    mm_nvic_set_active(&nvic, 5u, MM_TRUE);
+    mm_nvic_set_pending(&nvic, 6u, MM_TRUE);
+    if (!mm_nvic_is_active(&nvic, 5u) || mm_nvic_is_active(&nvic, 6u)) return 1;
+    mm_nvic_set_active(&nvic, MM_MAX_IRQ - 1u, MM_TRUE);
+    if (!mm_nvic_is_active(&nvic, MM_MAX_IRQ - 1u)) return 1;
+    if (mm_nvic_is_active(&nvic, MM_MAX_IRQ + 40u)) return 1;
+    mm_nvic_set_active(&nvic, 5u, MM_FALSE);
+    if (mm_nvic_is_active(&nvic, 5u)) return 1;
+    return 0;
+}
+
 static int test_high_irq_priority_order(void)
 {
     struct mm_nvic nvic;
@@ -251,6 +267,7 @@ int main(void)
         { "equal_group_priority_subpriority_cannot_preempt", test_equal_group_priority_subpriority_cannot_preempt },
         { "high_irq_state", test_high_irq_state },
         { "high_irq_itns", test_high_irq_itns },
+        { "is_active", test_is_active },
         { "high_irq_priority_order", test_high_irq_priority_order },
     };
     int failures = 0;

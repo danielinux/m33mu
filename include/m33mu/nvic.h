@@ -54,6 +54,7 @@ mm_u32 mm_nvic_word_mask(const struct mm_nvic *nvic, mm_u32 word);
 void mm_nvic_set_enable(struct mm_nvic *nvic, mm_u32 irq, mm_bool enable);
 void mm_nvic_set_pending(struct mm_nvic *nvic, mm_u32 irq, mm_bool pending);
 mm_bool mm_nvic_is_pending(const struct mm_nvic *nvic, mm_u32 irq);
+mm_bool mm_nvic_is_active(const struct mm_nvic *nvic, mm_u32 irq);
 void mm_nvic_set_itns(struct mm_nvic *nvic, mm_u32 irq, mm_bool target_nonsecure);
 enum mm_sec_state mm_nvic_irq_target_sec(const struct mm_nvic *nvic, mm_u32 irq);
 void mm_nvic_set_active(struct mm_nvic *nvic, mm_u32 irq, mm_bool active);
