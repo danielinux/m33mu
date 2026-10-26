@@ -33,6 +33,7 @@
 #include <wolfssl/wolfcrypt/sha512.h>
 #endif
 #include "stm32l552/stm32l552_mmio.h"
+#include "stm32l552/stm32l552_timers.h"
 #include "stm32l552/stm32l552_usb.h"
 #include "m33mu/memmap.h"
 #include "m33mu/flash_persist.h"
@@ -643,15 +644,38 @@ static mm_bool flash_trace_enabled(void)
 static mm_bool stm32l552_rcc_clock_list_line(void *opaque, int line, char *out, size_t out_len);
 
 /* Both aliases share the bank state and EXTI hook; use the NS one. */
+/* A level change on a pin whose AF selects a TIM2..TIM5 channel is that
+ * channel's input edge (same table as the outputs). */
+static void stm32l552_gpio_route_timer_edge(int bank, int pin, mm_bool level, mm_u64 late_cycles)
+{
+    size_t i;
+    mm_u32 af;
+    if (stm32_gpio_get_pin_mode(&gpio[bank], pin) != 2u) {
+        return;
+    }
+    af = stm32_gpio_get_pin_af(&gpio[bank], pin);
+    for (i = 0; i < sizeof(g_tim_pins) / sizeof(g_tim_pins[0]); ++i) {
+        if (g_tim_pins[i].bank == bank && g_tim_pins[i].pin == pin && g_tim_pins[i].af == af) {
+            mm_stm32l552_timers_input_edge(g_tim_pins[i].tim, g_tim_pins[i].ch, level, late_cycles);
+        }
+    }
+}
+
 static mm_bool stm32l552_gpio_set_external_input_cb(void *opaque, int bank, int pin, mm_bool level,
                                                     mm_u64 late_cycles)
 {
+    mm_bool was_high;
+    mm_bool ok;
     (void)opaque;
-    (void)late_cycles;
-    if (bank < 0 || bank >= (int)(sizeof(gpio) / sizeof(gpio[0]))) {
+    if (bank < 0 || bank >= (int)(sizeof(gpio) / sizeof(gpio[0])) || pin < 0 || pin >= 16) {
         return MM_FALSE;
     }
-    return stm32_gpio_set_external_input(&gpio_ctx_data[bank * 2], pin, level);
+    was_high = ((gpio[bank].ext_driven & gpio[bank].ext_level) >> pin) & 1u;
+    ok = stm32_gpio_set_external_input(&gpio_ctx_data[bank * 2], pin, level);
+    if ((level ? 1 : 0) != (was_high ? 1 : 0)) {
+        stm32l552_gpio_route_timer_edge(bank, pin, level, late_cycles);
+    }
+    return ok;
 }
 
 static mm_bool stm32l552_gpio_bank_info(void *opaque, int bank, char *name_out, size_t name_len, int *pins_out)

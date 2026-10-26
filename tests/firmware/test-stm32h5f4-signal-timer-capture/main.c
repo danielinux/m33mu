@@ -1,5 +1,6 @@
 /* TIM2 CH1 on PA5 measures an injected 100 us square wave (6400 cycles at
- * 64 MHz): first capture to capture, then in PWM input mode. */
+ * 64 MHz, scaled to the part's SIGNAL_CPU_HZ): first capture to capture,
+ * then in PWM input mode. */
 
 #include <stdint.h>
 #include "signal_test.h"
@@ -7,7 +8,6 @@
 #define PIN 5
 
 #define GPIO_AFRL(base)     REG32((base) + 0x20u)
-#define RCC_APB1LENR        REG32(RCC_BASE + 0x9Cu)
 #define RCC_APB1LENR_TIM2EN (1u << 0)
 
 #define TIM2_BASE  0x40000000u
@@ -25,8 +25,8 @@
 #define TIM_SR_CC1IF  (1u << 1)
 #define TIM_SR_CC1OF  (1u << 9)
 
-#define PERIOD_TICKS  6400u
-#define HIGH_TICKS    3200u
+#define PERIOD_TICKS  (SIGNAL_CPU_HZ / 10000u)
+#define HIGH_TICKS    (PERIOD_TICKS / 2u)
 #define CAPTURES      5
 #define WAIT_LIMIT    2000000u
 
@@ -54,7 +54,7 @@ void Reset_Handler(void)
 
     crt_init();
     RCC_AHB2ENR |= RCC_AHB2ENR_GPIOAEN;
-    RCC_APB1LENR |= RCC_APB1LENR_TIM2EN;
+    RCC_APB1ENR_TIM |= RCC_APB1LENR_TIM2EN;
     GPIO_AFRL(GPIOA_BASE) = (GPIO_AFRL(GPIOA_BASE) & ~(0xFu << (PIN * 4))) | (1u << (PIN * 4));
     GPIO_MODER(GPIOA_BASE) = (GPIO_MODER(GPIOA_BASE) & ~(0x3u << (PIN * 2))) | (0x2u << (PIN * 2));
 

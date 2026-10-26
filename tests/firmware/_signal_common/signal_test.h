@@ -16,15 +16,21 @@
 #if defined(SIGNAL_TARGET_U585)
 #define RCC_BASE            0x46020C00u
 #define RCC_AHB2ENR         REG32(RCC_BASE + 0x8Cu)
+#define RCC_APB1ENR_TIM     REG32(RCC_BASE + 0x9Cu)   /* APB1ENR1 */
 #define EXTI_BASE           0x46022000u
+#define SIGNAL_CPU_HZ       48000000u                 /* m33mu reset clock */
 #elif defined(SIGNAL_TARGET_L552)
 #define RCC_BASE            0x40021000u
 #define RCC_AHB2ENR         REG32(RCC_BASE + 0x4Cu)
+#define RCC_APB1ENR_TIM     REG32(RCC_BASE + 0x58u)   /* APB1ENR1 */
 #define EXTI_BASE           0x4002F400u
+#define SIGNAL_CPU_HZ       4000000u                  /* MSI range 6 at reset */
 #else
 #define RCC_BASE            0x44020C00u
 #define RCC_AHB2ENR         REG32(RCC_BASE + 0x8Cu)
+#define RCC_APB1ENR_TIM     REG32(RCC_BASE + 0x9Cu)   /* APB1LENR */
 #define EXTI_BASE           0x44022000u
+#define SIGNAL_CPU_HZ       64000000u                 /* HSI 64 MHz */
 #endif
 #define RCC_AHB2ENR_GPIOAEN (1u << 0)
 #define RCC_AHB2ENR_GPIOBEN (1u << 1)

@@ -214,8 +214,8 @@ jobs:
               --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
               $FW/test-$t-signal-exti-both/app.elf
           done
-          # Each H5 part has its own TIM2..TIM5 pin table.
-          for t in stm32h563 stm32h533; do
+          # Each H5, U5 and L5 part has its own TIM2..TIM5 pin table.
+          for t in stm32h563 stm32h533 stm32u585 stm32l552; do
             build/m33mu --cpu $t --signal-file=$COMMON/fixture_square.sigc \
               --signal-sync=signal_trigger_marker \
               --signal-bind:trace=vin:target=PA5:role=gpio \
