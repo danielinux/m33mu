@@ -1,17 +1,25 @@
-/* Web workbench bus demo for NUCLEO-H563ZI. Every 500 ms it reports on
- * USART3 (ST-LINK VCP):
+/* Web workbench bus demo for NUCLEO-H563ZI, also built for the STM32U585
+ * on a NUCLEO-U575ZI-Q (test-stm32u585-web-bus). Every 500 ms it reports on
+ * USART3 (ST-LINK VCP on the H563):
  *  - I2C1 on CN7-2/4 (PB8 SCL, PB9 SDA): write 2 bytes to a 24C02 at 0x50,
  *    read them back; prints OK/NACK/BUSY/ARLO.
  *  - I2C1 0x48 (TMP102): temperature register.
- *  - SPI1 on CN7-10/12/14 (PA5 SCK, PG9 MISO, PB5 MOSI), CS on CN7-16 (PD14
- *    GPIO): JEDEC ID (0x9F).
+ *  - SPI1 on CN7-10/12/14 (PA5 SCK, PG9 MISO, PB5 MOSI; PA6/PA7 on the
+ *    U575ZI-Q), CS on CN7-16 (PD14 GPIO): JEDEC ID (0x9F).
  *  - USART2 on CN9-6/4 (PD5 TX, PD6 RX): sends "ping", echoes what returns.
  * The firmware polls; timeouts stand in for HAL error handling. */
 
 #include <stdint.h>
 
 #define REG(a) (*(volatile uint32_t *)(a))
+/* RCC enable registers sit at the same offsets on both parts (H563 RM0481
+ * AHB2ENR/APB1LENR/APB2ENR, U585 RM0456 AHB2ENR1/APB1ENR1/APB2ENR) with the
+ * same GPIO, USART2/3, I2C1 and SPI1 bits. */
+#ifdef SIGNAL_TARGET_U585
+#define RCC 0x46020C00u
+#else
 #define RCC 0x44020C00u
+#endif
 #define RCC_AHB2ENR REG(RCC + 0x8Cu)
 #define RCC_APB1LENR REG(RCC + 0x9Cu)
 #define RCC_APB2ENR REG(RCC + 0xA4u)
@@ -191,7 +199,11 @@ void Reset_Handler(void)
     U_CR1(USART2) = 1u | (1u << 2) | (1u << 3);
     pin_af(PB, 8, 4, 1); pin_af(PB, 9, 4, 1);               /* I2C1, open drain */
     I_CR1 = 1u;
+#ifdef SIGNAL_TARGET_U585
+    pin_af(PA, 5, 5, 0); pin_af(PA, 6, 5, 0); pin_af(PA, 7, 5, 0); /* SPI1 */
+#else
     pin_af(PA, 5, 5, 0); pin_af(PG, 9, 5, 0); pin_af(PB, 5, 5, 0); /* SPI1 */
+#endif
     BSRR(PD) = 1u << 14;                                    /* CS high */
     MODER(PD) = (MODER(PD) & ~(3u << 28)) | (1u << 28);
     S_CFG1 = 7u;                                            /* 8-bit frames */
