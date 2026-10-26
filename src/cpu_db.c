@@ -186,7 +186,7 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             0,
-            0,
+            133u, /* RM0481: I3C2_ER = 132 is the last line */
             STM32H533_ADC_INIT,
             STM32H533_ADC_RESET,
             STM32H533_ADC_TICK,
