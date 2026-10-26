@@ -689,6 +689,151 @@ static int test_many_crossings(void)
     return 0;
 }
 
+static int expect_sample(int bank, int pin, mm_u64 cycles_ahead, mm_i32 expected)
+{
+    mm_i32 mv = -9999;
+    if (!mm_signal_sample_mv(bank, pin, cycles_ahead, &mv)) return 1;
+    return (mv == expected) ? 0 : 1;
+}
+
+static int test_sample_mv_uniform_zoh(void)
+{
+    /* Rises at 2us: one crossing to check that sampling leaves replay alone. */
+    mm_i16 samples[4] = { 500, 1000, 3300, 2000 };
+    mm_i32 mv = 123;
+
+    reset_fakes();
+    mm_signal_set_vdd_mv(3300);
+    if (!write_fixture(g_tmp_path, "ain", samples, 4, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("ain", 0, 0, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+
+    if (mm_signal_sample_mv(0, 1, 0, &mv) || mv != 0) return 1;
+    if (mm_signal_sample_mv(1, 0, 0, &mv)) return 1;
+
+    if (expect_sample(0, 0, 0, 500)) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08000000u);
+    mm_signal_advance(1000u);
+    if (expect_sample(0, 0, 0, 500) || expect_sample(0, 0, 1000000u, 500)) return 1;
+
+    /* Trigger at 4us; 250 cycles per sample at 250MHz. */
+    mm_signal_check_trigger(0x08001000u);
+    if (expect_sample(0, 0, 0, 500) || expect_sample(0, 0, 249u, 500)) return 1;
+    if (expect_sample(0, 0, 250u, 1000) || expect_sample(0, 0, 499u, 1000)) return 1;
+    if (expect_sample(0, 0, 500u, 3300) || expect_sample(0, 0, 750u, 2000)) return 1;
+    if (expect_sample(0, 0, 1000000u, 2000)) return 1;
+    if (g_write_calls != 0 || mm_signal_cycles_until_next_event() != 500u) return 1;
+
+    mm_signal_advance(250u);
+    if (expect_sample(0, 0, 0, 1000) || expect_sample(0, 0, 249u, 1000)) return 1;
+    if (expect_sample(0, 0, 250u, 3300)) return 1;
+    if (g_write_calls != 0 || mm_signal_cycles_until_next_event() != 250u) return 1;
+    mm_signal_advance(250u);
+    if (g_write_calls != 1 || g_last_level != MM_TRUE) return 1;
+    mm_signal_advance(100000u);
+    if (expect_sample(0, 0, 0, 2000)) return 1;
+    return 0;
+}
+
+static int test_sample_mv_explicit_timebase(void)
+{
+    mm_i16 samples[4] = { 10, 20, 30, 40 };
+    mm_u64 ts[4] = { 500, 1500, 1500, 4000 };
+
+    reset_fakes();
+    if (!write_container(g_tmp_path, 1, "ts", 4, 0, ts, samples, 4, 0)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("ts", 2, 3, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+
+    /* 4ns per cycle. */
+    if (expect_sample(2, 3, 0, 10) || expect_sample(2, 3, 124u, 10)) return 1;
+    if (expect_sample(2, 3, 125u, 10) || expect_sample(2, 3, 374u, 10)) return 1;
+    if (expect_sample(2, 3, 375u, 30) || expect_sample(2, 3, 999u, 30)) return 1;
+    if (expect_sample(2, 3, 1000u, 40) || expect_sample(2, 3, 1000000u, 40)) return 1;
+    mm_signal_advance(375u);
+    if (expect_sample(2, 3, 0, 30)) return 1;
+    return 0;
+}
+
+static int test_sample_mv_empty_trace(void)
+{
+    reset_fakes();
+    if (!write_fixture(g_tmp_path, "empty", 0, 0, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("empty", 0, 7, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    if (expect_sample(0, 7, 0, 0)) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+    mm_signal_advance(1000u);
+    if (expect_sample(0, 7, 0, 0) || expect_sample(0, 7, 1000u, 0)) return 1;
+    return 0;
+}
+
+static int test_sample_mv_after_clock_change(void)
+{
+    mm_i16 samples[6] = { 0, 1, 2, 3, 4, 5 };
+
+    reset_fakes();
+    mm_signal_set_cpu_hz(64000000ull);
+    if (!write_fixture(g_tmp_path, "slowramp", samples, 6, 500000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("slowramp", 0, 0, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+
+    /* 1ms at 64MHz, then the lookahead counts at 250MHz. */
+    mm_signal_advance(64000u);
+    if (expect_sample(0, 0, 0, 2) || expect_sample(0, 0, 31999u, 2)) return 1;
+    mm_signal_set_cpu_hz(250000000ull);
+    if (expect_sample(0, 0, 0, 2) || expect_sample(0, 0, 124999u, 2)) return 1;
+    if (expect_sample(0, 0, 125000u, 3)) return 1;
+    return 0;
+}
+
+static int test_sample_mv_lookahead_matches_advance(void)
+{
+    mm_i16 samples[2] = { 10, 20 };
+    mm_u64 ts[2] = { 0, 31 };
+
+    reset_fakes();
+    mm_signal_set_cpu_hz(64000000ull);
+    if (!write_container(g_tmp_path, 1, "ts", 2, 0, ts, samples, 2, 0)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("ts", 0, 0, MM_SIGNAL_ROLE_GPIO) < 0) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+
+    /* 15.625ns per cycle: cycle 2 is at 31.25ns. */
+    mm_signal_advance(1u);
+    if (expect_sample(0, 0, 0, 10) || expect_sample(0, 0, 1u, 20)) return 1;
+    mm_signal_advance(1u);
+    if (expect_sample(0, 0, 0, 20)) return 1;
+    return 0;
+}
+
+static int test_duplicate_pin_rejected(void)
+{
+    mm_i16 a[2] = { 100, 200 };
+    mm_i16 b[2] = { 300, 400 };
+
+    reset_fakes();
+    if (!write_two_waveforms(g_tmp_path, "a", a, "b", b, 2, 1000)) return 1;
+    if (!mm_signal_load(g_tmp_path)) return 1;
+    if (mm_signal_bind("a", 0, 5, MM_SIGNAL_ROLE_GPIO) != 0) return 1;
+    if (mm_signal_bind("b", 0, 5, MM_SIGNAL_ROLE_GPIO) != -1) return 1;
+    if (mm_signal_bind("a", 0, 5, MM_SIGNAL_ROLE_GPIO) != -1) return 1;
+    if (mm_signal_bind("b", 1, 5, MM_SIGNAL_ROLE_GPIO) != 1) return 1;
+    if (mm_signal_bind("a", 0, 6, MM_SIGNAL_ROLE_GPIO) != 2) return 1;
+    mm_signal_set_trigger(0x08001000u);
+    mm_signal_check_trigger(0x08001000u);
+    if (expect_sample(0, 5, 0, 100) || expect_sample(0, 5, 250u, 200)) return 1;
+    if (expect_sample(1, 5, 0, 300) || expect_sample(1, 5, 250u, 400)) return 1;
+    return 0;
+}
+
 int main(void)
 {
     struct {
@@ -714,6 +859,12 @@ int main(void)
         { "crossings_across_bindings_in_time_order", test_crossings_across_bindings_in_time_order },
         { "idle_advances_keep_initial_rewrite", test_idle_advances_keep_initial_rewrite },
         { "clock_drop_between_crossings", test_clock_drop_between_crossings },
+        { "sample_mv_uniform_zoh", test_sample_mv_uniform_zoh },
+        { "sample_mv_explicit_timebase", test_sample_mv_explicit_timebase },
+        { "sample_mv_empty_trace", test_sample_mv_empty_trace },
+        { "sample_mv_after_clock_change", test_sample_mv_after_clock_change },
+        { "sample_mv_lookahead_matches_advance", test_sample_mv_lookahead_matches_advance },
+        { "duplicate_pin_rejected", test_duplicate_pin_rejected },
     };
     size_t i;
     int failures = 0;

@@ -82,6 +82,11 @@ static mm_i32 g_vil_mv = 0;
 static mm_i32 g_vih_mv = 0;
 #define MM_SIGNAL_HYSTERESIS_HALF_MV 125
 
+static mm_bool g_has_adc_vref = MM_FALSE;
+static mm_i32 g_adc_vref_mv = 0;
+static mm_u32 g_adc_noise_lsb = 0;
+static mm_u64 g_adc_seed = 0;
+
 #define MM_SIGNAL_NS_PER_SEC 1000000000ull
 #define MM_SIGNAL_DEFAULT_CPU_HZ 64000000ull
 
@@ -170,6 +175,10 @@ void mm_signal_reset(void)
     g_has_vih = MM_FALSE;
     g_vil_mv = 0;
     g_vih_mv = 0;
+    g_has_adc_vref = MM_FALSE;
+    g_adc_vref_mv = 0;
+    g_adc_noise_lsb = 0;
+    g_adc_seed = 0;
     g_total_vcycles = 0;
     g_base_vcycles = 0;
     g_base_ns = 0;
@@ -206,6 +215,33 @@ mm_i32 mm_signal_gpio_vih_mv(void)
 mm_i32 mm_signal_gpio_vil_mv(void)
 {
     return g_has_vil ? g_vil_mv : (g_vdd_mv / 2) - MM_SIGNAL_HYSTERESIS_HALF_MV;
+}
+
+void mm_signal_set_adc_vref_mv(mm_i32 vref_mv)
+{
+    g_has_adc_vref = (vref_mv > 0) ? MM_TRUE : MM_FALSE;
+    g_adc_vref_mv = (vref_mv > 0) ? vref_mv : 0;
+}
+
+mm_i32 mm_signal_adc_vref_mv(void)
+{
+    return g_has_adc_vref ? g_adc_vref_mv : g_vdd_mv;
+}
+
+void mm_signal_set_adc_noise(mm_u32 lsb, mm_u64 seed)
+{
+    g_adc_noise_lsb = lsb;
+    g_adc_seed = seed;
+}
+
+mm_u32 mm_signal_adc_noise_lsb(void)
+{
+    return g_adc_noise_lsb;
+}
+
+mm_u64 mm_signal_adc_seed(void)
+{
+    return g_adc_seed;
 }
 
 struct signal_reader {
@@ -495,6 +531,18 @@ static mm_bool signal_build_gpio_schedule(struct mm_signal_binding *b,
     return MM_TRUE;
 }
 
+static const struct mm_signal_binding *signal_find_binding(int bank, int pin)
+{
+    mm_u32 i;
+
+    for (i = 0; i < g_binding_count; ++i) {
+        if (g_bindings[i].bank == bank && g_bindings[i].pin == pin) {
+            return &g_bindings[i];
+        }
+    }
+    return 0;
+}
+
 int mm_signal_bind(const char *trace_name, int bank, int pin,
                     enum mm_signal_role role)
 {
@@ -519,6 +567,10 @@ int mm_signal_bind(const char *trace_name, int bank, int pin,
     }
     if (!found) {
         fprintf(stderr, "signal: unknown trace '%s'\n", trace_name);
+        return -1;
+    }
+    if (signal_find_binding(bank, pin) != 0) {
+        fprintf(stderr, "signal: pin P%c%d is already bound\n", (char)('A' + bank), pin);
         return -1;
     }
 
@@ -642,6 +694,47 @@ static void signal_dispatch_due(mm_u64 elapsed_ns)
         }
         first->next_crossing++;
     }
+}
+
+/* Zero-order hold at t_ns after the trigger; sample 0 before the first timestamp. */
+static mm_i32 signal_trace_value_at(const struct mm_signal_trace *tr, mm_u64 t_ns)
+{
+    const struct mm_signal_timebase *tb = &g_timebases[tr->timebase_idx];
+    mm_u32 lo = 0;
+    mm_u32 hi;
+
+    if (tb->sample_count == 0u) {
+        return 0;
+    }
+    hi = tb->sample_count - 1u;
+    if (tb->period_ns != 0u) {
+        mm_u64 idx = t_ns / tb->period_ns;
+        return tr->samples_mv[(idx < hi) ? idx : hi];
+    }
+    while (lo < hi) {
+        mm_u32 mid = lo + (hi - lo + 1u) / 2u;
+        if (tb->timestamps_ns[mid] <= t_ns) {
+            lo = mid;
+        } else {
+            hi = mid - 1u;
+        }
+    }
+    return tr->samples_mv[lo];
+}
+
+mm_bool mm_signal_sample_mv(int bank, int pin, mm_u64 cycles_ahead, mm_i32 *mv_out)
+{
+    const struct mm_signal_binding *b = signal_find_binding(bank, pin);
+    mm_u64 at_ns;
+
+    if (b == 0) {
+        *mv_out = 0;
+        return MM_FALSE;
+    }
+    at_ns = mm_signal_ns_ahead(cycles_ahead);
+    at_ns = (g_triggered && at_ns >= g_trigger_ns) ? at_ns - g_trigger_ns : 0u;
+    *mv_out = signal_trace_value_at(&g_traces[b->trace_idx], at_ns);
+    return MM_TRUE;
 }
 
 mm_bool mm_signal_is_trigger_pc(mm_u32 pc)
