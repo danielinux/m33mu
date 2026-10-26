@@ -28,7 +28,8 @@ build/m33mu --cpu stm32h5f4 \
 - `--signal-file=<path>`: the `.sigc` container holding the traces.
 - `--signal-bind:trace=<name>:target=<PXn>[:role=gpio]`: drive pin
   `PXn` from the named trace. `role=` is optional and defaults to `gpio`, the
-  only role supported. Can be repeated, up to 32 bindings.
+  only role supported. Can be repeated, up to 32 bindings, each on a different
+  pin: binding a pin twice is an error.
 - `--signal-sync=<symbol|address>`: the PC that starts replay, required with
   `--signal-bind`. A symbol is looked up in the ELF image's symbol table,
   which requires the image to be an ELF and m33mu to be built with libelf. A
