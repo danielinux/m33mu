@@ -223,6 +223,17 @@ mm_bool mm_nvic_is_pending(const struct mm_nvic *nvic, mm_u32 irq)
     return (nvic->pending_mask[word] & mask) != 0u;
 }
 
+mm_bool mm_nvic_is_active(const struct mm_nvic *nvic, mm_u32 irq)
+{
+    mm_u32 word = irq / 32u;
+    mm_u32 bit = irq % 32u;
+    mm_u32 mask = 1u << bit;
+    if (word >= (MM_MAX_IRQ + 31u) / 32u) {
+        return MM_FALSE;
+    }
+    return (nvic->active_mask[word] & mask) != 0u;
+}
+
 static mm_u32 ctz32(mm_u32 v)
 {
 #if defined(__GNUC__) || defined(__clang__)
