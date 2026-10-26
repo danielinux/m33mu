@@ -183,13 +183,14 @@ jobs:
             echo "an unreached --signal-sync did not fail the run"
             exit 1
           fi
-          # --signal-bind must be rejected on a target or pin that cannot be driven.
+          # --signal-bind must be rejected on a pin the target does not have
+          # (nRF5340 has ports P0 and P1 only, so "PC5" names a missing port).
           if build/m33mu --cpu nrf5340 --signal-file=$COMMON/fixture_oneshot.sigc \
-              --signal-bind:trace=vin:target=PA5:role=gpio --signal-sync=0x0c000000 \
+              --signal-bind:trace=vin:target=PC5:role=gpio --signal-sync=0x0c000000 \
               --timeout 10 tests/firmware/test-nrf5340/app.bin 2> /tmp/m33mu-signal-reject.log; then
             exit 1
           fi
-          grep -q "has no GPIO signal injection" /tmp/m33mu-signal-reject.log
+          grep -q "CPU nrf5340 has no pin PC5" /tmp/m33mu-signal-reject.log
           if run_signal_test $FW/test-stm32h5f4-signal-gpio-basic $COMMON/fixture_oneshot.sigc \
               --signal-bind:trace=vin:target=PZ5:role=gpio 2> /tmp/m33mu-signal-reject.log; then
             exit 1
