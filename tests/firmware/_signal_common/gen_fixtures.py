@@ -82,3 +82,18 @@ samples = [0, 3300] * 20
 tb = uniform(1, samples, 50000)
 tr = sigc.Trace(1, "vin", 1, 3300, samples)
 write_container(os.path.join(OUT_DIR, "fixture_square.sigc"), [tb], [tr])
+
+# adc-single, adc-mode-guard, adc-vref: 200us flat segments on ain0, ain1 constant.
+# No segment reaches 3300 mV full scale; adc-vref's 2900 mV makes 3000 mV clamp on purpose.
+tb = uniform(1, [0, 0, 0], 200000)
+tr0 = sigc.Trace(1, "ain0", 1, 3300, [1000, 2500, 3000])
+tr1 = sigc.Trace(2, "ain1", 1, 3300, [600, 600, 600])
+write_container(os.path.join(OUT_DIR, "fixture_adc_steps.sigc"), [tb], [tr0, tr1])
+
+# adc-scan-irq, adc-wfi, adc-continuous, adc-stop-disable, adc3-single: three flat inputs.
+# Codes at 3300 mV: 1240.9 -> 1241, 3102.3 -> 3102, 372.3 -> 372, none near .5.
+tb = uniform(1, [0, 0], 1000000)
+tr0 = sigc.Trace(1, "ain0", 1, 3300, [1000, 1000])
+tr1 = sigc.Trace(2, "ain1", 1, 3300, [2500, 2500])
+tr3 = sigc.Trace(3, "ain3", 1, 3300, [300, 300])
+write_container(os.path.join(OUT_DIR, "fixture_adc_scan.sigc"), [tb], [tr0, tr1, tr3])

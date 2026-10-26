@@ -36,8 +36,8 @@ build/m33mu --cpu stm32h5f4 \
   numeric address works with any image format. The Thumb bit is ignored. If
   the PC never reaches it, m33mu prints an error and exits with 1 (only a
   warning under `--gdb` or `--tui`).
-- `--vdd-mv=<mV>`: supply voltage used to derive the input thresholds
-  (default 3300).
+- `--vdd-mv=<mV>`: supply voltage used to derive the input thresholds, 1..5500
+  (default 3300). It is also the default ADC reference.
 - `--gpio-vil-mv=<mV>`, `--gpio-vih-mv=<mV>`: input thresholds of every bound
   pin. A pin reads low once the trace falls to VIL or below, and high once it
   rises to VIH or above. Each flag overrides one side only: a side that is not
@@ -62,8 +62,9 @@ trace     u32 id; char name[32]; u32 timebase_id; i32 full_scale_mv
 All timebases come first, then all traces. Each trace references a timebase
 by id. Traces that share a timebase are sample-aligned, as in a simultaneous
 multi-channel capture. `period_ns != 0` is a uniform timebase, and
-`period_ns == 0` means explicit timestamps. `full_scale_mv` is not used by
-GPIO bindings.
+`period_ns == 0` means explicit timestamps. `full_scale_mv` is metadata
+recording the capture's range. The emulator never reads it, and ADC conversion
+scales against `--adc-vref-mv`.
 
 The loader accepts only `version == 1`. It rejects duplicate timebase ids,
 duplicate trace ids or names, explicit timestamps that go backwards, a file

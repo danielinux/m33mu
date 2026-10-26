@@ -28,6 +28,7 @@
 #include "stm32h563/stm32h563_usart.h"
 #include "stm32h563/stm32h563_spi.h"
 #include "stm32h5_eth.h"
+#include "stm32h5_adc.h"
 #include "stm32h563/cpu_config.h"
 #include "stm32n657/stm32n657_mmio.h"
 #include "stm32n657/stm32n657_usart.h"
@@ -140,10 +141,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             &STM32H563_FLASH_TIMING,
             131u, /* RM0481: LPTIM6 = 130 is the last line */
-            0,
-            0,
-            0,
-            0
+            STM32H563_ADC_INIT,
+            STM32H563_ADC_RESET,
+            STM32H563_ADC_TICK,
+            STM32H563_ADC_CYCLES_UNTIL_EVENT
         }
     },
     {
@@ -186,10 +187,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             0,
-            0,
-            0,
-            0,
-            0
+            STM32H533_ADC_INIT,
+            STM32H533_ADC_RESET,
+            STM32H533_ADC_TICK,
+            STM32H533_ADC_CYCLES_UNTIL_EVENT
         }
     },
     {
@@ -232,10 +233,10 @@ static const struct mm_cpu_entry cpu_table[] = {
             0,
             0,
             162u, /* RM0517: OTG_HS = 161 is the last line */
-            0,
-            0,
-            0,
-            0
+            STM32H5F4_ADC_INIT,
+            STM32H5F4_ADC_RESET,
+            STM32H5F4_ADC_TICK,
+            STM32H5F4_ADC_CYCLES_UNTIL_EVENT
         }
     },
     {

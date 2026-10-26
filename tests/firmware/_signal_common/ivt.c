@@ -29,9 +29,12 @@ void EXTI6_Handler(void)  __attribute__((weak, alias("default_handler")));
 void EXTI7_Handler(void)  __attribute__((weak, alias("default_handler")));
 void EXTI8_Handler(void)  __attribute__((weak, alias("default_handler")));
 void EXTI9_Handler(void)  __attribute__((weak, alias("default_handler")));
+void ADC1_Handler(void)   __attribute__((weak, alias("default_handler")));
+void ADC3_Handler(void)   __attribute__((weak, alias("default_handler")));
 
+/* 166 entries (664 bytes) need a 1 KB aligned VTOR; the table sits at the flash origin. */
 __attribute__((section(".isr_vector")))
-const uint32_t vector_table[16 + 61] = {
+const uint32_t vector_table[16 + 150] = {
     [0] = (uint32_t)&_estack,
     [1] = (uint32_t)&Reset_Handler,
     [2] = (uint32_t)&NMI_Handler,
@@ -45,7 +48,7 @@ const uint32_t vector_table[16 + 61] = {
     [13] = 0,
     [14] = (uint32_t)&PendSV_Handler,
     [15] = (uint32_t)&SysTick_Handler,
-    [16 ... 76] = (uint32_t)&default_handler,
+    [16 ... 165] = (uint32_t)&default_handler,
     /* IRQn = 11+line -> vector_table[16 + 11 + line] = vector_table[27+line] */
     [27] = (uint32_t)&EXTI0_Handler,
     [28] = (uint32_t)&EXTI1_Handler,
@@ -57,4 +60,6 @@ const uint32_t vector_table[16 + 61] = {
     [34] = (uint32_t)&EXTI7_Handler,
     [35] = (uint32_t)&EXTI8_Handler,
     [36] = (uint32_t)&EXTI9_Handler,
+    [16 + 37] = (uint32_t)&ADC1_Handler,
+    [16 + 149] = (uint32_t)&ADC3_Handler,
 };
