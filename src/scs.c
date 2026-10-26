@@ -50,6 +50,8 @@ struct mm_scs_mmio {
 #define SYST_CALIB 0x1Cu
 #define SYST_LOAD_MASK 0x00FFFFFFu
 #define NVIC_REG_BLOCK_END (0x100u + 4u * NVIC_WORDS)
+#define NVIC_IPR_END (0x400u + MM_MAX_IRQ)
+#define NVIC_ICTR 0x004u
 
 static mm_bool g_meminfo_enabled = MM_FALSE;
 #define NVIC_WORDS ((MM_MAX_IRQ + 31u) / 32u)
@@ -237,44 +239,51 @@ static mm_bool scs_read_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
                              mm_u32 offset, mm_u32 aligned, mm_u32 size_bytes,
                              mm_bool noisy, mm_u32 *value_out)
 {
-    mm_u32 word = 0xffffffffu;
+    mm_u32 word = 0;
     mm_u32 idx = 0;
+    mm_bool matched = MM_FALSE;
 
     if (nvic == 0) {
         return MM_FALSE;
     }
     idx = (aligned - 0x100u) / 4u;
-    if (aligned >= 0x100u && aligned < 0x108u) {
+    if (aligned >= 0x100u && aligned < NVIC_REG_BLOCK_END) {
         if (idx < NVIC_WORDS) {
             word = nvic->enable_mask[idx];
+            matched = MM_TRUE;
         }
-    } else if (aligned >= 0x180u && aligned < 0x188u) {
+    } else if (aligned >= 0x180u && aligned < (0x180u + 4u * NVIC_WORDS)) {
         idx = (aligned - 0x180u) / 4u;
         if (idx < NVIC_WORDS) {
             word = nvic->enable_mask[idx];
+            matched = MM_TRUE;
         }
-    } else if (aligned >= 0x200u && aligned < 0x208u) {
+    } else if (aligned >= 0x200u && aligned < (0x200u + 4u * NVIC_WORDS)) {
         idx = (aligned - 0x200u) / 4u;
         if (idx < NVIC_WORDS) {
             word = nvic->pending_mask[idx];
+            matched = MM_TRUE;
         }
-    } else if (aligned >= 0x280u && aligned < 0x288u) {
+    } else if (aligned >= 0x280u && aligned < (0x280u + 4u * NVIC_WORDS)) {
         idx = (aligned - 0x280u) / 4u;
         if (idx < NVIC_WORDS) {
             word = nvic->pending_mask[idx];
+            matched = MM_TRUE;
         }
-    } else if (aligned >= 0x300u && aligned < 0x308u) {
+    } else if (aligned >= 0x300u && aligned < (0x300u + 4u * NVIC_WORDS)) {
         idx = (aligned - 0x300u) / 4u;
         if (idx < NVIC_WORDS) {
             word = nvic->active_mask[idx];
+            matched = MM_TRUE;
         }
-    } else if (aligned >= 0x380u && aligned < 0x388u) {
+    } else if (aligned >= 0x380u && aligned < (0x380u + 4u * NVIC_WORDS)) {
         idx = (aligned - 0x380u) / 4u;
         if (idx < NVIC_WORDS) {
             word = (eff_sec == MM_SECURE) ? nvic->itns_mask[idx] : 0u;
+            matched = MM_TRUE;
         }
     }
-    if (word != 0xffffffffu) {
+    if (matched) {
         if (eff_sec == MM_NONSECURE && idx < NVIC_WORDS) {
             word &= nvic->itns_mask[idx];
         }
@@ -282,7 +291,7 @@ static mm_bool scs_read_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
         return MM_TRUE;
     }
 
-    if (offset >= 0x400u && offset < 0x500u) {
+    if (offset >= 0x400u && offset < NVIC_IPR_END) {
         idx = offset - 0x400u;
         if (size_bytes == 1u) {
             if (noisy) {
@@ -512,7 +521,7 @@ static mm_bool scs_write_nvic(struct mm_nvic *nvic, enum mm_sec_state eff_sec,
             }
         }
     }
-    if (nvic != 0 && offset >= 0x400u && offset < 0x500u) {
+    if (nvic != 0 && offset >= 0x400u && offset < NVIC_IPR_END) {
         mm_u32 idx = offset - 0x400u;
         if (size_bytes == 1u) {
             if (idx < MM_MAX_IRQ) {
@@ -844,6 +853,9 @@ static mm_bool scs_read_internal(void *opaque, mm_u32 offset, mm_u32 size_bytes,
     if (offset < SCS_SCB_OFFSET) {
         enum mm_sec_state eff_sec = scs_effective_sec(ctx, scs);
         aligned = offset & ~0x3u;
+        if (aligned == NVIC_ICTR) {
+            return scs_finish_read_subword(offset, size_bytes, NVIC_WORDS - 1u, value_out);
+        }
         if (scs_read_systick(scs, eff_sec, aligned, clear_countflag, noisy, &val)) {
             return scs_finish_read_subword(offset, size_bytes, val, value_out);
         }
