@@ -27,6 +27,7 @@
  * internal flash: application code is linked into FLEXRAM, so the "flash"
  * region here is the FLEXRAM code area. */
 #include "m33mu/target.h"
+#include "stm32n657/stm32n657_spi.h"
 
 /* FLEXRAM 400 KB, the code area. Boot ROM hands the core an IVT at 0x34000000. */
 #define STM32N657_FLASH_BASE_S   0x34000000u
@@ -67,6 +68,9 @@ mm_bool mm_stm32n657_mpcbb_block_secure(int bank, mm_u32 block_index);
 #define STM32N657_USART_INIT     mm_stm32n657_usart_init
 #define STM32N657_USART_RESET    mm_stm32n657_usart_reset
 #define STM32N657_USART_POLL     mm_stm32n657_usart_poll
+#define STM32N657_SPI_INIT       mm_stm32n657_spi_init
+#define STM32N657_SPI_RESET      mm_stm32n657_spi_reset
+#define STM32N657_SPI_POLL       mm_stm32n657_spi_poll
 
 /* FPU + Helium (MVE). No write-once NVM: code lives in FLEXRAM (RAM). */
 #define STM32N657_FLAGS (MM_TARGET_FLAG_FPU)

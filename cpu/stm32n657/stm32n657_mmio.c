@@ -30,6 +30,7 @@
 #include "stm32n657/stm32n657_mmio.h"
 #include "stm32n657/stm32n657_usart.h"
 #include "stm32_gpio.h"
+#include "stm32h5_i2c.h"
 #include "m33mu/gpio.h"
 
 #include "m33mu/cpu.h"
@@ -400,6 +401,7 @@ void mm_stm32n657_mmio_reset(void)
     mm_u32 unit;
 
     memset(&g_soc, 0, sizeof(g_soc));
+    stm32h5_i2c_reset();
     for (i = 0u; i < N657_GPIO_COUNT; ++i) {
         stm32_gpio_reset(&g_gpio[i], (int)i);
         g_gpio_ctx[i * 2u].gpio = &g_gpio[i];
@@ -447,6 +449,10 @@ mm_bool mm_stm32n657_tz_attr_for_addr(mm_u32 addr,
     (void)region_out;
     return MM_FALSE;
 }
+
+/* I2C1..I2C4: I2C v2 (Zephyr dts/arm/st/n6/stm32n6.dtsi, secure aliases). */
+static const mm_u32 g_i2c_bases[4] = { 0x40005400u, 0x40005800u, 0x40005C00u, 0x46001C00u };
+static const mm_u32 g_i2c_bases_sec[4] = { 0x50005400u, 0x50005800u, 0x50005C00u, 0x56001C00u };
 
 mm_bool mm_stm32n657_register_mmio(struct mmio_bus *bus)
 {
@@ -526,5 +532,8 @@ mm_bool mm_stm32n657_register_mmio(struct mmio_bus *bus)
     mm_gpio_bank_set_reader(n657_gpio_bank_read, 0);
     mm_gpio_bank_set_moder_reader(n657_gpio_bank_read_moder, 0);
     mm_stm32n657_usart_init(bus, 0);
+    if (!stm32_i2c_init_at(bus, 0, g_i2c_bases, g_i2c_bases_sec, 4u)) {
+        return MM_FALSE;
+    }
     return MM_TRUE;
 }
