@@ -320,6 +320,13 @@ void stm32h5_i2c_reset(void)
 
 mm_bool stm32h5_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic, size_t count)
 {
+    return stm32_i2c_init_at(bus, nvic, g_i2c_bases, g_i2c_bases_sec, count);
+}
+
+mm_bool stm32_i2c_init_at(struct mmio_bus *bus, struct mm_nvic *nvic,
+                          const mm_u32 *bases_ns, const mm_u32 *bases_s,
+                          size_t count)
+{
     size_t i;
     (void)nvic;
     if (count > STM32H5_I2C_MAX) {
@@ -333,11 +340,11 @@ mm_bool stm32h5_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic, size_t coun
     for (i = 0; i < count; ++i) {
         struct mmio_region reg;
         memset(&g_i2c[i], 0, sizeof(g_i2c[i]));
-        g_i2c[i].base = g_i2c_bases[i];
+        g_i2c[i].base = bases_ns[i];
         g_i2c[i].bus_index = (int)i + 1;
         g_i2c[i].regs[I2C_ISR / 4u] = ISR_TXE;
 
-        reg.base = g_i2c_bases[i];
+        reg.base = bases_ns[i];
         reg.size = STM32_I2C_SIZE;
         reg.opaque = &g_i2c[i];
         reg.read = i2c_read;
@@ -349,7 +356,7 @@ mm_bool stm32h5_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic, size_t coun
             return MM_FALSE;
         }
 
-        reg.base = g_i2c_bases_sec[i];
+        reg.base = bases_s[i];
         if (!mmio_bus_register_region(bus, &reg)) {
             return MM_FALSE;
         }

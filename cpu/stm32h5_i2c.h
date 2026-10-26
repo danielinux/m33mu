@@ -14,6 +14,11 @@
  * H533 has three, H563 and H5F4 four. Returns MM_FALSE if a region could
  * not be registered. */
 mm_bool stm32h5_i2c_init(struct mmio_bus *bus, struct mm_nvic *nvic, size_t count);
+/* The same I2C v2 block at other addresses (STM32U5, STM32L5): count
+ * instances, I2C<n> at bases_ns[n-1] and its secure alias bases_s[n-1]. */
+mm_bool stm32_i2c_init_at(struct mmio_bus *bus, struct mm_nvic *nvic,
+                          const mm_u32 *bases_ns, const mm_u32 *bases_s,
+                          size_t count);
 void stm32h5_i2c_reset(void);
 
 #endif /* M33MU_STM32H5_I2C_H */

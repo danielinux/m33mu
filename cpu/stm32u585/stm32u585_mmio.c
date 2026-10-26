@@ -43,6 +43,7 @@
 #include "m33mu/host_rng.h"
 #include "stm32_crypto.h"
 #include "stm32_gpio.h"
+#include "stm32h5_i2c.h"
 #include "stm32_gpdma.h"
 
 extern void mm_system_request_reset(void);
@@ -676,6 +677,7 @@ void mm_stm32u585_mmio_reset(void)
     mm_u32 optr_swap = flash_ctl.regs[FLASH_OPTR / 4u] & FLASH_OPTR_SWAP_BANK;
     mm_bool dualbank = flash_ctl.dualbank_enabled;
     memset(&rcc, 0, sizeof(rcc));
+    stm32h5_i2c_reset();
     memset(&pwr, 0, sizeof(pwr));
     memset(&tzsc_s, 0, sizeof(tzsc_s));
     memset(&tzsc_ns, 0, sizeof(tzsc_ns));
@@ -2030,6 +2032,10 @@ void mm_stm32u585_watchdog_tick(mm_u64 cycles)
     }
 }
 
+/* I2C1-I2C4 (STM32U585 SVD; the I2C v2 block shared with STM32H5). */
+static const mm_u32 g_i2c_bases[4] = { 0x40005400u, 0x40005800u, 0x46002800u, 0x40008400u };
+static const mm_u32 g_i2c_bases_sec[4] = { 0x50005400u, 0x50005800u, 0x56002800u, 0x50008400u };
+
 mm_bool mm_stm32u585_register_mmio(struct mmio_bus *bus)
 {
     struct mmio_region reg;
@@ -2494,6 +2500,8 @@ mm_bool mm_stm32u585_register_mmio(struct mmio_bus *bus)
             if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
         }
     }
+
+    if (!stm32_i2c_init_at(bus, 0, g_i2c_bases, g_i2c_bases_sec, 4u)) return MM_FALSE;
 
     return MM_TRUE;
 }
