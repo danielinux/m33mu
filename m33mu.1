@@ -556,7 +556,18 @@ Replay the named trace onto input pin
 defaults to
 .BR gpio ,
 the only supported role.
-May be repeated.
+May be repeated, once per pin.
+On
+.BR stm32h563 ,
+.B stm32h533
+and
+.BR stm32h5f4 ,
+a bound pin in analog mode also feeds ADC1/2 (and ADC3 on
+.BR stm32h5f4 ),
+full scale
+.B --adc-vref-mv
+(see
+.IR docs/signal-injection-adc.md ).
 .TP
 .BR --signal-sync= SYMBOL|ADDR
 Start replay of all bound traces the first time the PC reaches this address.
@@ -567,7 +578,29 @@ optional with
 the run exits with status 1 if the address is never reached.
 .TP
 .BR --vdd-mv= MV
-Supply voltage used to derive GPIO input thresholds (default 3300).
+Supply voltage used to derive GPIO input thresholds and the default ADC reference,
+in decimal millivolts, 1 to 5500 (default 3300). Other values exit with status 1.
+.TP
+.BR --adc-vref-mv= MV
+ADC full-scale reference in decimal millivolts, 1 to 5500 (default:
+.BR --vdd-mv ).
+.TP
+.BR --adc-noise-lsb= N
+Add uniform \(+-N LSB noise to each conversion before the clamp, in LSBs of the
+configured resolution, 0 to 4095 (default 0).
+.TP
+.BR --adc-seed= SEED
+Seed of the noise PRNG, decimal or 0x hex, 64-bit (default 0).
+The PRNG is re-seeded at every reset, so a reboot replays the same sequence.
+.PP
+An invalid value of any
+.B --adc-*
+flag exits with status 1, as does any of them on a CPU other than
+.BR stm32h563 ,
+.B stm32h533
+or
+.BR stm32h5f4 ,
+the only ones with an ADC model.
 .TP
 .BR --gpio-vil-mv= "MV, " --gpio-vih-mv= MV
 GPIO input low and high thresholds for bound pins.

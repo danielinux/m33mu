@@ -74,6 +74,10 @@ static const struct mm_ram_region STM32H5F4_RAM_REGIONS[] = {
 #define STM32H5F4_TIMER_INIT  mm_stm32h5f4_timers_init
 #define STM32H5F4_TIMER_RESET mm_stm32h5f4_timers_reset
 #define STM32H5F4_TIMER_TICK  mm_stm32h5f4_timers_tick
+#define STM32H5F4_ADC_INIT               stm32h5_adc_init_with_adc3
+#define STM32H5F4_ADC_RESET              stm32h5_adc_reset
+#define STM32H5F4_ADC_TICK               stm32h5_adc_tick
+#define STM32H5F4_ADC_CYCLES_UNTIL_EVENT stm32h5_adc_cycles_until_event
 #define STM32H5F4_TZ_ATTR     mm_stm32h5f4_tz_attr_for_addr
 
 #define STM32H5F4_FLAGS (MM_TARGET_FLAG_NVM_WRITEONCE | MM_TARGET_FLAG_FPU)

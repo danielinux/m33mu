@@ -45,7 +45,7 @@
 #define EXTI_EXTICR4        REG32(EXTI_BASE + 0x06Cu)
 #define EXTI_IMR1           REG32(EXTI_BASE + 0x080u)
 
-#define NVIC_ISER0          REG32(0xE000E100u)
+#define NVIC_ISER(n)        REG32(0xE000E100u + 4u * (n))
 
 /* m33mu gives each EXTI line its own IRQ, see exti_raise_irq(). */
 #define EXTI_IRQN(line)     (11 + (line))
@@ -100,7 +100,7 @@ static inline void gpio_set_output(uint32_t base, int pin)
 
 static inline void nvic_enable_irq(int irqn)
 {
-    NVIC_ISER0 = (1u << irqn);
+    NVIC_ISER((uint32_t)irqn / 32u) = 1u << ((uint32_t)irqn % 32u);
 }
 
 static inline void enable_irqs(void)

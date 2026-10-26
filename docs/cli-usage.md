@@ -150,11 +150,22 @@ Replay recorded voltage traces onto GPIO inputs. See
 
 - `--signal-file=<path>`: load a `.sigc` signal container
 - `--signal-bind:trace=<name>:target=<PXn>[:role=gpio]`: drive input pin `PXn` from a trace.
-  `role=` defaults to `gpio`, the only role supported
+  `role=` defaults to `gpio`, the only role supported. Each pin can be bound once.
+  On `stm32h563`, `stm32h533` and `stm32h5f4`, a bound pin in analog mode also feeds ADC1/2
+  (and ADC3 on `stm32h5f4`), full scale `--adc-vref-mv`;
+  see [signal-injection-adc.md](signal-injection-adc.md)
 - `--signal-sync=<symbol|addr>`: start replay when the PC first reaches this address
   (a symbol requires an ELF image). Required with `--signal-bind`, optional with
   `--signal-record`; the run exits with 1 if the address is never reached
-- `--vdd-mv=<mV>`: supply voltage for the GPIO input thresholds (default 3300)
+- `--vdd-mv=<mV>`: supply voltage for the GPIO input thresholds and the default ADC
+  reference, decimal 1..5500 (default 3300)
+- `--adc-vref-mv=<mV>`: ADC full-scale reference, decimal 1..5500 (default: `--vdd-mv`)
+- `--adc-noise-lsb=<n>`: add uniform ±n LSB noise to each conversion before the clamp,
+  in LSBs of the configured resolution, decimal 0..4095 (default 0)
+- `--adc-seed=<s>`: noise PRNG seed, decimal or `0x` hex, 64-bit (default 0). The PRNG
+  is re-seeded at every reset, so a reboot replays the same sequence
+- The ADC model exists only on `stm32h563`, `stm32h533` and `stm32h5f4`; any `--adc-*` flag
+  on another CPU exits with 1
 - `--gpio-vil-mv=<mV>`, `--gpio-vih-mv=<mV>`: GPIO input low/high thresholds. Each one
   overrides its side only; the other keeps its default of `VDD/2 - 125 mV` / `VDD/2 + 125 mV`.
   The effective VIL must be below the effective VIH

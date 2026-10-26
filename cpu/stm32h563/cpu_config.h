@@ -72,6 +72,10 @@ static const struct mm_ram_region STM32H563_RAM_REGIONS[] = {
 #define STM32H563_TIMER_INIT  mm_stm32h563_timers_init
 #define STM32H563_TIMER_RESET mm_stm32h563_timers_reset
 #define STM32H563_TIMER_TICK  mm_stm32h563_timers_tick
+#define STM32H563_ADC_INIT               stm32h5_adc_init
+#define STM32H563_ADC_RESET              stm32h5_adc_reset
+#define STM32H563_ADC_TICK               stm32h5_adc_tick
+#define STM32H563_ADC_CYCLES_UNTIL_EVENT stm32h5_adc_cycles_until_event
 #define STM32H563_TZ_ATTR     mm_stm32h563_tz_attr_for_addr
 
 #define STM32H563_FLAGS (MM_TARGET_FLAG_NVM_WRITEONCE | MM_TARGET_FLAG_FPU)

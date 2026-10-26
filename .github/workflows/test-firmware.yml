@@ -132,7 +132,7 @@ jobs:
             --quit-on-faults \
             tests/firmware/test-stm32u585-wolfssl-pka/app.bin | tee /tmp/m33mu-pka.log
           grep -q "PKA TEST SUCCESSFUL" /tmp/m33mu-pka.log
-      - name: Run GPIO signal-injection firmware tests (STM32H5/U5/L5)
+      - name: Run signal-injection firmware tests (STM32H5/U5/L5)
         # A symbolic --signal-sync needs the ELF, so these load app.elf.
         run: |
           set -euo pipefail
@@ -212,6 +212,44 @@ jobs:
             --signal-bind:trace=trace_b:target=PB2:role=gpio
           run_signal_test $FW/test-stm32h5f4-signal-timer-capture $COMMON/fixture_square.sigc \
             --signal-bind:trace=vin:target=PA5:role=gpio
+          # ADC1 converts PA0 and PA1; with PA0 in input mode its channel reads 0.
+          run_signal_test $FW/test-stm32h5f4-signal-adc-single $COMMON/fixture_adc_steps.sigc \
+            --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1
+          run_signal_test $FW/test-stm32h5f4-signal-adc-mode-guard $COMMON/fixture_adc_steps.sigc \
+            --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1
+          # Full scale is --adc-vref-mv, else --vdd-mv; adc-vref expects 2900 mV.
+          run_signal_test $FW/test-stm32h5f4-signal-adc-vref $COMMON/fixture_adc_steps.sigc \
+            --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1 --adc-vref-mv=2900
+          run_signal_test $FW/test-stm32h5f4-signal-adc-vref $COMMON/fixture_adc_steps.sigc \
+            --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1 --vdd-mv=2900
+          run_signal_test $FW/test-stm32h5f4-signal-adc-single $COMMON/fixture_adc_steps.sigc \
+            --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1 \
+            --vdd-mv=2900 --adc-vref-mv=3300
+          # ADC1 scans PA6, PA0, PA1 (IN3, IN0, IN1): EOC interrupts, WFI, continuous, stop.
+          for t in adc-scan-irq adc-wfi adc-continuous adc-stop-disable; do
+            run_signal_test $FW/test-stm32h5f4-signal-$t $COMMON/fixture_adc_scan.sigc \
+              --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1 \
+              --signal-bind:trace=ain3:target=PA6
+          done
+          # ADC3 converts PB2, PE7, PE15 (IN0, IN1, IN9), polled and on IRQ 149.
+          run_signal_test $FW/test-stm32h5f4-signal-adc3-single $COMMON/fixture_adc_scan.sigc \
+            --signal-bind:trace=ain0:target=PB2 --signal-bind:trace=ain1:target=PE7 \
+            --signal-bind:trace=ain3:target=PE15
+          if build/m33mu --cpu stm32h5f4 --dualbank --adc-vref-mv=0 --timeout 10 \
+              $FW/test-stm32h5f4-signal-adc-single/app.elf 2> /tmp/m33mu-adc-reject.log; then
+            exit 1
+          fi
+          grep -q "invalid --adc-vref-mv value: --adc-vref-mv=0" /tmp/m33mu-adc-reject.log
+          if build/m33mu --cpu stm32h5f4 --dualbank --adc-seed=0x1g --timeout 10 \
+              $FW/test-stm32h5f4-signal-adc-single/app.elf 2> /tmp/m33mu-adc-reject.log; then
+            exit 1
+          fi
+          grep -q "invalid --adc-seed value: --adc-seed=0x1g" /tmp/m33mu-adc-reject.log
+          if build/m33mu --cpu nrf5340 --adc-noise-lsb=1 --timeout 10 \
+              tests/firmware/test-nrf5340/app.bin 2> /tmp/m33mu-adc-reject.log; then
+            exit 1
+          fi
+          grep -q "has no ADC model" /tmp/m33mu-adc-reject.log
           # The other H5 parts, U5 and L5 share the GPIO model; the same EXTI test runs on each.
           for t in stm32h563 stm32h533 stm32u585 stm32l552; do
             build/m33mu --cpu $t --signal-file=$COMMON/fixture_4cross.sigc \
@@ -227,6 +265,22 @@ jobs:
               --signal-bind:trace=vin:target=PA5:role=gpio \
               --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
               $FW/test-$t-signal-timer-capture/app.elf
+          done
+          # H563/H533 have the H5F4 ADC1/2 block, pins and IRQs 37/69, and no ADC3;
+          # adc-single expects 3300 mV full scale, so --adc-vref-mv overrides --vdd-mv.
+          for t in stm32h563 stm32h533; do
+            build/m33mu --cpu $t --signal-file=$COMMON/fixture_adc_steps.sigc \
+              --signal-sync=signal_trigger_marker \
+              --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1 \
+              --vdd-mv=2900 --adc-vref-mv=3300 \
+              --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
+              $FW/test-$t-signal-adc-single/app.elf
+            build/m33mu --cpu $t --signal-file=$COMMON/fixture_adc_scan.sigc \
+              --signal-sync=signal_trigger_marker \
+              --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1 \
+              --signal-bind:trace=ain3:target=PA6 \
+              --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
+              $FW/test-$t-signal-adc-scan-irq/app.elf
           done
           # Digital Output tests need no --signal-file at all.
           build/m33mu --cpu stm32h5f4 --dualbank \

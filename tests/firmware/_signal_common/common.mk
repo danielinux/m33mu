@@ -45,7 +45,7 @@ ivt.o: $(COMMON)/ivt.c
 syscalls.o: $(COMMON)/syscalls.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-main.o: $(MAIN_SRC) $(COMMON)/signal_test.h
+main.o: $(MAIN_SRC) $(wildcard $(COMMON)/*.h)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

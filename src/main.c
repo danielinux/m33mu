@@ -254,6 +254,35 @@ static int hex_nibble(char c)
     return -1;
 }
 
+/* Strict 64-bit value: decimal, or hex with a 0x prefix; no sign, no octal. */
+static mm_bool parse_dec_or_hex_u64(const char *s, mm_u64 *out)
+{
+    mm_u64 v = 0;
+    mm_u64 base = 10u;
+    if (s == 0 || out == 0) {
+        return MM_FALSE;
+    }
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        base = 16u;
+        s += 2;
+    }
+    if (*s == '\0') {
+        return MM_FALSE;
+    }
+    for (; *s != '\0'; ++s) {
+        int d = hex_nibble(*s);
+        if (d < 0 || (mm_u64)d >= base) {
+            return MM_FALSE;
+        }
+        if (v > (~(mm_u64)0 - (mm_u64)d) / base) {
+            return MM_FALSE;
+        }
+        v = v * base + (mm_u64)d;
+    }
+    *out = v;
+    return MM_TRUE;
+}
+
 /* Unsigned decimal in [lo, hi]. */
 static mm_bool parse_dec_i32(const char *s, mm_i32 lo, mm_i32 hi, mm_i32 *out)
 {
@@ -3954,6 +3983,10 @@ int main(int argc, char **argv)
     mm_i32 opt_gpio_vih_mv = 0;
     mm_bool has_gpio_vil = MM_FALSE;
     mm_bool has_gpio_vih = MM_FALSE;
+    mm_i32 opt_adc_vref_mv = 0;
+    mm_u32 opt_adc_noise_lsb = 0u;
+    mm_u64 opt_adc_seed = 0u;
+    mm_bool has_adc_opt = MM_FALSE;
     char opt_signal_file[512] = "";
     mm_bool has_signal_file = MM_FALSE;
     mm_bool has_signal_trigger = MM_FALSE;
@@ -4514,6 +4547,26 @@ int main(int argc, char **argv)
                 fprintf(stderr, "invalid --vdd-mv value: %s\n", argv[i]);
                 return 1;
             }
+        } else if (strncmp(argv[i], "--adc-vref-mv=", 14) == 0) {
+            if (!parse_dec_i32(argv[i] + 14, 1, 5500, &opt_adc_vref_mv)) {
+                fprintf(stderr, "invalid --adc-vref-mv value: %s\n", argv[i]);
+                return 1;
+            }
+            has_adc_opt = MM_TRUE;
+        } else if (strncmp(argv[i], "--adc-noise-lsb=", 16) == 0) {
+            mm_i32 lsb;
+            if (!parse_dec_i32(argv[i] + 16, 0, 4095, &lsb)) {
+                fprintf(stderr, "invalid --adc-noise-lsb value: %s\n", argv[i]);
+                return 1;
+            }
+            opt_adc_noise_lsb = (mm_u32)lsb;
+            has_adc_opt = MM_TRUE;
+        } else if (strncmp(argv[i], "--adc-seed=", 11) == 0) {
+            if (!parse_dec_or_hex_u64(argv[i] + 11, &opt_adc_seed)) {
+                fprintf(stderr, "invalid --adc-seed value: %s\n", argv[i]);
+                return 1;
+            }
+            has_adc_opt = MM_TRUE;
         } else if (strncmp(argv[i], "--gpio-vil-mv=", 14) == 0 ||
                    strncmp(argv[i], "--gpio-vih-mv=", 14) == 0) {
             char *endp;
@@ -4688,6 +4741,7 @@ int main(int argc, char **argv)
                         "[--signal-file=<path>] [--signal-bind:trace=<name>:target=PXn[:role=gpio]] "
                         "[--signal-sync=<symbol|addr>] [--vdd-mv=<mV>] "
                         "[--gpio-vil-mv=<mV>] [--gpio-vih-mv=<mV>] "
+                        "[--adc-vref-mv=<mV>] [--adc-noise-lsb=<n>] [--adc-seed=<s>] "
                         "[--signal-record=<path>] [--signal-watch:target=PXn] "
                         "[--boot flash|ram|spiflash] "
                         "[--boot-offset=0xN] "
@@ -4834,8 +4888,10 @@ int main(int argc, char **argv)
         }
     }
 
+    (void)mm_execution_state_signal_set_vdd_mv(&execution, opt_vdd_mv);
+    mm_signal_set_adc_vref_mv(opt_adc_vref_mv);
+    mm_signal_set_adc_noise(opt_adc_noise_lsb, opt_adc_seed);
     if (has_signal_file) {
-        (void)mm_execution_state_signal_set_vdd_mv(&execution, opt_vdd_mv);
         if (has_gpio_vil) {
             (void)mm_execution_state_signal_set_gpio_vil_mv(&execution, opt_gpio_vil_mv);
         }
@@ -5439,6 +5495,12 @@ int main(int argc, char **argv)
                 goto cleanup;
             }
             mm_execution_state_init_target_devices(&execution);
+            if (has_adc_opt && execution.target.adc_init == 0) {
+                fprintf(stderr, "--adc-*: CPU %s has no ADC model\n",
+                        (cpu_name != 0) ? cpu_name : "unknown");
+                rc = 1;
+                goto cleanup;
+            }
 
             if (!mm_execution_state_init_core_system(&execution,
                                                        0x410fc241u)) {
