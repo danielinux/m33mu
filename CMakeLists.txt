@@ -739,6 +739,7 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h533-signal-adc-scan-irq app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32n657-web-bus app.elf
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-web-adc app.elf
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-web-fft app.elf
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32u585-signal-exti-both app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32l552-signal-exti-both app.bin
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
