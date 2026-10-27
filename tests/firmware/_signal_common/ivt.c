@@ -31,6 +31,7 @@ void EXTI8_Handler(void)  __attribute__((weak, alias("default_handler")));
 void EXTI9_Handler(void)  __attribute__((weak, alias("default_handler")));
 void ADC1_Handler(void)   __attribute__((weak, alias("default_handler")));
 void ADC3_Handler(void)   __attribute__((weak, alias("default_handler")));
+void GPDMA1_CH0_Handler(void) __attribute__((weak, alias("default_handler")));
 
 /* 166 entries (664 bytes) need a 1 KB aligned VTOR; the table sits at the flash origin. */
 __attribute__((section(".isr_vector")))
@@ -60,6 +61,8 @@ const uint32_t vector_table[16 + 150] = {
     [34] = (uint32_t)&EXTI7_Handler,
     [35] = (uint32_t)&EXTI8_Handler,
     [36] = (uint32_t)&EXTI9_Handler,
+    /* GPDMA1 CH0 is IRQ 27 on the H5 parts only; the U585 uses IRQ 29 */
+    [16 + 27] = (uint32_t)&GPDMA1_CH0_Handler,
     [16 + 37] = (uint32_t)&ADC1_Handler,
     [16 + 149] = (uint32_t)&ADC3_Handler,
 };

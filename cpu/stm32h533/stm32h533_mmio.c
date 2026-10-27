@@ -154,6 +154,11 @@ void mm_stm32h533_exti_set_nvic(struct mm_nvic *nvic)
     stm32h5_exti_set_nvic(nvic);
 }
 
+void mm_stm32h533_gpdma_set_nvic(struct mm_nvic *nvic)
+{
+    stm32h5_gpdma_set_nvic(nvic);
+}
+
 void mm_stm32h533_watchdog_tick(mm_u64 cycles)
 {
     stm32h5_watchdog_tick(cycles);

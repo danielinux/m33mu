@@ -726,10 +726,14 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-adc-continuous app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-adc-stop-disable app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-adc3-single app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-adc-dma-oneshot app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-adc-dma-circular app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h5f4-signal-adc-dma-ovr app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-signal-exti-both app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-signal-timer-capture app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-signal-adc-single app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-signal-adc-scan-irq app.bin
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-signal-adc-dma-circular app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h533-signal-exti-both app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h533-signal-timer-capture app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32u585-signal-timer-capture app.bin
@@ -739,6 +743,7 @@ add_custom_target(firmware-build
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h533-signal-adc-scan-irq app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32n657-web-bus app.elf
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h563-web-adc app.elf
+  COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32h533-signal-adc-dma-circular app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32u585-signal-exti-both app.bin
   COMMAND ${CMAKE_MAKE_PROGRAM} -C tests/firmware/test-stm32l552-signal-exti-both app.bin
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

@@ -31,9 +31,11 @@ static mm_u32 g_memwatch_addr = 0;
 static mm_u32 g_memwatch_size = 0;
 static mm_u32 g_memwatch_pc = 0;
 static struct mm_memmap *g_current_map = 0;
+static mm_bool g_dma_access = MM_FALSE;
+static enum mm_sec_state g_dma_sec = MM_NONSECURE;
 
 #define MM_INTERCEPT_OK(map, type, sec, addr, size) \
-    ((map)->interceptor == 0 || \
+    (g_dma_access || (map)->interceptor == 0 || \
      (map)->interceptor((map)->interceptor_opaque, (type), (sec), (addr), (size)))
 
 static mm_bool read_buf_le(const mm_u8 *buf, mm_u32 offset, mm_u32 size, mm_u32 *value_out)
@@ -364,7 +366,9 @@ static mm_bool flash_tz_rejects(const struct mm_memmap *map, mm_u32 addr,
     if (attr == MM_FLASH_TZ_UNFILTERED) {
         return MM_FALSE;
     }
-    if (map->bus_attr != 0) {
+    if (g_dma_access) {
+        access = g_dma_sec;
+    } else if (map->bus_attr != 0) {
         access = map->bus_attr(map->bus_attr_opaque, addr);
     }
     if (attr == MM_FLASH_TZ_SECURE) {
@@ -939,4 +943,42 @@ mm_bool mm_memmap_write_ram_raw(struct mm_memmap *map, mm_u32 addr, mm_u32 size,
         ram_note_write(map, addr, offset, size);
     }
     return MM_TRUE;
+}
+
+mm_bool mm_memmap_dma_read(const struct mm_memmap *map, enum mm_sec_state sec, mm_u32 addr, mm_u32 size, mm_u32 *value_out)
+{
+    enum mm_sec_state prev_active = mmio_active_sec();
+    mm_bool prev_dma = g_dma_access;
+    enum mm_sec_state prev_sec = g_dma_sec;
+    mm_bool ok;
+
+    if (addr >= 0xE0000000u) {
+        return MM_FALSE;
+    }
+    g_dma_access = MM_TRUE;
+    g_dma_sec = sec;
+    ok = mm_memmap_read(map, sec, addr, size, value_out);
+    g_dma_access = prev_dma;
+    g_dma_sec = prev_sec;
+    mmio_set_active_sec(prev_active);
+    return ok;
+}
+
+mm_bool mm_memmap_dma_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 addr, mm_u32 size, mm_u32 value)
+{
+    enum mm_sec_state prev_active = mmio_active_sec();
+    mm_bool prev_dma = g_dma_access;
+    enum mm_sec_state prev_sec = g_dma_sec;
+    mm_bool ok;
+
+    if (addr >= 0xE0000000u) {
+        return MM_FALSE;
+    }
+    g_dma_access = MM_TRUE;
+    g_dma_sec = sec;
+    ok = mm_memmap_write(map, sec, addr, size, value);
+    g_dma_access = prev_dma;
+    g_dma_sec = prev_sec;
+    mmio_set_active_sec(prev_active);
+    return ok;
 }

@@ -47,7 +47,8 @@ build/m33mu --cpu stm32h5f4 \
 | Only analog-mode pins (`MODER` = 11) see the trace; an unbound pin, a channel without a pin and a non-analog pin convert 0 mV | Catches firmware that forgets analog mode |
 | `RCC_AHB2ENR.ADCEN` (bit 10) and `ADC3EN` (bit 24) gate the blocks, from either RCC bank; with `GTZC1_TZSC_SECCFGR3.ADC12SEC` (bit 14) or `ADC3SEC` (bit 6) set, Non-secure accesses read 0 and writes are ignored | Same rules as `stm32_gpio.c` and the timers |
 | A debugger `peek` of `DR` does not pop the FIFO; `save`/`load` hooks for `mmio_bus_save` (regions `ADC12` and `ADC3`); no undo hooks | Debugger reads stay side-effect free; `--record` does not rewind ADC state |
-| Configurations the model ignores warn once: `EXTEN`, `DMAEN`, `JADSTART`, `AUTDLY`, `DISCEN`, `ROVSE`, `DIFSEL`, internal channels | Firmware that depends on them would otherwise fail silently |
+| `DMAEN` = 1 raises GPDMA requests (`REQSEL` 0, 1 and 142 for ADC1, ADC2, ADC3); with `DMACFG` = 0 the last beat stops the ADC with `DR` frozen; after `OVR` no request until it is cleared. Details in [dma-requests.md](dma-requests.md) | What `HAL_ADC_Start_DMA` needs, one-shot and circular |
+| Configurations the model ignores warn once: `EXTEN`, `JADSTART`, `AUTDLY`, `DISCEN`, `ROVSE`, `DIFSEL`, internal channels | Firmware that depends on them would otherwise fail silently |
 
 ## Register model
 
@@ -150,7 +151,7 @@ packages lack some of these pins (PF11–PF14, PC0–PC5).
 ## Not implemented
 
 - Hardware triggers (`EXTEN`/`EXTSEL`): conversions start on `ADSTART`.
-- DMA requests, the injected group, discontinuous mode, `AUTDLY`, oversampling,
+- The injected group, discontinuous mode, `AUTDLY`, oversampling, dual-ADC DMA,
   analog watchdogs, dual mode (`CCR.DUAL` is stored only).
 - Differential inputs (a `DIFSEL` channel converts single-ended), internal
   channels and their calibration values, OPAMP and DAC outputs.
@@ -166,10 +167,12 @@ packages lack some of these pins (PF11–PF14, PC0–PC5).
 - `tests/stm32h5f4_adc_test.c` and `tests/stm32h5_adc_test.c`: the H5 glue
   through `mm_timer_*` and the `cpu_db.c` hooks: RCC gating, aliases, TZSC,
   channel tables, IRQ lines, `ADCDACSEL`, the idle bound, a reboot into
-  another part, and snapshots of both blocks.
+  another part, and snapshots of both blocks. `tests/stm32h5_adc_dma_test.c`:
+  ADC to GPDMA to RAM on all three parts.
 - `tests/signal_test.c`, `tests/signal_adc_settings_test.c`: `mm_signal_sample_mv`
   and the settings.
 - `tests/firmware/test-stm32*-signal-adc*` (command lines in
   `.github/workflows/test-firmware.yml`): polled, scan with IRQ, WFI,
-  continuous, stop/disable, vref, mode guard and ADC3 on H5F4; polled and scan
-  on H563 and H533. They assert exact codes on flat trace segments.
+  continuous, stop/disable, vref, mode guard, ADC3 and DMA (one-shot, circular,
+  overrun) on H5F4; polled, scan and circular DMA on H563 and H533. They assert
+  exact codes on flat trace segments.
