@@ -58,6 +58,14 @@ void mm_signal_set_adc_noise(mm_u32 lsb, mm_u64 seed);
 mm_u32 mm_signal_adc_noise_lsb(void);
 mm_u64 mm_signal_adc_seed(void);
 
+/* An embedder that solves pin voltages itself (the web bridge) installs a
+ * source consulted by mm_signal_sample_mv() before the bound traces. It
+ * returns MM_FALSE for a pin it does not drive. mm_signal_reset() keeps it;
+ * pass NULL to remove it. */
+typedef mm_bool (*mm_signal_analog_source_fn)(void *opaque, int bank, int pin,
+                                              mm_u64 cycles_ahead, mm_i32 *mv_out);
+void mm_signal_set_analog_source(mm_signal_analog_source_fn fn, void *opaque);
+
 /* Call with the PC about to execute, before mm_tb_run() or a single step.
  * pc has the Thumb bit cleared. */
 void mm_signal_check_trigger(mm_u32 pc);

@@ -205,6 +205,14 @@ int mm_web_abi_gpio_input(void *session,
     return (int)g_last_error;
 }
 
+int mm_web_abi_analog_input(void *session, const char *pad, int driven, int mv)
+{
+    g_last_error = mm_web_set_analog_input(
+        (struct mm_web_session *)session, (pad != 0 && pad[0] != '\0') ? pad : 0,
+        driven ? MM_TRUE : MM_FALSE, (mm_i32)mv);
+    return (int)g_last_error;
+}
+
 int mm_web_abi_gpio_output_next(void *session)
 {
     g_last_error = mm_web_pop_gpio_output(

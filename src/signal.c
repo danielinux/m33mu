@@ -87,6 +87,10 @@ static mm_i32 g_adc_vref_mv = 0;
 static mm_u32 g_adc_noise_lsb = 0;
 static mm_u64 g_adc_seed = 0;
 
+/* Not cleared by mm_signal_reset(): the embedder owns it. */
+static mm_signal_analog_source_fn g_analog_source = 0;
+static void *g_analog_source_opaque = 0;
+
 #define MM_SIGNAL_NS_PER_SEC 1000000000ull
 #define MM_SIGNAL_DEFAULT_CPU_HZ 64000000ull
 
@@ -722,11 +726,22 @@ static mm_i32 signal_trace_value_at(const struct mm_signal_trace *tr, mm_u64 t_n
     return tr->samples_mv[lo];
 }
 
+void mm_signal_set_analog_source(mm_signal_analog_source_fn fn, void *opaque)
+{
+    g_analog_source = fn;
+    g_analog_source_opaque = fn != 0 ? opaque : 0;
+}
+
 mm_bool mm_signal_sample_mv(int bank, int pin, mm_u64 cycles_ahead, mm_i32 *mv_out)
 {
-    const struct mm_signal_binding *b = signal_find_binding(bank, pin);
+    const struct mm_signal_binding *b;
     mm_u64 at_ns;
 
+    if (g_analog_source != 0 &&
+        g_analog_source(g_analog_source_opaque, bank, pin, cycles_ahead, mv_out)) {
+        return MM_TRUE;
+    }
+    b = signal_find_binding(bank, pin);
     if (b == 0) {
         *mv_out = 0;
         return MM_FALSE;

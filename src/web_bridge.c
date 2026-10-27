@@ -87,6 +87,10 @@ struct mm_web_session {
     size_t gpio_output_count;
     mm_bool gpio_output_overflow;
     struct mm_web_pad_state pads[MM_WEB_PAD_BANKS][MM_WEB_PAD_PINS];
+    /* Solved pad voltages the host drives for ADC sampling; analog_set has
+     * one bit per pin of each bank. */
+    mm_i32 analog_mv[MM_WEB_PAD_BANKS][MM_WEB_PAD_PINS];
+    mm_u32 analog_set[MM_WEB_PAD_BANKS];
     mm_bool pad_changed;
     mm_bool locked_up;
     mm_u32 lockup_pc;
@@ -292,6 +296,22 @@ static void web_gpio_pad_config_changed(
     pad->open_drain = config->open_drain;
     pad->pull = config->pull;
     web_queue_pad_state(session, bank, pin);
+}
+
+/* mm_signal analog source: the host-driven voltage of a pad, if any. */
+static mm_bool web_analog_sample(void *opaque, int bank, int pin,
+                                 mm_u64 cycles_ahead, mm_i32 *mv_out)
+{
+    struct mm_web_session *session = (struct mm_web_session *)opaque;
+    (void)cycles_ahead;
+    if (session == 0 || session != g_web_active_session ||
+        bank < 0 || bank >= MM_WEB_PAD_BANKS ||
+        pin < 0 || pin >= MM_WEB_PAD_PINS ||
+        (session->analog_set[bank] & (1u << pin)) == 0u) {
+        return MM_FALSE;
+    }
+    *mv_out = session->analog_mv[bank][pin];
+    return MM_TRUE;
 }
 
 static void web_init_pad_states(struct mm_web_session *session)
@@ -844,6 +864,7 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
     web_init_pad_states(session);
     mm_gpio_set_pad_listener(web_gpio_pad_changed, session);
     mm_gpio_set_pad_config_listener(web_gpio_pad_config_changed, session);
+    mm_signal_set_analog_source(web_analog_sample, session);
     session->max_image_size = config != 0 && config->max_image_size != 0u ?
         config->max_image_size : MM_WEB_DEFAULT_IMAGE_LIMIT;
     if (!mm_execution_state_select_target(&session->execution, cpu_name) ||
@@ -854,6 +875,7 @@ struct mm_web_session *mm_web_create(const struct mm_web_config *config,
         mm_gpio_set_pad_listener(0, 0);
         mm_uart_set_instance_listener(0, 0);
         mm_gpio_set_pad_config_listener(0, 0);
+        mm_signal_set_analog_source(0, 0);
         free(session);
         if (error_out != 0) *error_out = MM_WEB_INITIALIZATION_FAILED;
         return 0;
@@ -1401,6 +1423,35 @@ enum mm_web_error mm_web_get_pad_state(
     return MM_WEB_OK;
 }
 
+enum mm_web_error mm_web_set_analog_input(
+    struct mm_web_session *session,
+    const char *soc_pad,
+    mm_bool driven,
+    mm_i32 mv)
+{
+    int bank;
+    int pin;
+    if (session == 0) return MM_WEB_INVALID_ARGUMENT;
+    if (session != g_web_active_session) return MM_WEB_INITIALIZATION_FAILED;
+    if (soc_pad == 0) {
+        if (driven) return MM_WEB_INVALID_ARGUMENT;
+        memset(session->analog_set, 0, sizeof(session->analog_set));
+        return MM_WEB_OK;
+    }
+    if (!web_parse_pad(soc_pad, &bank, &pin) ||
+        bank >= MM_WEB_PAD_BANKS || pin >= MM_WEB_PAD_PINS ||
+        (driven && (mv < 0 || mv > 5500))) {
+        return MM_WEB_INVALID_ARGUMENT;
+    }
+    if (driven) {
+        session->analog_mv[bank][pin] = mv;
+        session->analog_set[bank] |= 1u << pin;
+    } else {
+        session->analog_set[bank] &= ~(1u << pin);
+    }
+    return MM_WEB_OK;
+}
+
 enum mm_web_error mm_web_set_pad_listener(
     struct mm_web_session *session,
     mm_web_pad_listener_fn listener,
@@ -1659,6 +1710,7 @@ void mm_web_destroy(struct mm_web_session *session)
         mm_gpio_set_pad_listener(0, 0);
         mm_uart_set_instance_listener(0, 0);
         mm_gpio_set_pad_config_listener(0, 0);
+        mm_signal_set_analog_source(0, 0);
         g_web_active_session = 0;
     }
     mm_execution_state_destroy(&session->execution);

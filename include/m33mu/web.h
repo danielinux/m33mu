@@ -83,7 +83,7 @@ struct mm_web_gpio_output_event {
 
 /* Version of the mm_web_abi_* WASM exports. Bump on any incompatible
  * change so out-of-tree hosts (m33mu-lab) can refuse a mismatched build. */
-#define MM_WEB_ABI_VERSION 3
+#define MM_WEB_ABI_VERSION 4
 
 /* mm_web_abi_features() bits. */
 #define MM_WEB_FEATURE_WOLFCRYPT 1u /* crypto peripheral models are live */
@@ -139,6 +139,15 @@ enum mm_web_error mm_web_run_until(
  * wake the core unless firmware has configured the corresponding interrupt. */
 mm_bool mm_web_has_pending_deadline(
     const struct mm_web_session *session);
+/* Drive the voltage an ADC samples on a pad, in mV (0..5500), from the next
+ * conversion on; driven = false stops driving it, and a NULL pad with
+ * driven = false clears every pad. Undriven pads fall back to signal traces.
+ * The level is a DC value: the host updates it between run slices. */
+enum mm_web_error mm_web_set_analog_input(
+    struct mm_web_session *session,
+    const char *soc_pad,
+    mm_bool driven,
+    mm_i32 mv);
 /* Apply an input transition at the current virtual time. */
 enum mm_web_error mm_web_set_gpio_input(
     struct mm_web_session *session,

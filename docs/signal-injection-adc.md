@@ -101,6 +101,12 @@ after the replay clock (`mm_signal_ns_ahead()`). The ADC tick runs before
 batch start. Before the trigger it returns sample 0; after the end it holds the
 last sample; an unbound pin returns `MM_FALSE` and 0 mV.
 
+An embedder that solves pin voltages itself installs a source with
+`mm_signal_set_analog_source()`; it is asked first, and pins it does not drive
+fall back to the bound traces. The web bridge uses it for
+`mm_web_set_analog_input()` (WASM `mm_web_abi_analog_input`, ABI 4): a DC
+level per pad that the host updates between run slices.
+
 ## Integration
 
 - `mm_target_cfg` has four optional hooks: `adc_init`, `adc_reset`, `adc_tick`

@@ -728,6 +728,82 @@ done:
     return failed;
 }
 
+static mm_bool web_reg_write(struct mm_web_session *session, mm_u32 addr, mm_u32 value)
+{
+    mm_u8 bytes[4];
+    put_le32(bytes, value);
+    return mm_web_write_memory(session, addr, bytes, 4u) == MM_WEB_OK;
+}
+
+static mm_bool web_reg_read(struct mm_web_session *session, mm_u32 addr, mm_u32 *value)
+{
+    mm_u8 bytes[4];
+    if (mm_web_read_memory(session, addr, bytes, 4u) != MM_WEB_OK) return MM_FALSE;
+    *value = (mm_u32)bytes[0] | ((mm_u32)bytes[1] << 8) |
+             ((mm_u32)bytes[2] << 16) | ((mm_u32)bytes[3] << 24);
+    return MM_TRUE;
+}
+
+/* Let the sleeping core run 100 us so ADC delays and conversions complete. */
+static mm_bool web_run_us(struct mm_web_session *session, mm_u64 *now_ns)
+{
+    struct mm_web_step_result step;
+    *now_ns += 100000u;
+    return mm_web_run_until(session, *now_ns, 1000u, 10000000u, 0u, &step) == MM_WEB_OK;
+}
+
+/* ADC1 IN0 (PA0, analog at reset) converts the voltage the host drives on
+ * the pad: 1000 mV of 3300 mV is code 1241 at 12 bits, as in adc-single. */
+static int test_adc_samples_host_voltage(void)
+{
+    const mm_u32 rcc_ahb2enr = 0x54020C8Cu;
+    const mm_u32 adc = 0x52028000u;
+    mm_u8 image[96];
+    struct mm_web_session *session;
+    enum mm_web_error error;
+    mm_u64 now_ns = 0u;
+    mm_u32 isr = 0u;
+    mm_u32 dr = 0u;
+    int failed = 1;
+    (void)make_h563_elf(image);
+    put_le16(image + 92u, 0xbf30u); /* wfi */
+    session = mm_web_create(0, &error);
+    if (session == 0 || mm_web_load_elf(session, image, sizeof(image)) != MM_WEB_OK ||
+        mm_web_set_analog_input(session, "PA0", MM_TRUE, 1000) != MM_WEB_OK ||
+        mm_web_set_analog_input(session, "PA0", MM_TRUE, 6000) != MM_WEB_INVALID_ARGUMENT ||
+        !web_reg_write(session, rcc_ahb2enr, 1u << 10) ||
+        !web_reg_write(session, adc + 0x08u, 0u) ||            /* DEEPPWD off */
+        !web_reg_write(session, adc + 0x08u, 1u << 28) ||      /* ADVREGEN */
+        !web_reg_write(session, adc + 0x308u, 1u << 16) ||     /* CKMODE HCLK/1 */
+        !web_run_us(session, &now_ns) ||
+        !web_reg_write(session, adc + 0x08u, (1u << 28) | (1u << 31)) || /* ADCAL */
+        !web_run_us(session, &now_ns) ||
+        !web_reg_write(session, adc + 0x08u, (1u << 28) | 1u) ||         /* ADEN */
+        !web_run_us(session, &now_ns) ||
+        !web_reg_read(session, adc + 0x00u, &isr) || (isr & 1u) == 0u ||
+        !web_reg_write(session, adc + 0x30u, 0u) ||            /* SQR1: IN0 */
+        !web_reg_write(session, adc + 0x08u, (1u << 28) | 1u | (1u << 2)) || /* ADSTART */
+        !web_run_us(session, &now_ns) ||
+        !web_reg_read(session, adc + 0x00u, &isr) || (isr & (1u << 2)) == 0u ||
+        !web_reg_read(session, adc + 0x40u, &dr) || dr != 1241u) {
+        fprintf(stderr, "web_session_test: ADC host voltage isr=%#x dr=%u\n",
+                (unsigned)isr, (unsigned)dr);
+        goto done;
+    }
+    /* Undriven again: no trace bound, so the pad reads 0 mV. */
+    if (mm_web_set_analog_input(session, 0, MM_FALSE, 0) != MM_WEB_OK ||
+        !web_reg_write(session, adc + 0x08u, (1u << 28) | 1u | (1u << 2)) ||
+        !web_run_us(session, &now_ns) ||
+        !web_reg_read(session, adc + 0x40u, &dr) || dr != 0u) {
+        fprintf(stderr, "web_session_test: undriven ADC pad dr=%u\n", (unsigned)dr);
+        goto done;
+    }
+    failed = 0;
+done:
+    mm_web_destroy(session);
+    return failed;
+}
+
 int main(void)
 {
     struct mm_web_config config = { "stm32h563", 96u };
@@ -1123,6 +1199,7 @@ int main(void)
     }
     if (test_run_until_pad_changes() != 0) return 1;
     if (test_run_until_sleeping() != 0) return 1;
+    if (test_adc_samples_host_voltage() != 0) return 1;
     if (test_lockup() != 0) return 1;
     if (test_it_block_survives_exception() != 0) return 1;
     if (test_breakpoints() != 0) return 1;
