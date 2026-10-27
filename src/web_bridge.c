@@ -37,6 +37,19 @@
 #define MM_WEB_TARGET_POLL_CYCLES 64u
 #define MM_WEB_PAD_BANKS 16
 #define MM_WEB_PAD_PINS 32
+#define MM_WEB_ANALOG_PADS 16
+#define MM_WEB_ANALOG_POINTS 1024
+
+/* Voltage trajectory of one pad: points at increasing virtual ns, linear in
+ * between, held before the first and after the last. */
+struct mm_web_analog_pad {
+    mm_bool used;
+    int bank;
+    int pin;
+    size_t count;
+    mm_u64 time_ns[MM_WEB_ANALOG_POINTS];
+    mm_i32 mv[MM_WEB_ANALOG_POINTS];
+};
 
 struct mm_web_gpio_event {
     int bank;
@@ -87,10 +100,8 @@ struct mm_web_session {
     size_t gpio_output_count;
     mm_bool gpio_output_overflow;
     struct mm_web_pad_state pads[MM_WEB_PAD_BANKS][MM_WEB_PAD_PINS];
-    /* Solved pad voltages the host drives for ADC sampling; analog_set has
-     * one bit per pin of each bank. */
-    mm_i32 analog_mv[MM_WEB_PAD_BANKS][MM_WEB_PAD_PINS];
-    mm_u32 analog_set[MM_WEB_PAD_BANKS];
+    /* Solved pad voltages the host drives for ADC sampling. */
+    struct mm_web_analog_pad analog[MM_WEB_ANALOG_PADS];
     mm_bool pad_changed;
     mm_bool locked_up;
     mm_u32 lockup_pc;
@@ -298,19 +309,42 @@ static void web_gpio_pad_config_changed(
     web_queue_pad_state(session, bank, pin);
 }
 
-/* mm_signal analog source: the host-driven voltage of a pad, if any. */
+static struct mm_web_analog_pad *web_analog_find(struct mm_web_session *session,
+                                                 int bank, int pin)
+{
+    size_t i;
+    for (i = 0; i < MM_WEB_ANALOG_PADS; ++i) {
+        struct mm_web_analog_pad *a = &session->analog[i];
+        if (a->used && a->bank == bank && a->pin == pin) return a;
+    }
+    return 0;
+}
+
+/* mm_signal analog source: the host-driven voltage of a pad at the sample
+ * time, interpolated along its trajectory. */
 static mm_bool web_analog_sample(void *opaque, int bank, int pin,
                                  mm_u64 cycles_ahead, mm_i32 *mv_out)
 {
     struct mm_web_session *session = (struct mm_web_session *)opaque;
-    (void)cycles_ahead;
-    if (session == 0 || session != g_web_active_session ||
-        bank < 0 || bank >= MM_WEB_PAD_BANKS ||
-        pin < 0 || pin >= MM_WEB_PAD_PINS ||
-        (session->analog_set[bank] & (1u << pin)) == 0u) {
-        return MM_FALSE;
+    const struct mm_web_analog_pad *a;
+    mm_u64 at_ns;
+    size_t i;
+    if (session == 0 || session != g_web_active_session) return MM_FALSE;
+    a = web_analog_find(session, bank, pin);
+    if (a == 0 || a->count == 0u) return MM_FALSE;
+    at_ns = mm_signal_ns_ahead(cycles_ahead);
+    for (i = a->count; i > 0u && a->time_ns[i - 1u] > at_ns; --i) {
     }
-    *mv_out = session->analog_mv[bank][pin];
+    if (i == 0u) {
+        *mv_out = a->mv[0];
+    } else if (i == a->count) {
+        *mv_out = a->mv[a->count - 1u];
+    } else {
+        mm_u64 t0 = a->time_ns[i - 1u];
+        mm_u64 span = a->time_ns[i] - t0;
+        mm_i64 dv = (mm_i64)a->mv[i] - a->mv[i - 1u];
+        *mv_out = a->mv[i - 1u] + (mm_i32)(dv * (mm_i64)(at_ns - t0) / (mm_i64)span);
+    }
     return MM_TRUE;
 }
 
@@ -1423,32 +1457,88 @@ enum mm_web_error mm_web_get_pad_state(
     return MM_WEB_OK;
 }
 
+static enum mm_web_error web_analog_pad(struct mm_web_session *session,
+                                        const char *soc_pad, mm_i32 mv,
+                                        struct mm_web_analog_pad **out)
+{
+    int bank;
+    int pin;
+    size_t i;
+    if (session == 0 || soc_pad == 0) return MM_WEB_INVALID_ARGUMENT;
+    if (session != g_web_active_session) return MM_WEB_INITIALIZATION_FAILED;
+    if (!web_parse_pad(soc_pad, &bank, &pin) ||
+        bank >= MM_WEB_PAD_BANKS || pin >= MM_WEB_PAD_PINS || mv < 0 || mv > 5500) {
+        return MM_WEB_INVALID_ARGUMENT;
+    }
+    *out = web_analog_find(session, bank, pin);
+    if (*out != 0) return MM_WEB_OK;
+    for (i = 0; i < MM_WEB_ANALOG_PADS; ++i) {
+        struct mm_web_analog_pad *a = &session->analog[i];
+        if (!a->used) {
+            a->used = MM_TRUE;
+            a->bank = bank;
+            a->pin = pin;
+            a->count = 0u;
+            *out = a;
+            return MM_WEB_OK;
+        }
+    }
+    return MM_WEB_EVENT_QUEUE_FULL;
+}
+
 enum mm_web_error mm_web_set_analog_input(
     struct mm_web_session *session,
     const char *soc_pad,
     mm_bool driven,
     mm_i32 mv)
 {
-    int bank;
-    int pin;
+    struct mm_web_analog_pad *a;
+    enum mm_web_error err;
     if (session == 0) return MM_WEB_INVALID_ARGUMENT;
     if (session != g_web_active_session) return MM_WEB_INITIALIZATION_FAILED;
     if (soc_pad == 0) {
         if (driven) return MM_WEB_INVALID_ARGUMENT;
-        memset(session->analog_set, 0, sizeof(session->analog_set));
+        memset(session->analog, 0, sizeof(session->analog));
         return MM_WEB_OK;
     }
-    if (!web_parse_pad(soc_pad, &bank, &pin) ||
-        bank >= MM_WEB_PAD_BANKS || pin >= MM_WEB_PAD_PINS ||
-        (driven && (mv < 0 || mv > 5500))) {
-        return MM_WEB_INVALID_ARGUMENT;
-    }
+    err = web_analog_pad(session, soc_pad, driven ? mv : 0, &a);
+    if (err != MM_WEB_OK) return err;
     if (driven) {
-        session->analog_mv[bank][pin] = mv;
-        session->analog_set[bank] |= 1u << pin;
+        a->time_ns[0] = 0u;
+        a->mv[0] = mv;
+        a->count = 1u;
     } else {
-        session->analog_set[bank] &= ~(1u << pin);
+        a->used = MM_FALSE;
     }
+    return MM_WEB_OK;
+}
+
+enum mm_web_error mm_web_push_analog_point(
+    struct mm_web_session *session,
+    const char *soc_pad,
+    mm_u64 time_ns,
+    mm_i32 mv)
+{
+    struct mm_web_analog_pad *a;
+    mm_u64 now_ns;
+    size_t keep;
+    enum mm_web_error err = web_analog_pad(session, soc_pad, mv, &a);
+    if (err != MM_WEB_OK) return err;
+    /* A re-solved trajectory replaces every point at or after its start. */
+    while (a->count > 0u && a->time_ns[a->count - 1u] >= time_ns) a->count--;
+    /* Points before the last one at or before now are no longer sampled. */
+    now_ns = mm_execution_state_signal_now_ns(&session->execution);
+    for (keep = a->count; keep > 0u && a->time_ns[keep - 1u] > now_ns; --keep) {
+    }
+    if (keep > 1u) {
+        memmove(a->time_ns, a->time_ns + keep - 1u, (a->count - keep + 1u) * sizeof(a->time_ns[0]));
+        memmove(a->mv, a->mv + keep - 1u, (a->count - keep + 1u) * sizeof(a->mv[0]));
+        a->count -= keep - 1u;
+    }
+    if (a->count == MM_WEB_ANALOG_POINTS) return MM_WEB_EVENT_QUEUE_FULL;
+    a->time_ns[a->count] = time_ns;
+    a->mv[a->count] = mv;
+    a->count++;
     return MM_WEB_OK;
 }
 

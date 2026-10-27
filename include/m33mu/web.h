@@ -142,11 +142,22 @@ mm_bool mm_web_has_pending_deadline(
 /* Drive the voltage an ADC samples on a pad, in mV (0..5500), from the next
  * conversion on; driven = false stops driving it, and a NULL pad with
  * driven = false clears every pad. Undriven pads fall back to signal traces.
- * The level is a DC value: the host updates it between run slices. */
+ * The level is a DC value from time 0; mm_web_push_analog_point() gives a
+ * trajectory instead. */
 enum mm_web_error mm_web_set_analog_input(
     struct mm_web_session *session,
     const char *soc_pad,
     mm_bool driven,
+    mm_i32 mv);
+/* Append a point of a pad's voltage trajectory at virtual time_ns. ADC
+ * samples interpolate linearly between points and hold the last one. A point
+ * drops every queued point at or after its time (a re-solved trajectory
+ * replaces the old one); points the clock has passed are released. Each pad
+ * holds 1024 points (MM_WEB_EVENT_QUEUE_FULL beyond), 16 pads in all. */
+enum mm_web_error mm_web_push_analog_point(
+    struct mm_web_session *session,
+    const char *soc_pad,
+    mm_u64 time_ns,
     mm_i32 mv);
 /* Apply an input transition at the current virtual time. */
 enum mm_web_error mm_web_set_gpio_input(

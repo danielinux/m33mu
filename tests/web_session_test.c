@@ -790,6 +790,23 @@ static int test_adc_samples_host_voltage(void)
                 (unsigned)isr, (unsigned)dr);
         goto done;
     }
+    /* A 0 -> 3300 mV ramp over 1 ms, converted 500 us in: mid-scale. */
+    {
+        struct mm_web_cpu_state cpu;
+        mm_u64 t0;
+        if (mm_web_cpu_snapshot(session, &cpu) != MM_WEB_OK) goto done;
+        t0 = cpu.virtual_time_ns;
+        now_ns = t0 + 400000u;
+        if (mm_web_push_analog_point(session, "PA0", t0, 0) != MM_WEB_OK ||
+            mm_web_push_analog_point(session, "PA0", t0 + 1000000u, 3300) != MM_WEB_OK ||
+            !web_run_us(session, &now_ns) || /* to t0 + 500 us */
+            !web_reg_write(session, adc + 0x08u, (1u << 28) | 1u | (1u << 2)) ||
+            !web_run_us(session, &now_ns) ||
+            !web_reg_read(session, adc + 0x40u, &dr) || dr < 2040u || dr > 2100u) {
+            fprintf(stderr, "web_session_test: ADC ramp dr=%u\n", (unsigned)dr);
+            goto done;
+        }
+    }
     /* Undriven again: no trace bound, so the pad reads 0 mV. */
     if (mm_web_set_analog_input(session, 0, MM_FALSE, 0) != MM_WEB_OK ||
         !web_reg_write(session, adc + 0x08u, (1u << 28) | 1u | (1u << 2)) ||
