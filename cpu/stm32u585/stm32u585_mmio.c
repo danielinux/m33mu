@@ -792,6 +792,7 @@ void mm_stm32u585_mmio_reset(void)
     gpdma1.instance = 0;
     gpdma1.num_channels = 16;
     gpdma1.irq_base = 29; /* GPDMA1 channel IRQs start at 29 */
+    gpdma1.first_2d_channel = 12;
     stm32_gpdma_reset(&gpdma1);
     /* Initialize GPIO with shared implementation */
     for (i = 0; i < sizeof(gpio) / sizeof(gpio[0]); ++i) {
@@ -2152,6 +2153,7 @@ mm_bool mm_stm32u585_register_mmio(struct mmio_bus *bus)
     gpdma1.instance = 0;
     gpdma1.num_channels = 16;
     gpdma1.irq_base = 29; /* GPDMA1 channel IRQs start at 29 */
+    gpdma1.first_2d_channel = 12;
     stm32_gpdma_reset(&gpdma1);
     /* Initialize GPIO with shared implementation */
     {

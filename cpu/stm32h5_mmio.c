@@ -577,11 +577,13 @@ static void gpdma_configure_and_reset(void)
     gpdma1.num_channels = V->gpdma_channels;
     gpdma1.irq_base = 27; /* GPDMA1 channel IRQs start at 27 */
     gpdma1.irq_map = V->gpdma1_irq_map;
+    gpdma1.first_2d_channel = (mm_u8)(V->gpdma_channels - 2u); /* last two channels */
     stm32_gpdma_reset(&gpdma1);
     gpdma2.instance = 1;
     gpdma2.num_channels = V->gpdma_channels;
     gpdma2.irq_base = 90; /* GPDMA2 channel IRQs start at 90 */
     gpdma2.irq_map = V->gpdma2_irq_map;
+    gpdma2.first_2d_channel = gpdma1.first_2d_channel;
     stm32_gpdma_reset(&gpdma2);
 }
 

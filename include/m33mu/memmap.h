@@ -142,6 +142,10 @@ mm_bool mm_memmap_configure_ram(struct mm_memmap *map, const struct mm_target_cf
 mm_bool mm_memmap_read(const struct mm_memmap *map, enum mm_sec_state sec, mm_u32 addr, mm_u32 size, mm_u32 *value_out);
 mm_bool mm_memmap_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 addr, mm_u32 size, mm_u32 value);
 mm_bool mm_memmap_write_ram_raw(struct mm_memmap *map, mm_u32 addr, mm_u32 size, mm_u32 value);
+/* Bus-master accesses: no SAU/MPU interceptor, flash TZ filter sees `sec`,
+ * mmio_active_sec() restored on return. */
+mm_bool mm_memmap_dma_read(const struct mm_memmap *map, enum mm_sec_state sec, mm_u32 addr, mm_u32 size, mm_u32 *value_out);
+mm_bool mm_memmap_dma_write(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 addr, mm_u32 size, mm_u32 value);
 void mm_memmap_set_watch(mm_u32 addr, mm_u32 size);
 void mm_memmap_clear_watch(void);
 void mm_memmap_set_last_pc(mm_u32 pc);
