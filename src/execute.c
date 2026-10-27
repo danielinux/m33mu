@@ -4262,6 +4262,12 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
                                             }
                                         } else {
                                             cpu.r[d.rd] = cpu.r[d.rm];
+                                            /* MOVS.W (T3, S = 1) sets N and Z; C and V keep their values. */
+                                            if (d.len == 4u && ((d.raw >> 20) & 1u) != 0u && it_remaining <= 1u) {
+                                                cpu.xpsr &= ~(0xC0000000u);
+                                                if (cpu.r[d.rd] == 0u) cpu.xpsr |= (1u << 30);
+                                                if (cpu.r[d.rd] & 0x80000000u) cpu.xpsr |= (1u << 31);
+                                            }
                                         }
                                         break;
                         case MM_OP_ADR:
