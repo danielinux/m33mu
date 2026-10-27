@@ -231,6 +231,12 @@ jobs:
               --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1 \
               --signal-bind:trace=ain3:target=PA6
           done
+          # ADC1 scans PA6, PA0, PA7, PA1 (IN3, IN0, IN7, IN1) into RAM through GPDMA1 channel 0.
+          for t in adc-dma-oneshot adc-dma-circular adc-dma-ovr; do
+            run_signal_test $FW/test-stm32h5f4-signal-$t $COMMON/fixture_adc_dma.sigc \
+              --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1 \
+              --signal-bind:trace=ain3:target=PA6 --signal-bind:trace=ain7:target=PA7
+          done
           # ADC3 converts PB2, PE7, PE15 (IN0, IN1, IN9), polled and on IRQ 149.
           run_signal_test $FW/test-stm32h5f4-signal-adc3-single $COMMON/fixture_adc_scan.sigc \
             --signal-bind:trace=ain0:target=PB2 --signal-bind:trace=ain1:target=PE7 \
@@ -281,6 +287,12 @@ jobs:
               --signal-bind:trace=ain3:target=PA6 \
               --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
               $FW/test-$t-signal-adc-scan-irq/app.elf
+            build/m33mu --cpu $t --signal-file=$COMMON/fixture_adc_dma.sigc \
+              --signal-sync=signal_trigger_marker \
+              --signal-bind:trace=ain0:target=PA0 --signal-bind:trace=ain1:target=PA1 \
+              --signal-bind:trace=ain3:target=PA6 --signal-bind:trace=ain7:target=PA7 \
+              --expect-bkpt 0x7f --timeout 60 --quit-on-faults \
+              $FW/test-$t-signal-adc-dma-circular/app.elf
           done
           # Digital Output tests need no --signal-file at all.
           build/m33mu --cpu stm32h5f4 --dualbank \

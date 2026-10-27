@@ -58,6 +58,7 @@ void mm_stm32h5f4_usart_reset(void)
 void mm_stm32h5f4_usart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 {
     mm_stm32h5f4_rng_set_nvic(nvic);
+    mm_stm32h5f4_gpdma_set_nvic(nvic);
     stm32h5_usart_init(&g_variant, bus, nvic,
                        mm_stm32h5f4_rcc_regs(),
                        mm_stm32h5f4_rcc_secure_regs(),

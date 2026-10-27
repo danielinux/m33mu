@@ -177,11 +177,9 @@ static void adc_bind_dma(const struct stm32_adc_soc *soc, struct adc_dma_src *sr
     }
 }
 
-/* Runs after stm32h5_register_mmio, which resets the DMA request router.
- * No other H5 hook hands the NVIC to the GPDMA, so its channel IRQs are wired here. */
+/* Runs after stm32h5_register_mmio, which resets the DMA request router. */
 static void adc_init_blocks(struct mmio_bus *bus, struct mm_nvic *nvic, mm_u32 count)
 {
-    stm32h5_gpdma_set_nvic(nvic);
     stm32_adc_init(&g_adc, &g_soc, bus, nvic);
     adc_bind_dma(&g_soc, g_dma_src12);
     if (count > 1u) {

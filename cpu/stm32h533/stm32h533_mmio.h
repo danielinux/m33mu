@@ -40,6 +40,7 @@ mm_u32 *mm_stm32h533_rcc_regs(void);
 mm_u32 *mm_stm32h533_tzsc_regs(void);
 void mm_stm32h533_rng_set_nvic(struct mm_nvic *nvic);
 void mm_stm32h533_exti_set_nvic(struct mm_nvic *nvic);
+void mm_stm32h533_gpdma_set_nvic(struct mm_nvic *nvic);
 mm_bool mm_stm32h533_usb_register_mmio(struct mmio_bus *bus);
 void mm_stm32h533_usb_set_nvic(struct mm_nvic *nvic);
 void mm_stm32h533_usb_reset(void);

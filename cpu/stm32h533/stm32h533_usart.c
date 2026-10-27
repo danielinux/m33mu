@@ -53,6 +53,7 @@ void mm_stm32h533_usart_reset(void)
 void mm_stm32h533_usart_init(struct mmio_bus *bus, struct mm_nvic *nvic)
 {
     mm_stm32h533_rng_set_nvic(nvic);
+    mm_stm32h533_gpdma_set_nvic(nvic);
     mm_stm32h533_usb_set_nvic(nvic);
     /* The H533 model keeps a single RCC bank shared by both aliases, so
      * there is no separate secure view to consult. */

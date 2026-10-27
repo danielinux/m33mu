@@ -1,20 +1,23 @@
 # GPDMA peripheral requests: ADC to memory on STM32H5
 
-Status: design, not implemented. Branch `gpdma_requests`, stacked on
-`signal_injection_adc`.
+Implemented on `stm32h5f4`, `stm32h563` and `stm32h533`; `stm32u585` has the
+GPDMA changes only.
 
-Today `cpu/stm32_gpdma.c` copies a whole block as soon as a channel is
-enabled, ignores `SWREQ`/`REQSEL`, and reloads a linked list from four fixed
-words. The ADC model (`cpu/stm32_adc.c`) only warns once when `DMAEN` is set.
-So firmware that calls `HAL_ADC_Start_DMA`, in particular continuous
-conversions into a circular buffer, does not work. This change makes the
-GPDMA serve hardware requests and makes the ADC raise them.
+Before this change `cpu/stm32_gpdma.c` copied a whole block as soon as a
+channel was enabled, ignored `SWREQ`/`REQSEL`, and reloaded a linked list from
+four fixed words. The ADC model (`cpu/stm32_adc.c`) only warned once when
+`DMAEN` was set. So firmware that calls `HAL_ADC_Start_DMA`, in particular
+continuous conversions into a circular buffer, did not work. This change makes
+the GPDMA serve hardware requests and makes the ADC raise them.
 
 Sources: RM0517 Rev 1 (H5F4) §16 GPDMA and §30.4.26 (subsection "Managing
-conversions using the DMA"); RM0481 Rev 5 (H563/H533), same sections;
-STM32CubeH5 HAL `stm32h5xx_hal_adc.c` (`HAL_ADC_Start_DMA`). How HAL's DMA
-driver programs a linked-list start is recalled, not read from source: the
-tests below pin that sequence down.
+conversions using the DMA"); RM0481 Rev 5 (H563/H533) §16 GPDMA and
+§28.4.26 (the ADC chapter is §28 there, so the RM0517 §30.4.x citations below
+map to §28.4.x);
+STM32CubeH5 HAL `stm32h5xx_hal_adc.c` (`HAL_ADC_Start_DMA`). For a
+linked-list start the model and the tests assume this sequence: the node in
+RAM, then `CxTR1`/`CxTR2`/`CxBR1` cleared (null LLI0), `CxLBAR`, `CxLLR` with
+every update bit set, then `EN`.
 
 ## Terms
 
@@ -35,7 +38,7 @@ tests below pin that sequence down.
 | Decision | Reason |
 |---|---|
 | Generic request lines: a source raises a request number, any enabled channel with `SWREQ` = 0 and that `REQSEL` serves one beat | USART/SPI DMA can reuse it later |
-| `SWREQ` = 0: a channel waits for requests and moves one beat per request; `SWREQ` = 1 (memory to memory) keeps copying on enable | Matches RM; no test or fixture in the repo uses the GPDMA today |
+| `SWREQ` = 0: a channel waits for requests and moves one beat per request; `SWREQ` = 1 (memory to memory) keeps copying on enable | Matches RM; before this change no test or fixture in the repo used the GPDMA, so the old copy-on-enable behaviour had no users |
 | Requests are served synchronously and take no cycles | Fits 1 instruction = 1 cycle; an overrun then means no channel was ready, which is the firmware bug worth catching |
 | Requests are levels: when a channel becomes ready (enable, end of a link transfer, resume from suspend), it asks the source of its `REQSEL` to re-raise | Firmware may enable the channel after the first conversion |
 | `CxLLR` update bits are honoured (UT1, UT2, UB1, USA, UDA, ULL; UT3/UB2 on 2D channels), with `BNDT` restored when UB1 = 0 | HAL circular mode is a linked list that points back to itself |
@@ -132,7 +135,7 @@ transfer.
 1. Clear `IDLEF`, `ht_done`.
 2. Null LLI0 (`BNDT` = 0, `CxLLR.UB1` = 1): run a link transfer before any data.
    No `HTF`. `TCEM` = 00/01/11: no `TCF` for LLI0. `TCEM` = 10: `TCF` once
-   LLI1 is loaded (RM0517 44667-44687).
+   LLI1 is loaded (RM0517 §16.8.11, `TCEM`).
 3. Setting checks (`USEF`, below).
 4. `SWREQ` = 1: run beats and link transfers now, bounded at 1024 link
    transfers per enable; at the bound warn once and leave the channel
@@ -143,24 +146,25 @@ transfer.
 **User setting errors** (`USEF`, IRQ if `USEIE`; clear `EN`, set `IDLEF`), checked
 at enable and after each link transfer: `SDW` or `DDW` = 11; `SAR`/`DAR` not
 aligned to its width; `BNDT` not a multiple of `SDW`; `BNDT` = 0 outside the
-null-LLI0 case (RM0517 43726-43731, 43776-43777). `BNDT` = 0 with UB1 = 0 at
+null-LLI0 case (RM0517 §16.4.17, user setting error). `BNDT` = 0 with UB1 = 0 at
 enable raises `USEF` without any link transfer.
 
 **Register writes**: `CxLLR` writes are masked like an LLI load (bits 1:0 and
 reserved bits read 0; UT3/UB2 only on 2D channels). While `EN` = 1 the
 channel's `SECCFGR`/`PRIVCFGR` bits and `CxCR` bits 23:16 (`PRIO`, `LAP`,
-`LSM`) are read-only (RM0517 43896, 43939, 44299-44322), as are the other
+`LSM`) are read-only (RM0517 §16.8.1, §16.8.2, §16.8.9), as are the other
 configuration registers. `SECx`/`PRIVx` of a channel locked in `RCFGLOCKR`
 are read-only too; lock bits are set-only. Non-secure agents (by
 `mmio_active_sec()`) cannot write `SECCFGR`, `RCFGLOCKR` or a secure channel's
 `PRIVx`; a secure channel's registers read 0 and ignore their writes
-(RM0517 43602-43606, 43893). Privilege is not checked.
+(RM0517 §16.4.15, §16.8.1). Non-secure reads of `SMISR` return 0
+(§16.8.5). Privilege is not checked.
 
 **One beat** (per request, or per loop step with `SWREQ` = 1): read `SDW`
 bytes at `SAR` with the source security, adapt the width (`PAM` = 00), write
 `DDW` bytes at `DAR` with the destination security, advance `SAR`/`DAR` when
 `SINC`/`DINC`, subtract `SDW` from `BNDT`. Half-transfer: when the bytes
-transferred in this block reach ceil(`block_bytes` / 2) (RM0517 43866), set
+transferred in this block reach ceil(`block_bytes` / 2) (RM0517 §16.7), set
 `HTF` (IRQ if `HTIE`), once per block. Bus failure: `DTEF`, `IDLEF`, clear
 `EN`, IRQ if `DTEIE`, result `NONE`.
 
@@ -177,20 +181,32 @@ transferred in this block reach ceil(`block_bytes` / 2) (RM0517 43866), set
 `CxLLR`. Secure channels read as secure. A failed read sets `ULEF` and
 `IDLEF`, clears `EN` (IRQ if `ULEIE`).
 
-**Suspend, abort, disable**: writing `EN` = 0 is ignored (RM0517 44395).
+**Suspend, abort, disable**: writing `EN` = 0 is ignored (RM0517 §16.8.9).
 `SUSP` = 1 on an enabled channel sets `SUSPF` and `IDLEF` at once, with `EN`
-still 1 (RM0517 44380), IRQ if `SUSPIE`, and blocks requests. Clearing
+still 1 (RM0517 §16.8.9), IRQ if `SUSPIE`, and blocks requests. Clearing
 `SUSP` clears `IDLEF` and calls `ready[REQSEL]`. `RESET` acts only on a
 disabled or suspended channel (otherwise ignored): it clears `EN`, `SUSP` and
 the internal block state, sets `IDLEF`, and keeps every other register and
-the `CxSR` flags (RM0517 44371-44383). Firmware reprograms only `BR1`, `SAR`,
-`DAR` before re-enabling (RM0517 41856-41861). This is the sequence
+the `CxSR` flags (RM0517 §16.8.9). Firmware reprograms only `BR1`, `SAR`,
+`DAR` before re-enabling (RM0517 §16.4.4). This is the sequence
 `HAL_DMA_Abort` and `HAL_DMA_Start_IT` use.
 
-**Interrupts and `MISR`/`SMISR`**: channel x's IRQ is raised when a flag
-sets whose enable bit is set, as today. `MISR` bit x (non-secure channels)
-and `SMISR` bit x (`SECx` = 1) are recomputed from `CxSR` & the `CxCR`
-enable bits on every flag change and every `CxFCR` write.
+**Interrupts and `MISR`/`SMISR`**: channel x's IRQ is level-like, asserted
+while `CxSR` & the `CxCR` enable bits is non-zero, and re-evaluated on every
+flag change and every `CxCR` and `CxFCR` write: enabling `TCIE` after `TCF`
+is set pends the IRQ, clearing the flag does not. A newly set enabled flag
+pends the IRQ even while its handler is active. A register write made from
+the active handler while the line is still asserted pends it too, so the
+handler is entered again on return; that pend is withdrawn if the handler
+then drops the line before returning. `MISR` bit x
+(non-secure channels) and `SMISR` bit x (`SECx` = 1) are recomputed at the
+same points.
+
+**Access widths**: RM0517 §16.8 requires aligned 32-bit accesses and does
+not define narrower ones. A byte or half-word access reads its byte lanes and
+writes only them, merged into the current value; `EN`, `RESET`, the `CxFCR`
+clear bits, the lock bits and `SECx`/`PRIVx` act only when their byte is
+written. An access that crosses a word reads 0 and is ignored.
 
 ## ADC behaviour
 
@@ -215,16 +231,20 @@ and `dma_busy` (inside `adc_dma_service`), both in the ADC snapshot
 - One-shot end: `dma_stopped` = 1; `DR` keeps the value just transferred;
   the rest of the FIFO is dropped and `EOC` cleared (same rule as an `ISR.EOC`
   write); the conversion in progress is discarded; the scan restarts at rank
-  0. `ADSTART` stays set: RM0517 76918-76935 lists every hardware clear and
+  0. `ADSTART` stays set: RM0517 §30.4.15 lists every hardware clear and
   this is not one. `dma_stopped` clears on `ADSTART` 0 → 1 (inside the start
   branch of `adc_cr_write`) and on `DMAEN` 0 → 1, which covers HAL's
   `Stop_DMA`/`Start_DMA` pair. Re-enabling the DMA channel does not re-arm it
-  (RM0517 78318).
+  (RM0517 §30.4.26).
 - `DMAEN` with `dma_request` = NULL keeps the one-time warning.
 - The TZSC gate (`ADC12SEC`/`ADC3SEC`) reads `mmio_active_sec()`, which the
   DMA access sets from the channel's source security: a non-secure channel
-  reading a secure ADC reads 0, as the model already does for CPU accesses
-  (silicon raises an illegal-access event and a bus error instead).
+  reading a secure ADC reads 0 without a bus error, as for CPU accesses
+  (RM0481 §5.4.2 lists a bus error only for illegal fetches; the read as
+  zero is the model's existing TZSC behaviour, docs/signal-injection-adc.md).
+  `DR` is not read, so the FIFO is not popped: each new conversion still gets
+  one zero beat (the no-pop guard only ends that service pass) until the FIFO
+  fills and `OVR` stops the requests.
 
 ## H5 glue
 
@@ -234,9 +254,7 @@ and `dma_busy` (inside `adc_dma_service`), both in the ADC snapshot
   `stm32h5_dma_request(line)` and `stm32h5_dma_bind(line, fn, ctx)`.
   `first_2d_channel` comes from the part's variant table.
 - `cpu/stm32h5_adc.c` sets `dma_line` = {0, 1} for ADC1/2 and {142} for ADC3,
-  sets `dma_request`, and binds `stm32_adc_dma_ready` per line. It also
-  hands the NVIC to `gpdma1`/`gpdma2` (`stm32h5_gpdma_set_nvic`): no other H5
-  hook did, so GPDMA channel IRQs never reached the NVIC before.
+  sets `dma_request`, and binds `stm32_adc_dma_ready` per line.
   `stm32h5_adc_init` must run after MMIO registration. It does: `main.c` and
   `web_bridge.c` both run `mm_execution_state_reset_soc` (SoC and ADC reset),
   then `mm_execution_state_register_target_mmio` (router init), then
@@ -244,6 +262,10 @@ and `dma_busy` (inside `adc_dma_service`), both in the ADC snapshot
   `adc_init` (bind). A system reset repeats the whole sequence; a SoC reset
   alone (`soc_reset`, `adc_reset`) touches neither the router nor the ADC's
   `soc`, so the bindings stay.
+- The parts' `usart_init` hooks (`mm_stm32h5f4_usart_init`,
+  `mm_stm32h563_usart_init`, `mm_stm32h533_usart_init`) hand the NVIC to
+  `gpdma1`/`gpdma2` through `mm_<soc>_gpdma_set_nvic`, next to the RNG:
+  no H5 hook did before, so GPDMA channel IRQs never reached the NVIC.
 - `GPDMA1`/`GPDMA2` non-secure regions get `save`/`load`/`name`; the secure
   aliases register none, as `stm32_adc_init` does. Both parts register them
   through `stm32_gpdma_register(bus, d, base, name)` in `stm32_gpdma.c`.
@@ -252,7 +274,8 @@ and `dma_busy` (inside `adc_dma_service`), both in the ADC snapshot
 ## Snapshots
 
 The GPDMA snapshot holds the global registers, every channel register,
-`remaining`, `bndt_reload`, `block_bytes`, `ht_done` and the warning mask;
+`remaining`, `bndt_reload`, `block_bytes`, `ht_done`, the warning mask and
+the held-IRQ mask;
 not the router, `nvic` or `irq_map`.
 
 `--record` undoes DMA transfers only partly. DMA RAM writes go through
@@ -283,8 +306,11 @@ together with `EOC`. `stm32_gpdma` needs no tick and no next-event bound.
 Triggers (`TRIGSEL`/`TRIGM`), bursts > 1, `PFREQ`/`BREQ`/`DREQ`
 peripheral-side semantics (requests always pace the source side), 2D
 addressing (`TR3`/`BR2` load but are not applied), `PAM` ≠ 00, byte/halfword
-exchange, ports and priorities, GTZC illegal-access events for DMA accesses,
-dual-ADC DMA (`CCR.MDMA`), DMA requests from other peripherals.
+exchange, ports and priorities, privilege and GTZC (MPCBB/TZSC) checks and
+illegal-access events for DMA accesses (the ADC's own TZSC gate aside; the
+firmware fixtures below program legal attributes and do not depend on this),
+dual-ADC DMA
+(`CCR.MDMA`), DMA requests from other peripherals.
 
 ## Tests
 
@@ -306,8 +332,10 @@ Host (`tests/`):
   read-only while enabled, `SECx`/`PRIVx` read-only once locked;
   `mmio_active_sec()` unchanged after a beat; `SUSP` →
   `SUSPF`+`IDLEF` → `RESET` abort keeping the configuration, HAL restart, and
-  `RESET` ignored on an active channel; `MISR`/`SMISR`; save/load round trip
-  mid-block.
+  `RESET` ignored on an active channel; `MISR`/`SMISR`, `SMISR` reading 0 to
+  non-secure agents; save/load round trip mid-block; load rejecting an
+  enabled channel with more bytes left than its block and masking the global
+  registers to the existing channels.
 - `stm32_adc_test.c` additions with a fake `dma_request`: service loop,
   `NONE`, no-pop guard, one-shot end (`DR`, `EOC`, scan reset, `ADSTART`),
   re-arm on `ADSTART` 0 → 1 and `DMAEN` 0 → 1, `OVR` block and resume,
@@ -317,31 +345,30 @@ Host (`tests/`):
   channel IRQ pending in the NVIC (none with `HTIE`/`TCIE` off); one-shot
   end; `DMAEN` without a channel → `OVR`; late channel enable picks up the
   pending value; clearing `OVR` resumes; secure ADC read by a non-secure
-  channel terminates (reads 0, warns, ADC overruns); a target reset clears the
-  GPDMA but keeps the request bindings; snapshot with a non-empty FIFO and a
-  half-done block.
+  channel (zero beats, no `DTEF`, FIFO not popped, ADC overruns); a target reset
+  clears the GPDMA but keeps the request bindings; snapshot with a non-empty
+  FIFO and a half-done block.
 
 Firmware (register-level, like the other `signal-adc-*` fixtures, BKPT 0x7f,
-added to `firmware-build` and `.github/workflows/test-firmware.yml`):
-- `test-stm32h5f4-signal-adc-dma-oneshot`: 4-channel scan, one-shot DMA,
-  `TCF` interrupt, buffer matches the trace codes, `DR` frozen.
+added to `firmware-build` and `.github/workflows/test-firmware.yml`). They
+bind `fixture_adc_dma.sigc` (PA0, PA1, PA6, PA7 flat) and scan IN3, IN0, IN7,
+IN1 through GPDMA1 channel 0 (IRQ 27), shared code in
+`_signal_common/dma_test.h`. The firmware runs secure from secure SRAM, so
+channel 0 is made secure and privileged (`SECCFGR.SEC0` and `PRIVCFGR.PRIV0`
+through the secure alias `0x50020000`, which all channel registers then use)
+with `DSEC` = 1 and `SSEC` = 0 (the ADC stays non-secure); LLIs are fetched
+as secure from the node's secure address. That is legal on silicon without
+any GTZC setup, as SRAM blocks reset secure and privileged while the ADC
+resets non-secure and unprivileged (RM0481 §5.4.6).
+- `test-stm32h5f4-signal-adc-dma-oneshot`: continuous 4-channel scan, one-shot
+  DMA of two sequences, `HTF`/`TCF` interrupts, buffer matches the trace
+  codes, `DR` frozen with `ADSTART` set and no `EOC`; a second pass after
+  `ADSTP` re-arms it.
 - `test-stm32h5f4-signal-adc-dma-circular`: continuous + self-linked LLI
-  started HAL-style (null LLI0), `HTF`/`TCF` interrupts over two buffer laps;
-  also run on `stm32h563` and `stm32h533`.
+  started HAL-style (null LLI0), `HTF`/`TCF` interrupts over two buffer laps,
+  each half checked and cleared; then suspend and reset. Also built for
+  `stm32h563` and `stm32h533` (`test-stm32h563-signal-adc-dma-circular`,
+  `test-stm32h533-signal-adc-dma-circular`, same `main.c`).
 - `test-stm32h5f4-signal-adc-dma-ovr`: `DMAEN` with no channel enabled ends
-  in `OVR`.
-
-## Implementation steps
-
-1. Bus access + GPDMA: `mm_memmap_dma_read/write`, `stm32_dma_req.h`,
-   router, `SWREQ`/`REQSEL`, beats, end of block, LLR rules, `TCEM`, null
-   LLI0, `USEF`, suspend/abort, `MISR`/`SMISR`, security, `PAM` = 00,
-   warnings, save/load, `first_2d_channel`; `stm32_gpdma_test.c`. Existing
-   H5/U585 callers keep building (router pointer NULL: no `ready` calls).
-2. ADC: `DMAEN`/`DMACFG`, `adc_dma_service`, guards, `OVR` block, one-shot
-   end, re-arm, snapshot fields; tests in `stm32_adc_test.c`.
-3. H5 glue: router in `stm32h5_mmio.c`, request lines in `stm32h5_adc.c`,
-   init order, GPDMA save/load registration on H5 and U585, `--record` TB
-   check; `stm32h5_adc_dma_test.c`.
-4. Firmware fixtures, CMake, workflow; update `docs/signal-injection-adc.md`
-   (drop `DMAEN` from the warning list, link here).
+  in `OVR` at the 4th result; a channel enabled then moves nothing until
+  `OVR` is cleared, then drains the three kept results.

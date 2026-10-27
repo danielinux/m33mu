@@ -97,3 +97,7 @@ tr0 = sigc.Trace(1, "ain0", 1, 3300, [1000, 1000])
 tr1 = sigc.Trace(2, "ain1", 1, 3300, [2500, 2500])
 tr3 = sigc.Trace(3, "ain3", 1, 3300, [300, 300])
 write_container(os.path.join(OUT_DIR, "fixture_adc_scan.sigc"), [tb], [tr0, tr1, tr3])
+
+# adc-dma-*: the adc-scan inputs plus ain7 at 1800 mV, 2233.6 -> 2234.
+tr7 = sigc.Trace(4, "ain7", 1, 3300, [1800, 1800])
+write_container(os.path.join(OUT_DIR, "fixture_adc_dma.sigc"), [tb], [tr0, tr1, tr3, tr7])

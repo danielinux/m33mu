@@ -119,13 +119,17 @@ struct part {
     const char *name;
     void (*mmio_reset)(void);
     mm_bool (*register_mmio)(struct mmio_bus *bus);
+    void (*gpdma_set_nvic)(struct mm_nvic *nvic);
     mm_bool has_adc3;
 };
 
 static const struct part g_parts[] = {
-    { "stm32h5f4", mm_stm32h5f4_mmio_reset, mm_stm32h5f4_register_mmio, MM_TRUE },
-    { "stm32h563", mm_stm32h563_mmio_reset, mm_stm32h563_register_mmio, MM_FALSE },
-    { "stm32h533", mm_stm32h533_mmio_reset, mm_stm32h533_register_mmio, MM_FALSE },
+    { "stm32h5f4", mm_stm32h5f4_mmio_reset, mm_stm32h5f4_register_mmio,
+      mm_stm32h5f4_gpdma_set_nvic, MM_TRUE },
+    { "stm32h563", mm_stm32h563_mmio_reset, mm_stm32h563_register_mmio,
+      mm_stm32h563_gpdma_set_nvic, MM_FALSE },
+    { "stm32h533", mm_stm32h533_mmio_reset, mm_stm32h533_register_mmio,
+      mm_stm32h533_gpdma_set_nvic, MM_FALSE },
 };
 
 static const char *g_tmp_path = "/tmp/stm32h5_adc_dma_test_fixture.sigc";
@@ -278,6 +282,7 @@ static int setup(const struct part *p)
     if (!p->register_mmio(&g_map.mmio)) return 1;
     mm_nvic_init(&g_nvic);
     mm_nvic_set_lines(&g_nvic, g_cfg.irq_lines);
+    p->gpdma_set_nvic(&g_nvic);
     mm_timer_reset(&g_cfg);
     mm_timer_init(&g_cfg, &g_map.mmio, &g_nvic);
     if (!bind_inputs()) return 1;
