@@ -544,6 +544,7 @@ static struct mm_otp otp_state;
 static struct stm32_gpio_state gpio[STM32H5_GPIO_MAX]; /* A..K */
 static struct stm32_gpdma_state gpdma1;
 static struct stm32_gpdma_state gpdma2;
+static struct stm32_dma_router dma_router;
 static struct stm32_gpio_ctx gpio_ctx_data[STM32H5_GPIO_MAX * 2]; /* NS + S for each bank */
 static void *rng_ctx[2][4];
 static struct hash_ctx hash_ctx[2];
@@ -2851,6 +2852,8 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
         stm32_gpio_reset(&gpio[gi], (int)gi);
     }
     gpdma_configure_and_reset();
+    /* Clears the request bindings: request sources bind after registration. */
+    stm32_dma_router_init(&dma_router, &gpdma1, &gpdma2);
     rcc.regs[RCC_CR / 4] |= 1u;
     rcc.regs[0x8c / 4u] = V->ahb2enr_reset;
     rcc_update_ready(&rcc);
@@ -3221,20 +3224,8 @@ static mm_bool stm32h5_register_mmio_impl(struct mmio_bus *bus)
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* GPDMA1/GPDMA2 (non-secure and secure aliases) - using shared implementation */
-    reg.size = 0x1000u;
-    reg.read = stm32_gpdma_read;
-    reg.write = stm32_gpdma_write;
-    reg.base = 0x40020000u; /* GPDMA1 */
-    reg.opaque = &gpdma1;
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
-    reg.base = 0x50020000u; /* SEC_GPDMA1 */
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
-
-    reg.base = 0x40021000u; /* GPDMA2 */
-    reg.opaque = &gpdma2;
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
-    reg.base = 0x50021000u; /* SEC_GPDMA2 */
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    if (!stm32_gpdma_register(bus, &gpdma1, 0x40020000u, "GPDMA1")) return MM_FALSE;
+    if (!stm32_gpdma_register(bus, &gpdma2, 0x40021000u, "GPDMA2")) return MM_FALSE;
 
     /* GPIO A..K: NS alias 0x4202xxxx, Secure alias 0x5202xxxx - using shared implementation */
     {
@@ -3310,6 +3301,16 @@ void stm32h5_gpdma_set_nvic(struct mm_nvic *nvic)
 {
     stm32_gpdma_set_nvic(&gpdma1, nvic);
     stm32_gpdma_set_nvic(&gpdma2, nvic);
+}
+
+enum stm32_dma_req_result stm32h5_dma_request(mm_u32 line)
+{
+    return stm32_dma_request(&dma_router, line);
+}
+
+void stm32h5_dma_bind(mm_u32 line, void (*ready)(void *ctx), void *ctx)
+{
+    stm32_dma_router_bind(&dma_router, line, ready, ctx);
 }
 
 mm_u8 stm32h5_gpio_get_af(int bank, int pin)

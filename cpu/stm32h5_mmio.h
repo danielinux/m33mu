@@ -26,6 +26,7 @@
 #include "m33mu/nvic.h"
 #include "m33mu/sau.h"
 #include "m33mu/types.h"
+#include "stm32_dma_req.h"
 
 struct mm_memmap;
 struct mm_flash_persist;
@@ -131,6 +132,10 @@ mm_bool stm32h5_tz_attr_for_addr(mm_u32 addr,
 void stm32h5_rng_set_nvic(struct mm_nvic *nvic);
 void stm32h5_exti_set_nvic(struct mm_nvic *nvic);
 void stm32h5_gpdma_set_nvic(struct mm_nvic *nvic);
+/* GPDMA request line (REQSEL value) shared by GPDMA1/2; the router is set up at
+ * MMIO registration, so sources bind after it and keep their binding across resets. */
+enum stm32_dma_req_result stm32h5_dma_request(mm_u32 line);
+void stm32h5_dma_bind(mm_u32 line, void (*ready)(void *ctx), void *ctx);
 void stm32h5_watchdog_tick(mm_u64 cycles);
 /* Timer output OCx of TIM2+tim (ch 1..4) onto the pins carrying it. */
 void mm_stm32h5_timer_output(mm_u32 tim, int ch, mm_u8 level, mm_u64 cycles_ahead);

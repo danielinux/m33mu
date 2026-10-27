@@ -23,6 +23,7 @@
 #define M33MU_STM32_GPDMA_H
 
 #include "m33mu/types.h"
+#include "m33mu/mmio.h"
 #include "m33mu/nvic.h"
 #include "m33mu/snapshot.h"
 #include "stm32_dma_req.h"
@@ -149,6 +150,9 @@ mm_bool stm32_gpdma_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
                           mm_u32 value);
 mm_bool stm32_gpdma_save(void *opaque, struct mm_snapshot_writer *w);
 mm_bool stm32_gpdma_load(void *opaque, struct mm_snapshot_reader *r);
+/* Registers base (with save/load as name) and its secure alias at base + 0x10000000. */
+mm_bool stm32_gpdma_register(struct mmio_bus *bus, struct stm32_gpdma_state *d, mm_u32 base,
+                             const char *name);
 
 /* Runs once at MMIO registration; reset leaves the router alone. */
 void stm32_dma_router_init(struct stm32_dma_router *r,

@@ -234,21 +234,43 @@ and `dma_busy` (inside `adc_dma_service`), both in the ADC snapshot
   `stm32h5_dma_request(line)` and `stm32h5_dma_bind(line, fn, ctx)`.
   `first_2d_channel` comes from the part's variant table.
 - `cpu/stm32h5_adc.c` sets `dma_line` = {0, 1} for ADC1/2 and {142} for ADC3,
-  sets `dma_request`, and binds `stm32_adc_dma_ready` per line.
-  `stm32h5_adc_init` must run after MMIO registration; the implementation
-  checks the call order in `src/target_runtime.c`.
+  sets `dma_request`, and binds `stm32_adc_dma_ready` per line. It also
+  hands the NVIC to `gpdma1`/`gpdma2` (`stm32h5_gpdma_set_nvic`): no other H5
+  hook did, so GPDMA channel IRQs never reached the NVIC before.
+  `stm32h5_adc_init` must run after MMIO registration. It does: `main.c` and
+  `web_bridge.c` both run `mm_execution_state_reset_soc` (SoC and ADC reset),
+  then `mm_execution_state_register_target_mmio` (router init), then
+  `mm_execution_state_init_target_devices`, whose `mm_timer_init` calls
+  `adc_init` (bind). A system reset repeats the whole sequence; a SoC reset
+  alone (`soc_reset`, `adc_reset`) touches neither the router nor the ADC's
+  `soc`, so the bindings stay.
 - `GPDMA1`/`GPDMA2` non-secure regions get `save`/`load`/`name`; the secure
-  aliases register none, as `stm32_adc_init` does. `stm32u585_mmio.c` does
-  the same, with `first_2d_channel` = 12.
+  aliases register none, as `stm32_adc_init` does. Both parts register them
+  through `stm32_gpdma_register(bus, d, base, name)` in `stm32_gpdma.c`.
+  `stm32u585_mmio.c` does the same, with `first_2d_channel` = 12.
 
 ## Snapshots
 
 The GPDMA snapshot holds the global registers, every channel register,
 `remaining`, `bndt_reload`, `block_bytes`, `ht_done` and the warning mask;
-not the router, `nvic` or `irq_map`. `--record`: in `step_core_simple` the
-ADC tick runs inside the traced step, so DMA RAM writes are undo-logged;
-step 3 verifies the translation-block path, where time advances after
-`mm_tb_run`.
+not the router, `nvic` or `irq_map`.
+
+`--record` undoes DMA transfers only partly. DMA RAM writes go through
+`mm_memmap_write`, which logs them only inside an open trace step. With
+`--record` the translation-block path is off (`mm_trace_enabled()` clears
+`fast_mode` in `main.c`).
+- Beats run by a time tick (an ADC conversion, the WFI fast-forward) are not
+  logged: core 0's per-instruction path advances time before it opens the
+  step, and the fast-forward runs outside any step. Only `step_core_simple`
+  (core 1) ticks inside a step, and the H5 parts have one core. Reverse
+  stepping leaves that data in RAM.
+- Beats set off by a firmware store (enabling or resuming a GPDMA channel,
+  setting `DMAEN`, clearing `OVR`, a `SWREQ` = 1 start) run inside the step,
+  so their RAM writes are logged. Reverse stepping over the store restores
+  RAM but not the popped ADC FIFO or the channel's `BNDT`/`SAR`/`DAR`/`CxSR`.
+
+Neither model has `begin_step`/`end_step` hooks. A consistent undo needs
+them in both models plus a main-loop reorder, which is out of scope here.
 
 ## Timing
 
@@ -291,11 +313,12 @@ Host (`tests/`):
   re-arm on `ADSTART` 0 → 1 and `DMAEN` 0 → 1, `OVR` block and resume,
   snapshot with `dma_stopped`.
 - `stm32h5_adc_dma_test.c`: ADC → router → GPDMA → RAM on the H5 memory map:
-  3-channel scan into a buffer; continuous + circular with HT/TC; one-shot
+  3-channel scan into a buffer; continuous + circular with HT/TC and the
+  channel IRQ pending in the NVIC (none with `HTIE`/`TCIE` off); one-shot
   end; `DMAEN` without a channel → `OVR`; late channel enable picks up the
   pending value; clearing `OVR` resumes; secure ADC read by a non-secure
-  channel terminates (reads 0, warns, ADC overruns); DMA state survives a
-  target reset with the bindings intact; snapshot with a non-empty FIFO and a
+  channel terminates (reads 0, warns, ADC overruns); a target reset clears the
+  GPDMA but keeps the request bindings; snapshot with a non-empty FIFO and a
   half-done block.
 
 Firmware (register-level, like the other `signal-adc-*` fixtures, BKPT 0x7f,

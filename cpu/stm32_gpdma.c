@@ -789,3 +789,29 @@ mm_bool stm32_gpdma_load(void *opaque, struct mm_snapshot_reader *r)
     memcpy(d->ch, snap.ch, sizeof(d->ch));
     return MM_TRUE;
 }
+
+mm_bool stm32_gpdma_register(struct mmio_bus *bus, struct stm32_gpdma_state *d, mm_u32 base,
+                             const char *name)
+{
+    struct mmio_region r;
+    memset(&r, 0, sizeof(r));
+    r.magic = MMIO_REGION_MAGIC;
+    r.flags = MMIO_REGION_F_EXT;
+    r.base = base;
+    r.size = 0x1000u;
+    r.opaque = d;
+    r.read = stm32_gpdma_read;
+    r.write = stm32_gpdma_write;
+    r.name = name;
+    r.version = 1u;
+    r.save = stm32_gpdma_save;
+    r.load = stm32_gpdma_load;
+    if (!mmio_bus_register_region(bus, &r)) {
+        return MM_FALSE;
+    }
+    r.base = base + 0x10000000u;
+    r.name = 0;
+    r.save = 0;
+    r.load = 0;
+    return mmio_bus_register_region(bus, &r);
+}

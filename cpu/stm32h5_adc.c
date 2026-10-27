@@ -72,6 +72,26 @@ static struct stm32_adc_state g_adc3;
 static struct stm32_adc_state *const g_blocks[2] = { &g_adc, &g_adc3 };
 static mm_u32 g_block_count;
 
+struct adc_dma_src {
+    struct stm32_adc_state *s;
+    mm_u32 inst;
+};
+
+static struct adc_dma_src g_dma_src12[2] = { { &g_adc, 0u }, { &g_adc, 1u } };
+static struct adc_dma_src g_dma_src3[1] = { { &g_adc3, 0u } };
+
+static void adc_dma_ready(void *ctx)
+{
+    const struct adc_dma_src *src = (const struct adc_dma_src *)ctx;
+    stm32_adc_dma_ready(src->s, src->inst);
+}
+
+static enum stm32_dma_req_result adc_dma_request(void *ctx, mm_u32 line)
+{
+    (void)ctx;
+    return stm32h5_dma_request(line);
+}
+
 /* ADC1/2 share ADCEN, ADC3 has ADC3EN; either RCC bank enables it, as for GPIO. */
 static mm_bool adc_clock_enabled(void *ctx, mm_u32 inst)
 {
@@ -127,8 +147,8 @@ static const struct stm32_adc_soc g_soc = {
     adc_access_allowed,
     adc_kernel_is_hclk,
     "ADC12",
-    { -1, -1 },
-    0
+    { 0, 1 },
+    adc_dma_request
 };
 
 /* ADC3 is a single-instance block with its own common registers (RM0517 30.1). */
@@ -145,16 +165,29 @@ static const struct stm32_adc_soc g_soc3 = {
     adc_access_allowed,
     adc_kernel_is_hclk,
     "ADC3",
-    { -1, -1 },
-    0
+    { 142, -1 },
+    adc_dma_request
 };
 
+static void adc_bind_dma(const struct stm32_adc_soc *soc, struct adc_dma_src *src)
+{
+    mm_u32 i;
+    for (i = 0; i < soc->inst_count; ++i) {
+        stm32h5_dma_bind((mm_u32)soc->dma_line[i], adc_dma_ready, &src[i]);
+    }
+}
+
+/* Runs after stm32h5_register_mmio, which resets the DMA request router.
+ * No other H5 hook hands the NVIC to the GPDMA, so its channel IRQs are wired here. */
 static void adc_init_blocks(struct mmio_bus *bus, struct mm_nvic *nvic, mm_u32 count)
 {
+    stm32h5_gpdma_set_nvic(nvic);
     stm32_adc_init(&g_adc, &g_soc, bus, nvic);
+    adc_bind_dma(&g_soc, g_dma_src12);
     if (count > 1u) {
         stm32_adc_init(&g_adc3, &g_soc3, bus, nvic);
         stm32_adc_set_noise(&g_adc3, g_adc3.noise_lsb, g_adc3.noise_seed ^ ADC3_SEED_SALT);
+        adc_bind_dma(&g_soc3, g_dma_src3);
     }
     g_block_count = count;
 }

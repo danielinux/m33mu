@@ -2554,14 +2554,7 @@ mm_bool mm_stm32u585_register_mmio(struct mmio_bus *bus)
     if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
 
     /* GPDMA1 (non-secure and secure aliases) - using shared implementation */
-    reg.size = 0x1000u;
-    reg.read = stm32_gpdma_read;
-    reg.write = stm32_gpdma_write;
-    reg.base = 0x40020000u; /* GPDMA1 */
-    reg.opaque = &gpdma1;
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
-    reg.base = 0x50020000u; /* SEC_GPDMA1 */
-    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
+    if (!stm32_gpdma_register(bus, &gpdma1, 0x40020000u, "GPDMA1")) return MM_FALSE;
 
     /* GPIO A..I: NS alias 0x4202xxxx, Secure alias 0x5202xxxx - using shared implementation */
     {
