@@ -126,7 +126,9 @@ static const struct stm32_adc_soc g_soc = {
     0,
     adc_access_allowed,
     adc_kernel_is_hclk,
-    "ADC12"
+    "ADC12",
+    { -1, -1 },
+    0
 };
 
 /* ADC3 is a single-instance block with its own common registers (RM0517 30.1). */
@@ -142,7 +144,9 @@ static const struct stm32_adc_soc g_soc3 = {
     0,
     adc_access_allowed,
     adc_kernel_is_hclk,
-    "ADC3"
+    "ADC3",
+    { -1, -1 },
+    0
 };
 
 static void adc_init_blocks(struct mmio_bus *bus, struct mm_nvic *nvic, mm_u32 count)

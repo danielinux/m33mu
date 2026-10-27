@@ -66,6 +66,7 @@
 #define ISR_MASK    0x7FFu
 
 #define CFGR_DMAEN     (1u << 0)
+#define CFGR_DMACFG    (1u << 1)
 #define CFGR_RES_SHIFT 3u
 #define CFGR_EXTEN     (3u << 10)
 #define CFGR_OVRMOD    (1u << 12)
@@ -155,6 +156,8 @@ static void adc_isr_update(struct stm32_adc_state *s, struct stm32_adc_inst *in,
     adc_irq_eval(s, in);
 }
 
+static void adc_dma_service(struct stm32_adc_state *s, struct stm32_adc_inst *in);
+
 /* OVRMOD = 0: three-stage FIFO, a result arriving when full is lost.
  * OVRMOD = 1: DR is overwritten, OVR when EOC is still set. */
 static void adc_push(struct stm32_adc_state *s, struct stm32_adc_inst *in, mm_u32 set)
@@ -173,6 +176,7 @@ static void adc_push(struct stm32_adc_state *s, struct stm32_adc_inst *in, mm_u3
     }
     *reg(in, ADC_DR) = in->fifo[0];
     adc_isr_update(s, in, set | ISR_EOC | (ovr ? ISR_OVR : 0u), 0u);
+    adc_dma_service(s, in);
 }
 
 /* DR keeps the last value once the FIFO is empty; EOC follows the FIFO. */
@@ -267,6 +271,63 @@ static void adc_update_deadline(struct stm32_adc_state *s)
             s->next_deadline = t;
         }
     }
+}
+
+static mm_bool adc_dma_wired(const struct stm32_adc_state *s, mm_u32 idx)
+{
+    return (s->soc != 0 && s->soc->dma_request != 0 && idx < STM32_ADC_MAX_INST &&
+            s->soc->dma_line[idx] >= 0) ? MM_TRUE : MM_FALSE;
+}
+
+/* DMACFG = 0 end of transfer (RM0517 30.4.26): DR frozen, FIFO dropped, scan stopped and reset. */
+static void adc_dma_oneshot_end(struct stm32_adc_state *s, struct stm32_adc_inst *in, mm_u32 dr)
+{
+    in->dma_stopped = MM_TRUE;
+    in->fifo_count = 0u;
+    *reg(in, ADC_DR) = dr;
+    in->conv_ev = EV_OFF;
+    in->sampled = MM_FALSE;
+    in->rank = 0u;
+    in->slot_half = 0u;
+    adc_isr_update(s, in, 0u, ISR_EOC);
+    adc_update_deadline(s);
+}
+
+/* The DMA's DR read pops the FIFO through adc_pop, which never re-enters here. */
+static void adc_dma_service(struct stm32_adc_state *s, struct stm32_adc_inst *in)
+{
+    mm_u32 idx = (mm_u32)(in - s->inst);
+    mm_u32 n;
+
+    if (in->dma_busy || (*reg(in, ADC_CFGR) & CFGR_DMAEN) == 0u || !adc_dma_wired(s, idx)) {
+        return;
+    }
+    in->dma_busy = MM_TRUE;
+    for (n = 0; n < STM32_ADC_FIFO_DEPTH; ++n) {
+        mm_u32 cfgr = *reg(in, ADC_CFGR);
+        mm_u32 count = in->fifo_count;
+        mm_u32 dr = *reg(in, ADC_DR);
+        enum stm32_dma_req_result res;
+
+        if ((cfgr & CFGR_DMAEN) == 0u || (*reg(in, ADC_ISR) & ISR_OVR) != 0u || in->dma_stopped ||
+            count == 0u) {
+            break;
+        }
+        res = s->soc->dma_request(s->soc->ctx, (mm_u32)s->soc->dma_line[idx]);
+        if (res == STM32_DMA_REQ_NONE) {
+            break;
+        }
+        if (in->fifo_count >= count) {
+            adc_warn(s, STM32_ADC_WARN_DMA_NOPOP,
+                     "DMA request served without reading ADC_DR, stopping requests");
+            break;
+        }
+        if (res == STM32_DMA_REQ_LAST && (*reg(in, ADC_CFGR) & CFGR_DMACFG) == 0u) {
+            adc_dma_oneshot_end(s, in, dr);
+            break;
+        }
+    }
+    in->dma_busy = MM_FALSE;
 }
 
 static mm_u32 adc_rank_channel(struct stm32_adc_inst *in, mm_u32 rank)
@@ -531,6 +592,13 @@ void stm32_adc_tick(struct stm32_adc_state *s, mm_u64 cycles)
     adc_update_deadline(s);
 }
 
+void stm32_adc_dma_ready(struct stm32_adc_state *s, mm_u32 inst)
+{
+    if (s != 0 && inst < s->inst_count) {
+        adc_dma_service(s, &s->inst[inst]);
+    }
+}
+
 mm_u64 stm32_adc_cycles_until_event(const struct stm32_adc_state *s)
 {
     mm_u64 best = STM32_ADC_NO_EVENT;
@@ -609,7 +677,7 @@ static void adc_cr_write(struct stm32_adc_state *s, struct stm32_adc_inst *in, m
         if ((cfgr & CFGR_EXTEN) != 0u) {
             adc_warn(s, STM32_ADC_WARN_EXTEN, "hardware trigger (EXTEN) not modelled, converting on ADSTART");
         }
-        if ((cfgr & CFGR_DMAEN) != 0u) {
+        if ((cfgr & CFGR_DMAEN) != 0u && !adc_dma_wired(s, (mm_u32)(in - s->inst))) {
             adc_warn(s, STM32_ADC_WARN_DMA, "DMA requests not modelled");
         }
         if ((cfgr & CFGR_AUTDLY) != 0u) {
@@ -619,6 +687,7 @@ static void adc_cr_write(struct stm32_adc_state *s, struct stm32_adc_inst *in, m
             adc_warn(s, STM32_ADC_WARN_DISCEN, "discontinuous mode not modelled, converting the whole sequence");
         }
         in->cont = (*reg(in, ADC_CFGR) & CFGR_CONT) != 0u;
+        in->dma_stopped = MM_FALSE;
         *cr |= CR_ADSTART;
         in->conv_ev = in->ready ? EV_REL : EV_WAIT_RDY_REL;
     }
@@ -742,7 +811,7 @@ static mm_bool adc_snapshot_valid(const struct adc_snapshot *snap)
         const struct stm32_adc_inst *in = &snap->inst[i];
         if (in->fifo_count > STM32_ADC_FIFO_DEPTH || in->rank > 16u || in->chan > 0x1Fu ||
             in->res > 3u || in->ckdiv == 0u || in->ckdiv > 256u || in->cal_ev > EV_WAIT_RDY ||
-            in->rdy_ev > EV_WAIT_RDY || in->conv_ev > EV_WAIT_RDY) {
+            in->rdy_ev > EV_WAIT_RDY || in->conv_ev > EV_WAIT_RDY || in->dma_busy) {
             return MM_FALSE;
         }
     }
@@ -818,12 +887,19 @@ static mm_bool adc_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u32 
             in->fifo_count = 0u;
         }
         adc_isr_update(s, in, 0u, clr);
+        if ((clr & ISR_OVR) != 0u) {
+            adc_dma_service(s, in);
+        }
     } else if (off == ADC_CR) {
         adc_cr_write(s, in, apply_write(*reg(in, ADC_CR), byte, size_bytes, value));
     } else if (off != ADC_DR && !(off >= ADC_JDR1 && off <= ADC_JDR4)) {
-        *reg(in, off) = apply_write(*reg(in, off), byte, size_bytes, value);
+        mm_u32 old = *reg(in, off);
+        *reg(in, off) = apply_write(old, byte, size_bytes, value);
         if (off == ADC_IER) {
             adc_irq_eval(s, in);
+        } else if (off == ADC_CFGR && (~old & *reg(in, off) & CFGR_DMAEN) != 0u) {
+            in->dma_stopped = MM_FALSE;
+            adc_dma_service(s, in);
         }
     }
     return MM_TRUE;
@@ -884,7 +960,7 @@ void stm32_adc_init(struct stm32_adc_state *s, const struct stm32_adc_soc *soc,
     r.write = adc_write;
     r.peek = adc_peek;
     r.name = soc->name != 0 ? soc->name : "ADC";
-    r.version = 1u;
+    r.version = 2u;
     r.save = adc_save;
     r.load = adc_load;
     (void)mmio_bus_register_region(bus, &r);

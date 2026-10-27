@@ -2283,6 +2283,339 @@ static int test_snapshot_roundtrip(void)
     return 0;
 }
 
+#define CFGR_DMACFG (1u << 1)
+#define DMA_LINE0   7u
+#define DMA_LINE1   9u
+#define DMA_BUF     16u
+
+static mm_u32 g_dma_buf[DMA_BUF];
+static mm_u32 g_dma_count;
+static mm_u32 g_dma_len;
+static mm_bool g_dma_on;
+static mm_bool g_dma_skip_read;
+static mm_bool g_dma_reenter;
+static int g_dma_calls;
+static int g_dma_depth;
+static int g_dma_max_depth;
+static mm_u32 g_dma_line;
+
+/* One beat reads DR through the bus; the g_dma_len-th beat is the last and disables the channel. */
+static enum stm32_dma_req_result fake_dma(void *ctx, mm_u32 line)
+{
+    mm_u32 inst = (line == DMA_LINE1) ? 1u : 0u;
+    mm_u32 v = 0u;
+    enum stm32_dma_req_result res = STM32_DMA_REQ_SERVED;
+
+    (void)ctx;
+    g_dma_calls++;
+    g_dma_line = line;
+    if (!g_dma_on) {
+        return STM32_DMA_REQ_NONE;
+    }
+    if (++g_dma_depth > g_dma_max_depth) g_dma_max_depth = g_dma_depth;
+    if (!g_dma_skip_read) {
+        (void)mmio_bus_read(&g_bus, ADC12 + inst * 0x100u + DR, 4, &v);
+    }
+    if (g_dma_count < DMA_BUF) g_dma_buf[g_dma_count] = v;
+    g_dma_count++;
+    if (g_dma_len != 0u && g_dma_count == g_dma_len) {
+        g_dma_on = MM_FALSE;
+        res = STM32_DMA_REQ_LAST;
+    }
+    if (g_dma_reenter) {
+        stm32_adc_dma_ready(&g_adc, inst);
+    }
+    g_dma_depth--;
+    return res;
+}
+
+static void dma_arm(mm_u32 len)
+{
+    memset(g_dma_buf, 0, sizeof(g_dma_buf));
+    g_dma_count = 0u;
+    g_dma_len = len;
+    g_dma_on = MM_TRUE;
+    g_dma_skip_read = MM_FALSE;
+    g_dma_reenter = MM_FALSE;
+    g_dma_calls = 0;
+    g_dma_depth = 0;
+    g_dma_max_depth = 0;
+    g_dma_line = 0xFFFFFFFFu;
+}
+
+static void dma_setup(void)
+{
+    setup();
+    g_soc.dma_line[0] = (int)DMA_LINE0;
+    g_soc.dma_line[1] = (int)DMA_LINE1;
+    g_soc.dma_request = fake_dma;
+    dma_arm(0u);
+}
+
+/* Scan IN5, IN0, IN1 at 3300, 1000, 2000 mV; EOC 15, 30, 45 cycles after the first tick. */
+static int dma_scan(mm_u32 cfgr)
+{
+    dma_setup();
+    if (enabled(0, 1)) return 1;
+    g_mv[0][0] = 1000;
+    g_mv[0][1] = 2000;
+    g_mv[1][1] = 3300;
+    wr(0, SQR1, 2u | (5u << 6) | (0u << 12) | (1u << 18));
+    modify(0, CFGR, 0u, cfgr);
+    ll_cr(0, ADSTART);
+    tk(1);
+    return 0;
+}
+
+static int dma_buf_is(const mm_u32 *want, mm_u32 n)
+{
+    mm_u32 i;
+    if (g_dma_count != n) return 1;
+    for (i = 0; i < n; ++i) {
+        if (g_dma_buf[i] != want[i]) return 1;
+    }
+    return 0;
+}
+
+static int test_dma_service_loop(void)
+{
+    static const mm_u32 scan[5] = { 4095u, 1241u, 2482u, 4095u, 1241u };
+
+    if (dma_scan(CFGR_DMAEN)) return 1;
+    if (g_dma_calls != 0) return 1;
+    tk(45);
+    if (dma_buf_is(scan, 3u) || g_dma_calls != 3 || g_dma_line != DMA_LINE0) return 1;
+    if ((rd(0, ISR) & (EOC | EOS | OVR)) != EOS || (rd(0, CR) & ADSTART) != 0u) return 1;
+    if (g_adc.inst[0].fifo_count != 0u || peek_dr() != 2482u) return 1;
+    if ((g_adc.warned & (STM32_ADC_WARN_DMA | STM32_ADC_WARN_DMA_NOPOP)) != 0u) return 1;
+
+    if (dma_scan(CFGR_DMAEN | CFGR_CONT)) return 1;
+    tk(75);
+    if (dma_buf_is(scan, 5u) || (rd(0, ISR) & (EOC | OVR)) != 0u || next_event() != 3u) return 1;
+    ll_cr(0, ADSTP);
+
+    if (dma_scan(CFGR_DMAEN)) return 1;
+    g_dma_reenter = MM_TRUE;
+    tk(45);
+    if (dma_buf_is(scan, 3u) || g_dma_max_depth != 1) return 1;
+
+    dma_setup();
+    if (enabled(1, 1)) return 1;
+    modify(1, CFGR, 0u, CFGR_DMAEN);
+    run_conv(1, 1000);
+    if (g_dma_count != 1u || g_dma_buf[0] != 1241u || g_dma_line != DMA_LINE1) return 1;
+    if ((rd(1, ISR) & EOC) != 0u) return 1;
+
+    dma_setup();
+    g_soc.dma_line[0] = -1;
+    if (enabled(0, 1)) return 1;
+    modify(0, CFGR, 0u, CFGR_DMAEN);
+    run_conv(0, 1000);
+    if (g_dma_calls != 0 || (g_adc.warned & STM32_ADC_WARN_DMA) == 0u) return 1;
+    if ((rd(0, ISR) & EOC) == 0u) return 1;
+    return 0;
+}
+
+/* NONE leaves the data to the FIFO rules; OVR blocks requests until it is cleared. */
+static int test_dma_none_ovr_resume(void)
+{
+    static const mm_u32 scan[3] = { 4095u, 1241u, 2482u };
+
+    if (dma_scan(CFGR_DMAEN | CFGR_CONT)) return 1;
+    g_dma_on = MM_FALSE;
+    tk(75);
+    if (g_dma_calls != 3 || g_dma_count != 0u || g_adc.inst[0].fifo_count != 3u) return 1;
+    if ((rd(0, ISR) & (EOC | OVR)) != (EOC | OVR)) return 1;
+    g_dma_on = MM_TRUE;
+    stm32_adc_dma_ready(&g_adc, 0u);
+    if (g_dma_calls != 3 || g_dma_count != 0u) return 1;
+    wr(0, ISR, OVR);
+    if (dma_buf_is(scan, 3u) || (rd(0, ISR) & (EOC | OVR)) != 0u) return 1;
+    tk(15);
+    if (g_dma_count != 4u || g_dma_buf[3] != 2482u || (rd(0, ISR) & (EOC | OVR)) != 0u) return 1;
+    ll_cr(0, ADSTP);
+
+    dma_setup();
+    if (enabled(0, 1)) return 1;
+    modify(0, CFGR, 0u, CFGR_DMAEN);
+    g_dma_on = MM_FALSE;
+    run_conv(0, 1000);
+    if (g_dma_calls != 1 || (rd(0, ISR) & EOC) == 0u) return 1;
+    g_dma_on = MM_TRUE;
+    stm32_adc_dma_ready(&g_adc, 0u);
+    if (g_dma_count != 1u || g_dma_buf[0] != 1241u || (rd(0, ISR) & EOC) != 0u) return 1;
+
+    dma_setup();
+    if (enabled(0, 1)) return 1;
+    run_conv(0, 500);
+    run_conv(0, 1000);
+    if (g_dma_calls != 0) return 1;
+    modify(0, CFGR, 0u, CFGR_DMAEN);
+    if (g_dma_count != 2u || g_dma_buf[0] != 620u || g_dma_buf[1] != 1241u) return 1;
+    if ((rd(0, ISR) & EOC) != 0u) return 1;
+    return 0;
+}
+
+/* A served request that did not read DR (wrong SAR, TZSC gate, clock off) stops the loop. */
+static int test_dma_no_pop_guard(void)
+{
+    dma_setup();
+    if (enabled(0, 1)) return 1;
+    modify(0, CFGR, 0u, CFGR_DMAEN);
+    g_dma_skip_read = MM_TRUE;
+    run_conv(0, 1000);
+    if (g_dma_calls != 1 || (g_adc.warned & STM32_ADC_WARN_DMA_NOPOP) == 0u) return 1;
+    if (g_adc.inst[0].fifo_count != 1u || (rd(0, ISR) & EOC) == 0u) return 1;
+
+    dma_setup();
+    g_soc.access_allowed = fake_access;
+    g_access = MM_TRUE;
+    if (enabled(0, 1)) return 1;
+    modify(0, CFGR, 0u, CFGR_DMAEN);
+    g_mv[0][0] = 1000;
+    ll_cr(0, ADSTART);
+    g_access = MM_FALSE;
+    tk(1);
+    tk(100);
+    if (g_dma_calls != 1 || g_dma_count != 1u || g_dma_buf[0] != 0u) return 1;
+    if (g_adc.inst[0].fifo_count != 1u || (g_adc.warned & STM32_ADC_WARN_DMA_NOPOP) == 0u) return 1;
+    g_access = MM_TRUE;
+    if (rd(0, DR) != 1241u) return 1;
+    return 0;
+}
+
+/* DMACFG = 0: the last beat freezes DR, drops the FIFO and the conversion in
+ * progress, resets the scan and leaves ADSTART set. */
+static int test_dma_oneshot_end(void)
+{
+    static const mm_u32 scan[3] = { 4095u, 1241u, 2482u };
+
+    if (dma_scan(CFGR_DMAEN | CFGR_CONT)) return 1;
+    g_dma_on = MM_FALSE;
+    tk(45);
+    if (g_adc.inst[0].fifo_count != 3u || next_event() == STM32_ADC_NO_EVENT) return 1;
+    dma_arm(2u);
+    stm32_adc_dma_ready(&g_adc, 0u);
+    if (dma_buf_is(scan, 2u) || g_dma_calls != 2) return 1;
+    if (!g_adc.inst[0].dma_stopped || g_adc.inst[0].fifo_count != 0u || g_adc.inst[0].rank != 0u) return 1;
+    if ((rd(0, ISR) & (EOC | OVR)) != 0u || peek_dr() != 1241u) return 1;
+    if ((rd(0, CR) & ADSTART) == 0u || next_event() != STM32_ADC_NO_EVENT) return 1;
+    tk(1000);
+    if ((rd(0, ISR) & (EOC | OVR)) != 0u || g_dma_calls != 2 || rd(0, DR) != 1241u) return 1;
+
+    if (dma_scan(CFGR_DMAEN | CFGR_CONT)) return 1;
+    g_dma_len = 2u;
+    tk(45);
+    if (dma_buf_is(scan, 2u) || g_dma_calls != 2 || !g_adc.inst[0].dma_stopped) return 1;
+    if ((rd(0, ISR) & (EOC | OVR)) != 0u || (rd(0, CR) & ADSTART) == 0u) return 1;
+    if (next_event() != STM32_ADC_NO_EVENT) return 1;
+
+    if (dma_scan(CFGR_DMAEN)) return 1;
+    g_dma_len = 3u;
+    tk(45);
+    if (dma_buf_is(scan, 3u) || !g_adc.inst[0].dma_stopped || (rd(0, CR) & ADSTART) != 0u) return 1;
+    if ((rd(0, ISR) & (EOC | EOS)) != EOS || peek_dr() != 2482u) return 1;
+    return 0;
+}
+
+/* ADSTART 0 -> 1 and DMAEN 0 -> 1 re-arm a stopped one-shot; the scan restarts at rank 0. */
+static int test_dma_rearm(void)
+{
+    static const mm_u32 scan[3] = { 4095u, 1241u, 2482u };
+    int n;
+
+    if (dma_scan(CFGR_DMAEN | CFGR_CONT)) return 1;
+    g_dma_len = 2u;
+    tk(45);
+    if (!g_adc.inst[0].dma_stopped || (rd(0, CR) & ADSTART) == 0u) return 1;
+    ll_cr(0, ADSTP);
+    if ((rd(0, CR) & ADSTART) != 0u || !g_adc.inst[0].dma_stopped) return 1;
+    dma_arm(0u);
+    ll_cr(0, ADSTART);
+    if (g_adc.inst[0].dma_stopped) return 1;
+    tk(1);
+    tk(45);
+    if (dma_buf_is(scan, 3u)) return 1;
+
+    g_dma_len = 4u;
+    for (n = 0; n < 100 && !g_adc.inst[0].dma_stopped; ++n) tk(1);
+    if (!g_adc.inst[0].dma_stopped || g_dma_count != 4u || g_dma_buf[3] != 4095u) return 1;
+    modify(0, CFGR, 0u, CFGR_DMAEN);
+    if (!g_adc.inst[0].dma_stopped) return 1;
+
+    /* HAL_ADC_Stop_DMA, then HAL_ADC_Start_DMA. */
+    ll_cr(0, ADSTP);
+    modify(0, CFGR, CFGR_DMAEN, 0u);
+    if (!g_adc.inst[0].dma_stopped || hal_disable(0)) return 1;
+    if (hal_enable(0)) return 1;
+    wr(0, ISR, EOC | EOS | OVR);
+    dma_arm(0u);
+    modify(0, CFGR, 0u, CFGR_DMAEN);
+    if (g_adc.inst[0].dma_stopped) return 1;
+    ll_cr(0, ADSTART);
+    tk(1);
+    tk(45);
+    if (dma_buf_is(scan, 3u)) return 1;
+    ll_cr(0, ADSTP);
+    return 0;
+}
+
+/* DMACFG = 1: a completed channel does not stop the ADC; the next request finds no channel. */
+static int test_dma_circular(void)
+{
+    static const mm_u32 scan[2] = { 4095u, 1241u };
+
+    if (dma_scan(CFGR_DMAEN | CFGR_DMACFG | CFGR_CONT)) return 1;
+    g_dma_len = 2u;
+    tk(45);
+    if (dma_buf_is(scan, 2u) || g_dma_calls != 3 || g_adc.inst[0].dma_stopped) return 1;
+    if (g_adc.inst[0].fifo_count != 1u || peek_dr() != 2482u || (rd(0, ISR) & EOC) == 0u) return 1;
+    if ((rd(0, CR) & ADSTART) == 0u || next_event() == STM32_ADC_NO_EVENT) return 1;
+    g_dma_len = 0u;
+    g_dma_on = MM_TRUE;
+    stm32_adc_dma_ready(&g_adc, 0u);
+    if (g_dma_count != 3u || g_dma_buf[2] != 2482u || (rd(0, ISR) & EOC) != 0u) return 1;
+    tk(150);
+    if (g_dma_count != 13u || (rd(0, ISR) & OVR) != 0u) return 1;
+    ll_cr(0, ADSTP);
+    return 0;
+}
+
+static int test_dma_snapshot(void)
+{
+    static mm_u8 buf[16384];
+    struct stm32_adc_inst ref;
+    struct mm_snapshot_writer w;
+    struct mm_snapshot_reader r;
+
+    if (dma_scan(CFGR_DMAEN | CFGR_CONT)) return 1;
+    g_dma_len = 2u;
+    tk(45);
+    if (!g_adc.inst[0].dma_stopped) return 1;
+    mm_snapshot_writer_init(&w, buf, (mm_u32)sizeof(buf));
+    if (!mmio_bus_save(&g_bus, &w)) return 1;
+    memcpy(&ref, &g_adc.inst[0], sizeof(ref));
+
+    ll_cr(0, ADSTP);
+    ll_cr(0, ADSTART);
+    tk(1);
+    tk(45);
+    if (g_adc.inst[0].dma_stopped || memcmp(&g_adc.inst[0], &ref, sizeof(ref)) == 0) return 1;
+
+    mm_snapshot_reader_init(&r, buf, mm_snapshot_bytes_used(&w));
+    if (!mmio_bus_load(&g_bus, &r)) return 1;
+    if (memcmp(&g_adc.inst[0], &ref, sizeof(ref)) != 0 || !g_adc.inst[0].dma_stopped) return 1;
+    if (next_event() != STM32_ADC_NO_EVENT) return 1;
+
+    g_adc.inst[0].dma_busy = MM_TRUE;
+    mm_snapshot_writer_init(&w, buf, (mm_u32)sizeof(buf));
+    if (!mmio_bus_save(&g_bus, &w)) return 1;
+    mm_snapshot_reader_init(&r, buf, mm_snapshot_bytes_used(&w));
+    if (mmio_bus_load(&g_bus, &r)) return 1;
+    g_adc.inst[0].dma_busy = MM_FALSE;
+    return 0;
+}
+
 int main(void)
 {
     struct {
@@ -2343,6 +2676,13 @@ int main(void)
         { "unmodelled_warnings", test_unmodelled_warnings },
         { "irq_keeps_software_pend", test_irq_keeps_software_pend },
         { "snapshot_roundtrip", test_snapshot_roundtrip },
+        { "dma_service_loop", test_dma_service_loop },
+        { "dma_none_ovr_resume", test_dma_none_ovr_resume },
+        { "dma_no_pop_guard", test_dma_no_pop_guard },
+        { "dma_oneshot_end", test_dma_oneshot_end },
+        { "dma_rearm", test_dma_rearm },
+        { "dma_circular", test_dma_circular },
+        { "dma_snapshot", test_dma_snapshot },
     };
     size_t i;
     int failures = 0;

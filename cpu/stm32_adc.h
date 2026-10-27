@@ -25,6 +25,7 @@
 #include "m33mu/mmio.h"
 #include "m33mu/nvic.h"
 #include "m33mu/types.h"
+#include "stm32_dma_req.h"
 
 #define STM32_ADC_MAX_INST     2u
 #define STM32_ADC_NUM_CHANNELS 20u
@@ -43,6 +44,7 @@
 #define STM32_ADC_WARN_INJECTED     (1u << 8)
 #define STM32_ADC_WARN_AUTDLY       (1u << 9)
 #define STM32_ADC_WARN_DISCEN       (1u << 10)
+#define STM32_ADC_WARN_DMA_NOPOP    (1u << 11)
 
 /* Each inputs[] table has STM32_ADC_NUM_CHANNELS entries; a zero entry is
  * "no pin" and converts 0 mV. */
@@ -74,6 +76,8 @@ struct stm32_adc_soc {
     mm_bool (*access_allowed)(void *ctx);                    /* NULL: always; false: RAZ/WI */
     mm_bool (*kernel_is_hclk)(void *ctx);                    /* NULL: CKMODE=00 unsupported */
     const char *name;                                        /* snapshot name, NULL: "ADC" */
+    int dma_line[STM32_ADC_MAX_INST];                        /* -1: no request */
+    enum stm32_dma_req_result (*dma_request)(void *ctx, mm_u32 line);  /* NULL: DMAEN warns */
 };
 
 struct stm32_adc_inst {
@@ -86,6 +90,8 @@ struct stm32_adc_inst {
     mm_bool cont;
     mm_bool align;
     mm_bool irq_held;
+    mm_bool dma_stopped;
+    mm_bool dma_busy;
     mm_u32 fifo_count;
     mm_u16 fifo[STM32_ADC_FIFO_DEPTH];
     mm_u32 ofr;
@@ -126,6 +132,9 @@ void stm32_adc_reset(struct stm32_adc_state *s);
 
 /* Call once per executed batch, before mm_signal_advance() for the same cycles. */
 void stm32_adc_tick(struct stm32_adc_state *s, mm_u64 cycles);
+
+/* The DMA channel serving inst's request line became ready. */
+void stm32_adc_dma_ready(struct stm32_adc_state *s, mm_u32 inst);
 
 /* Cycles until the next ADC flag change, or STM32_ADC_NO_EVENT. */
 mm_u64 stm32_adc_cycles_until_event(const struct stm32_adc_state *s);
